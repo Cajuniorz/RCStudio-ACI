@@ -2032,13 +2032,27 @@ $('addSlab').onclick=()=>{tab='slabs';addRow();};$('addFoundation').onclick=()=>
 $('undo').onclick=()=>{cancelInteraction(false);if(!history.length)return;model=history.pop();revision++;result=null;selected=null;persist();render();status('ย้อนแล้ว · ต้องวิเคราะห์ใหม่');};
 $('tabs').onclick=e=>{if(e.target.dataset.tab){tab=e.target.dataset.tab;renderTable();}};
 $('fit').onclick=fit;for(const id of ['labels','deformed','diagram3d','diagramValues','showPointLoads','showUniformLoads','showSelfWeight','showRoofSheeting']){if($(id))$(id).onchange=drawModel;}
+const STRUCT_MODES=[['solid','โครงสร้าง 3D (Solid)'],['wire','เส้นแกน & โหนด'],['both','Solid + เส้นแกน']];
+function renderStructButton(){
+ const button=$('structModeButton');
+ if(!button)return;
+ const entry=STRUCT_MODES.find(pair=>pair[0]===structMode)||STRUCT_MODES[0];
+ button.textContent=entry[1];
+ button.classList.toggle('alt',structMode!=='solid');
+ button.setAttribute('aria-label',`การแสดงโครงสร้าง: ${entry[1]} · กดเพื่อสลับ`);
+}
 function applyStructMode(mode){
- if(!['solid','wire','both'].includes(mode))return;
+ if(!STRUCT_MODES.some(pair=>pair[0]===mode))return;
  structMode=mode;
- for(const button of document.querySelectorAll('#structModeButtons button'))button.classList.toggle('active',button.dataset.struct===structMode);
+ renderStructButton();
  drawModel();
 }
-for(const button of document.querySelectorAll('#structModeButtons button'))button.onclick=()=>applyStructMode(button.dataset.struct);
+// one button cycles the three display states, so nothing has to be aimed at
+if($('structModeButton'))$('structModeButton').onclick=()=>{
+ const index=Math.max(0,STRUCT_MODES.findIndex(pair=>pair[0]===structMode));
+ applyStructMode(STRUCT_MODES[(index+1)%STRUCT_MODES.length][0]);
+};
+renderStructButton();
 function updateDisplayToggles(){
  // hide a load toggle when the model has no data of that type (nothing it could show)
  const hasData={pointLoadsToggle:model?.nodalLoads?.length>0,uniformLoadsToggle:model?.memberLoads?.length>0,selfWeightToggle:model?.members?.length>0};
@@ -2376,6 +2390,8 @@ if($('exportPdf'))$('exportPdf').onclick=exportCalculationPdf;
 if($('btnReportPdf'))$('btnReportPdf').onclick=exportCalculationPdf;
 window.app = {
  getModel: () => model,
+ structMode: applyStructMode,
+ getStructMode: () => structMode,
  setSelected: (s) => { selected = s; renderSelection(); drawModel(); },
  selectItem: (kind, id) => { selected = { kind, id }; renderSelection(); drawModel(); },
  analyze: () => $('analyze').click(),
