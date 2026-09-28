@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import {OrbitControls} from './vendor/OrbitControls.js';
-import {stationForceKN,forceRangeKN,peakForceStation} from './heatmap.js';
+import {stationValueKN,rangeKN,rangeByGroupKN,memberRangeKN,peakStation,memberGroupOf,GROUP_LABELS} from './heatmap.js';
 import {unit,toDisplay,toCanonical} from './units.js';
 import {catalogs,memberRecord,slabRecord,foundationRecord,blankProject,roofSeatElevation} from './building.js';
 import {groupLevels,nearestPlanNode,validateMemberEndpoints,planNodeDraft,snapPlanPoint,splitBeamAtDistance,nearestBeamOnPlan,validPlanGridStep,buildGridLayout,buildGridLayoutFromLines,planGridModel,constrainPlanPoint,autoDetectGridLines,planContinuousBeamSegments} from './plan.js';
@@ -1176,39 +1176,29 @@ function drawModel(){
   updatePlanGridOverlay();
  }
  const cm = $('colorMode')?.value || 'default';
- let cmMin = 0, cmMax = 1;
- if (cm === 'utilization') {
-  cmMin = 0; cmMax = 1;
- } else if (cm === 'load') {
-  const range=forceRangeKN(model.members,active?.members);
-  cmMin=0; cmMax=range?.max||1;
- } else if (['Mz', 'Vy', 'N'].includes(cm)) {
-  const vals = [];
-  if (active?.members) {
-   for (const m of model.members) {
-    const s = active.members[m.id]?.samples;
-    if (s) {
-     for (const pt of s) {
-      const v = (cm === 'N') ? Math.abs(pt.N) : Math.abs(pt[cm]);
-      if (Number.isFinite(v)) vals.push(quantity(v, cm === 'Mz' ? 'moment' : 'force'));
-     }
-    }
-   }
-  }
-  if (vals.length) {
-   cmMin = Math.min(...vals);
-   cmMax = Math.max(...vals);
-  }
-  if (cmMax <= cmMin) cmMax = cmMin + 10;
- }
+ const scaleMode = $('colorScale')?.value || 'group';
+ const heatKey = cm === 'load' ? 'resultant' : (['Mz', 'Vy', 'N'].includes(cm) ? cm : null);
+ const heatResults = active?.members;
+ const heatGlobal = heatKey ? rangeKN(model.members, heatResults, heatKey) : null;
+ const heatGroups = heatKey ? rangeByGroupKN(model.members, heatResults, heatKey, memberGroupOf) : null;
+ const selectedMember = selected?.kind === 'members' ? model.members.find(x => x.id === selected.id) : null;
+ const heatSelected = heatKey && selectedMember ? memberRangeKN(heatResults?.[selectedMember.id], heatKey) : null;
+ const rangeForMember = m => {
+  if (cm === 'utilization') return { min: 0, max: 1 };
+  if (!heatKey) return null;
+  // member scale focuses one member: every other member is dimmed, never re-scaled silently
+  if (scaleMode === 'member') return { focus: true, id: selectedMember?.id ?? null, min: heatSelected?.min ?? 0, max: heatSelected?.max ?? 1 };
+  if (scaleMode === 'group' && heatGroups) return heatGroups[memberGroupOf(m)] || heatGlobal;
+  return heatGlobal;
+ };
  const showSolid3D=!$('showSolid3D')||$('showSolid3D').checked;
  const showWireframe=$('showWireframe')?$('showWireframe').checked:false;
  const showPointLoads=!$('showPointLoads')||$('showPointLoads').checked;
  const showUniformLoads=!$('showUniformLoads')||$('showUniformLoads').checked;
  const showSelfWeight=!$('showSelfWeight')||$('showSelfWeight').checked;
  const showRoofSheeting=!$('showRoofSheeting')||$('showRoofSheeting').checked;
- const columnPeaks=cm==='load'&&active?.members?model.members.filter(m=>m.kind==='column').map(m=>({id:m.id,peak:peakForceStation(active.members[m.id])})).filter(x=>x.peak):[];
- const maxColumnPeak=columnPeaks.reduce((best,row)=>!best||row.peak.forceKN>best.peak.forceKN?row:best,null);
+ const columnPeaks=heatKey&&active?.members?model.members.filter(m=>m.kind==='column').map(m=>({id:m.id,peak:peakStation(active.members[m.id],heatKey)})).filter(x=>x.peak):[];
+ const maxColumnPeak=columnPeaks.reduce((best,row)=>!best||row.peak.value>best.peak.value?row:best,null);
  const visibleMembers=new Set();for(const m of model.members){if(visibleNodeIds&&(!visibleNodeIds.has(m.i)||!visibleNodeIds.has(m.j)))continue;const a=pos.get(m.i),b=pos.get(m.j);if(!a||!b||a.distanceTo(b)<1e-6)continue;visibleMembers.add(m.id);
   const highlight=selected?.kind==='members'&&selected.id===m.id;
   const axes=getMemberLocalAxes(a,b,m.rotation||0);
@@ -1227,7 +1217,7 @@ function drawModel(){
     for(let vi=0;vi<posAttr.count;vi++){
      const yVal=posAttr.getY(vi);
      const t=axes.L>1e-6?Math.max(0,Math.min(1,(yVal+axes.L/2)/axes.L)):0;
-     const rgb=getMemberStationRGB(m,t,cm,cmMin,cmMax,active);
+     const rgb=getMemberStationRGB(m,t,cm,rangeForMember(m),active,heatKey);
      colorArr[vi*3]=rgb[0];colorArr[vi*3+1]=rgb[1];colorArr[vi*3+2]=rgb[2];
     }
     boxGeo.setAttribute('color',new THREE.BufferAttribute(colorArr,3));
@@ -1247,7 +1237,7 @@ function drawModel(){
   if(showWireframe||!showSolid3D){
    let wireColor=highlight?0xffbe66:m.kind==='roof'?0xf59e0b:m.kind==='column'?0x10b981:0x38bdf8;
    if(cm!=='default'){
-    const rgb=getMemberStationRGB(m,0.5,cm,cmMin,cmMax,active);
+    const rgb=getMemberStationRGB(m,0.5,cm,rangeForMember(m),active,heatKey);
     wireColor=new THREE.Color(rgb[0],rgb[1],rgb[2]).getHex();
    }
    const lineGeo=new THREE.BufferGeometry().setFromPoints([a,b]);
@@ -1256,15 +1246,15 @@ function drawModel(){
    wLine.userData={kind:'members',id:m.id};
    group.add(wLine);
   }
-  if(cm==='load'&&m.kind==='column'&&active?.members){
-   const peak=peakForceStation(active.members[m.id]);
+  if(heatKey&&m.kind==='column'&&active?.members){
+   const peak=peakStation(active.members[m.id],heatKey);
    if(peak){
     // Peak of internal resultant demand, NOT the physical applied-load location.
     const at=a.clone().lerp(b,peak.t);
     const marker=new THREE.Mesh(new THREE.SphereGeometry(.11,12,8),new THREE.MeshBasicMaterial({color:0xffffff,depthTest:false}));
     marker.position.copy(at);marker.userData={kind:'members',id:m.id,forcePeak:true};marker.renderOrder=12;group.add(marker);
     if(highlight||maxColumnPeak?.id===m.id){
-     const text=`${m.id} · แรงภายในสูงสุด ${fmt(quantity(peak.forceKN,'force'),1)} ${unitLabel('force')} · จาก i ${fmt(peak.x,2)} m`;
+     const text=`${m.id} · ค่าสูงสุด ${fmt(quantity(peak.value,heatKey==='Mz'?'moment':'force'),1)} ${unitLabel(heatKey==='Mz'?'moment':'force')} · จาก i ${fmt(peak.x,2)} m`;
      const badge=labelSprite(text,0,34,13,{bg:'rgba(30,41,59,.95)',border:'#ffffff',color:'#ffffff',radius:6,alwaysOnTop:true});
      badge.position.copy(at).add(new THREE.Vector3(.38,.2,.2));group.add(badge);
     }
@@ -2165,8 +2155,9 @@ function getMemberDC(m, active) {
  return null;
 }
 
-function getMemberStationRGB(m, t, cm, minVal, maxVal, active) {
- if (!m) return [0.37, 0.8, 0.73];
+function getMemberStationRGB(m, t, cm, range, active, key) {
+ const fallback = [0.37, 0.8, 0.73];
+ if (!m) return fallback;
  if (cm === 'default') {
   const def = m.kind === 'roof' ? 0xe0a75f : m.kind === 'column' ? 0x80d7c7 : 0x5fcbbb;
   const c = new THREE.Color(def);
@@ -2174,7 +2165,7 @@ function getMemberStationRGB(m, t, cm, minVal, maxVal, active) {
  }
  if (cm === 'utilization') {
   const util = getMemberDC(m, active);
-  if (util == null) return [0.37, 0.8, 0.73];
+  if (util == null) return fallback;
   if (util > 1.0) {
    const tOver = Math.min(1.0, (util - 1.0) / 0.5);
    const c = new THREE.Color().lerpColors(new THREE.Color(0xff0000), new THREE.Color(0x9900ff), tOver);
@@ -2182,80 +2173,97 @@ function getMemberStationRGB(m, t, cm, minVal, maxVal, active) {
   }
   return getRainbowRGB(util, 0, 1.0);
  }
- if (cm === 'load') {
-  const valKN=stationForceKN(active?.members?.[m.id],t);
-  return valKN===null?[0.37,0.8,0.73]:getRainbowRGB(valKN,minVal,maxVal);
+ if (!key || !range) return fallback;
+ if (range.focus && m.id !== range.id) {
+  const off = new THREE.Color(0x475058);
+  return [off.r, off.g, off.b];
  }
- if (['Mz', 'Vy', 'N'].includes(cm)) {
-  const smp = active?.members?.[m.id]?.samples;
-  if (!smp || !smp.length) return [0.37, 0.8, 0.73];
-  const k = Math.min(smp.length - 1, Math.max(0, Math.round(t * (smp.length - 1))));
-  const pt = smp[k];
-  const raw = (cm === 'N') ? Math.abs(pt.N) : Math.abs(pt[cm]);
-  const val = quantity(raw, cm === 'Mz' ? 'moment' : 'force');
-  return getRainbowRGB(val, minVal, maxVal);
- }
- return [0.37, 0.8, 0.73];
+ const value = stationValueKN(active?.members?.[m.id], t, key);
+ if (value === null) return fallback;
+ // Key has no colour beyond its own span: painting it would claim a gradient that does not exist.
+ if (range.max - range.min <= 1e-9) return fallback;
+ return getRainbowRGB(value, range.min, range.max);
 }
 
 function getHeatmapColorForMember(mid, mode) {
  const m = model.members.find(x => x.id === mid);
- const rgb = getMemberStationRGB(m, 0.5, mode, 0, 100, result?.combinations?.[$('resultCombo')?.value]);
+ const act = result?.combinations?.[$('resultCombo')?.value];
+ const key = mode === 'load' ? 'resultant' : mode;
+ if (!m || !['Mz', 'Vy', 'N', 'resultant'].includes(key)) return 0x5fcbbb;
+ const range = rangeKN(model.members, act?.members, key) || { min: 0, max: 1 };
+ const rgb = getMemberStationRGB(m, 0.5, mode, range, act, key);
  return new THREE.Color(rgb[0], rgb[1], rgb[2]).getHex();
+}
+
+const HEAT_TITLES = {load: 'แรงภายในรวมตามตำแหน่ง |N,Vy,Vz|', Mz: 'โมเมนต์ดัด Mz', Vy: 'แรงเฉือน Vy', N: 'แรงตามแกน N'};
+const HEAT_ORDER = ['column', 'beam', 'roof'];
+
+function legendRow(label, text) {
+ const row = el('div');
+ row.className = 'legend-row';
+ const name = el('span', label);
+ name.className = 'legend-row-label';
+ const bar = el('div');
+ bar.className = 'legend-gradient';
+ const value = el('span', text);
+ value.className = 'legend-row-value';
+ row.append(name, bar, value);
+ return row;
+}
+
+function legendRangeText(range, unitKind) {
+ const u = unitLabel(unitKind);
+ const at = value => fmt(quantity(value, unitKind), 1);
+ if (range.max - range.min <= 1e-9) return `${at(range.max)} ${u} · ค่าคงที่ตลอดช่วง (ไม่แสดงเฉด)`;
+ return `${at(range.min)} – ${at(range.max)} ${u}`;
 }
 
 function updateHeatmapLegend() {
  const box = $('heatmapLegend');
  if (!box) return;
  const cm = $('colorMode')?.value || 'default';
+ const rowsEl = $('legendRows');
+ if (!rowsEl) return;
+ const titleEl = $('legendTitle');
+ const scaleMode = $('colorScale')?.value || 'group';
  if (cm === 'default') {
   box.hidden = true;
   return;
  }
  box.hidden = false;
- const titleEl = $('legendTitle');
- const ticksEl = $('legendTicks');
  if (cm === 'utilization') {
-  if (titleEl) titleEl.textContent = 'อัตราการรับแรง (Demand / Capacity Ratio)';
-  if (ticksEl) ticksEl.innerHTML = '<span>0.0 ปลอดภัย</span><span>0.2</span><span>0.4</span><span>0.6</span><span>0.8</span><span>1.0 วิกฤต</span><span>>1.0 ไม่ผ่าน</span>';
+  if (titleEl) titleEl.textContent = 'อัตราการรับแรง (Demand / Capacity) · ทุกชิ้นส่วนต่อกัน';
+  rowsEl.replaceChildren(legendRow('D/C', '0 ปลอดภัย – 1.0 วิกฤต – >1.0 ไม่ผ่าน'));
   return;
  }
+ const key = cm === 'load' ? 'resultant' : cm;
+ const unitKind = cm === 'Mz' ? 'moment' : 'force';
  const act = result?.combinations?.[$('resultCombo')?.value];
- if (cm === 'load') {
-  if(titleEl) titleEl.textContent=`แรงภายในรวมตามตำแหน่ง |N,Vy,Vz| (${unitLabel('force')}) · จากผลวิเคราะห์ ไม่ใช่ตำแหน่งวางโหลด`;
-  const range=forceRangeKN(model.members,act?.members);
-  if(ticksEl){
-   if(!range){ ticksEl.textContent='ไม่มีผลวิเคราะห์ · กด “วิเคราะห์” ก่อน'; return; }
-   const max=quantity(range.max,'force');
-   ticksEl.replaceChildren(...[0,.25,.5,.75,1].map((fraction,i)=>el('span',`${fmt(max*fraction,1)}${i===4?' '+unitLabel('force'):''}`)));
-  }
+ const global = rangeKN(model.members, act?.members, key);
+ const groups = rangeByGroupKN(model.members, act?.members, key, memberGroupOf);
+ const selectedMember = selected?.kind === 'members' ? model.members.find(x => x.id === selected.id) : null;
+ const selectedRange = selectedMember ? memberRangeKN(act?.members?.[selectedMember.id], key) : null;
+ const scaleName = scaleMode === 'member' ? 'สเกลตามชิ้นส่วนที่เลือก' : scaleMode === 'global' ? 'สเกลรวมทั้งโมเดล' : 'สเกลแยกตามประเภทชิ้นส่วน';
+ if (titleEl) titleEl.textContent = `${HEAT_TITLES[cm] || cm} (${unitLabel(unitKind)}) · ${scaleName} · จากผลวิเคราะห์`;
+ if (!global) {
+  rowsEl.replaceChildren(legendRow('—', 'ไม่มีผลวิเคราะห์ · กด “วิเคราะห์” ก่อน'));
   return;
  }
- const titleMap = {Mz: 'โมเมนต์ดัด Mz', N: 'แรงตามแกน N', Vy: 'แรงเฉือน Vy'};
- const u = unitLabel(cm === 'Mz' ? 'moment' : 'force');
- if (titleEl) titleEl.textContent = `${titleMap[cm] || cm} (${u}) · ไล่เฉดสี (Gradient Shading)`;
- let minF = 0, maxF = 0;
- if (act?.members) {
-  const vals = [];
-  for (const m of model.members) {
-   const s = act.members[m.id]?.samples;
-   if (s) {
-    for (const pt of s) {
-     const v = (cm === 'N') ? Math.abs(pt.N) : Math.abs(pt[cm]);
-     if (Number.isFinite(v)) vals.push(quantity(v, cm === 'Mz' ? 'moment' : 'force'));
-    }
-   }
+ if (scaleMode === 'member') {
+  if (!selectedMember) {
+   rowsEl.replaceChildren(legendRow('—', 'เลือกชิ้นส่วนในภาพ 1 ชิ้นก่อน เพื่อใช้สเกลของชิ้นส่วนนั้น'));
+   return;
   }
-  if (vals.length) {
-   minF = Math.min(...vals);
-   maxF = Math.max(...vals);
-  }
+  const range = selectedRange || { min: global.min, max: global.max };
+  rowsEl.replaceChildren(legendRow(selectedMember.id, legendRangeText(range, unitKind) + ' · เฉพาะชิ้นส่วนนี้ ชิ้นอื่นสีเทา'));
+  return;
  }
- if (maxF <= minF) maxF = minF + 10;
- if (ticksEl) {
-  const t0 = fmt(minF, 1), t1 = fmt(minF + (maxF - minF) * 0.25, 1), t2 = fmt(minF + (maxF - minF) * 0.5, 1), t3 = fmt(minF + (maxF - minF) * 0.75, 1), t4 = fmt(maxF, 1);
-  ticksEl.innerHTML = `<span>${t0}</span><span>${t1}</span><span>${t2}</span><span>${t3}</span><span>${t4} ${u}</span>`;
+ if (scaleMode === 'group') {
+  const rows = HEAT_ORDER.filter(group => groups?.[group]).map(group => legendRow(GROUP_LABELS[group] || group, legendRangeText(groups[group], unitKind)));
+  rowsEl.replaceChildren(...(rows.length ? rows : [legendRow('—', 'ไม่มีผลวิเคราะห์')]));
+  return;
  }
+ rowsEl.replaceChildren(legendRow('ทุกชิ้นส่วน', legendRangeText(global, unitKind)));
 }
 
 if ($('generateWarehouse')) $('generateWarehouse').onclick = () => {
@@ -2320,12 +2328,17 @@ if ($('btn3Story')) $('btn3Story').onclick = () => {
 if ($('colorMode')) $('colorMode').onchange = () => {
  const cm = $('colorMode').value;
  if (cm === 'utilization' && !designResult && !result) {
+  // the legend must follow the selected mode even while we hand off to the design run
+  updateHeatmapLegend();
   if ($('designAll')) {
    status('กำลังคำนวณออกแบบและวิเคราะห์อัตราการรับแรง (D/C Heatmap)...');
    $('designAll').click();
    return;
   }
  }
+ drawModel();
+};
+if ($('colorScale')) $('colorScale').onchange = () => {
  drawModel();
 };
 if ($('diagram3d')) $('diagram3d').onchange = () => {

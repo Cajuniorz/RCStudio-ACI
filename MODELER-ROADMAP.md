@@ -1,4 +1,4 @@
-# RCStudio 0.5.4 — modeler roadmap and engineering gates
+# RCStudio 0.5.6 — modeler roadmap and engineering gates
 
 Baseline: `main` at `0dc2d73aeef9cfb6e149cd958a09312dea645eea`; this preview is developed on `feat/modeling-tool-v04`. Existing project files are not migrated or overwritten.
 

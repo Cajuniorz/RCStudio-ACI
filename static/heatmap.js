@@ -1,53 +1,135 @@
-// Visualisation only: solver member forces (N, Vy, Vz) in kN at stations.
-// This is NOT an applied-load map or a structural-capacity check.
-const magnitude = s => {
- if (!s || !['x','N','Vy','Vz'].every(k => Number.isFinite(s[k]))) return null;
- return Math.hypot(s.N, s.Vy, s.Vz);
+// Visualisation helpers for the 3D colour map.
+// Values are solver member actions in internal units (kN, kN·m).
+// This is NOT an applied-load map and NOT a structural-capacity check.
+//
+// key: 'resultant' = |N,Vy,Vz| (kN), 'N' | 'Vy' | 'Vz' (kN), 'Mz' | 'My' (kN·m)
+
+const KEYS = new Set(['resultant', 'N', 'Vy', 'Vz', 'Mz', 'My']);
+
+const sampleMagnitude = s => (Number.isFinite(s?.N) && Number.isFinite(s?.Vy) && Number.isFinite(s?.Vz))
+ ? Math.hypot(s.N, s.Vy, s.Vz) : null;
+
+const sampleValue = (s, key) => {
+ if (!s) return null;
+ if (key === 'resultant') return sampleMagnitude(s);
+ const v = s[key];
+ return Number.isFinite(v) ? Math.abs(v) : null;
 };
 
-export function stationForceKN(memberResult, t) {
- const samples=memberResult?.samples;
- const length=memberResult?.length;
- if (!Array.isArray(samples) || !samples.length || !Number.isFinite(length) || length<=0 || !Number.isFinite(t)) return null;
- const x=Math.max(0,Math.min(1,t))*length;
- const sorted=[...samples].sort((a,b)=>a.x-b.x);
- if (sorted.some(s=>magnitude(s)===null)) return null;
- if (x<=sorted[0].x) return magnitude(sorted[0]);
- if (x>=sorted.at(-1).x) return magnitude(sorted.at(-1));
- for(let i=1;i<sorted.length;i++){
-  const a=sorted[i-1],b=sorted[i];
-  if(x<=b.x){
-   const d=b.x-a.x,alpha=d>0?(x-a.x)/d:1;
-   return Math.hypot(
-    a.N+(b.N-a.N)*alpha,
-    a.Vy+(b.Vy-a.Vy)*alpha,
-    a.Vz+(b.Vz-a.Vz)*alpha
-   );
+const samplesOf = memberResult => {
+ const samples = memberResult?.samples, length = memberResult?.length;
+ if (!Array.isArray(samples) || !samples.length) return null;
+ if (!Number.isFinite(length) || length <= 0) return null;
+ if (samples.some(s => sampleMagnitude(s) === null)) return null;
+ return [...samples].sort((a, b) => a.x - b.x);
+};
+
+// Interpolated value at 0..1 along the member, or null when the result is unusable.
+export function stationValueKN(memberResult, t, key = 'resultant') {
+ if (!KEYS.has(key) || !Number.isFinite(t)) return null;
+ const samples = samplesOf(memberResult);
+ if (!samples) return null;
+ const x = Math.max(0, Math.min(1, t)) * memberResult.length;
+ if (x <= samples[0].x) return sampleValue(samples[0], key);
+ const last = samples[samples.length - 1];
+ if (x >= last.x) return sampleValue(last, key);
+ for (let i = 1; i < samples.length; i++) {
+  const a = samples[i - 1], b = samples[i];
+  if (x <= b.x) {
+   const span = b.x - a.x, alpha = span > 0 ? (x - a.x) / span : 1;
+   if (key === 'resultant') {
+    // interpolate the vector, then take its magnitude - never interpolate magnitudes
+    return Math.hypot(
+     a.N + (b.N - a.N) * alpha,
+     a.Vy + (b.Vy - a.Vy) * alpha,
+     a.Vz + (b.Vz - a.Vz) * alpha
+    );
+   }
+   return Math.abs(a[key] + (b[key] - a[key]) * alpha);
   }
  }
  return null;
 }
 
-export function peakForceStation(memberResult){
- const samples=memberResult?.samples,length=memberResult?.length;
- if(!Array.isArray(samples)||!samples.length||!Number.isFinite(length)||length<=0)return null;
- let peak=null;
- for(const s of samples){
-  const f=magnitude(s);
-  if(f===null || s.x<0 || s.x>length+1e-6)return null;
-  if(!peak || f>peak.forceKN)peak={x:s.x,t:Math.min(1,s.x/length),forceKN:f};
+// Own range of one member along its length (21 stations), null when unusable.
+export function memberRangeKN(memberResult, key = 'resultant') {
+ const samples = samplesOf(memberResult);
+ if (!samples) return null;
+ let min = Infinity, max = -Infinity;
+ for (let i = 0; i <= 20; i++) {
+  const v = stationValueKN(memberResult, i / 20, key);
+  if (v === null) return null;
+  if (v < min) min = v;
+  if (v > max) max = v;
+ }
+ return { min, max };
+}
+
+export function peakStation(memberResult, key = 'resultant') {
+ const samples = samplesOf(memberResult);
+ if (!samples) return null;
+ const length = memberResult.length;
+ let peak = null;
+ for (const s of samples) {
+  const value = sampleValue(s, key);
+  if (value === null || s.x < 0 || s.x > length + 1e-6) return null;
+  if (!peak || value > peak.value) peak = { x: s.x, t: Math.min(1, s.x / length), value };
  }
  return peak;
 }
 
-export function forceRangeKN(members,results){
- if(!results)return null;
- let max=0,found=false;
- for(const member of members){
-  const m=results[member.id],samples=m?.samples;
-  if(!Array.isArray(samples)||!samples.length)continue;
-  if(!peakForceStation(m))continue;
-  for(const s of samples){const v=magnitude(s);if(v===null)continue;max=Math.max(max,v);found=true;}
+// Range across the stations of the given members, or null when no usable result exists.
+export function rangeKN(members, results, key = 'resultant') {
+ if (!results) return null;
+ let min = Infinity, max = -Infinity, found = false;
+ for (const member of members) {
+  const samples = samplesOf(results[member.id]);
+  if (!samples) continue;
+  for (const s of samples) {
+   const v = sampleValue(s, key);
+   if (v === null) continue;
+   if (v < min) min = v;
+   if (v > max) max = v;
+   found = true;
+  }
  }
- return found?{min:0,max}:null;
+ return found ? { min, max } : null;
 }
+
+// Range per member group so secondary members (purlins) are not flattened by columns.
+export function rangeByGroupKN(members, results, key = 'resultant', groupOf) {
+ if (!results) return null;
+ const groups = {};
+ for (const member of members) {
+  const samples = samplesOf(results[member.id]);
+  if (!samples) continue;
+  const group = groupOf(member);
+  const bucket = groups[group] || (groups[group] = { min: Infinity, max: -Infinity });
+  for (const s of samples) {
+   const v = sampleValue(s, key);
+   if (v === null) continue;
+   if (v < bucket.min) bucket.min = v;
+   if (v > bucket.max) bucket.max = v;
+  }
+ }
+ for (const [group, bucket] of Object.entries(groups)) {
+  if (!Number.isFinite(bucket.min) || !Number.isFinite(bucket.max)) delete groups[group];
+ }
+ return Object.keys(groups).length ? groups : null;
+}
+
+export function memberGroupOf(member) {
+ if (member?.kind === 'column') return 'column';
+ if (member?.kind === 'beam') return 'beam';
+ return 'roof';
+}
+
+export const GROUP_LABELS = { column: 'เสา', beam: 'คาน', roof: 'หลังคา/แป' };
+
+// Backwards-compatible names kept for the 0.5.5 tests and the console debug hook.
+export const stationForceKN = (memberResult, t) => stationValueKN(memberResult, t, 'resultant');
+export const peakForceStation = memberResult => {
+ const peak = peakStation(memberResult, 'resultant');
+ return peak ? { x: peak.x, t: peak.t, forceKN: peak.value } : null;
+};
+export const forceRangeKN = (members, results) => rangeKN(members, results, 'resultant');

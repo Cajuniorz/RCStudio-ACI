@@ -6,9 +6,14 @@
  .utilization-bar{height:6px;border-radius:3px;background:#3A404D;margin:4px 0;overflow:hidden}.utilization-bar .fill{height:100%;border-radius:3px;transition:width .3s}.util-green{background:#22C55E}.util-yellow{background:#EAB308}.util-red{background:#EF4444}.util-fail{background:#EF4444}
  .badge-pass{background:#22C55E;color:#1A1D21;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700}.badge-fail{background:#EF4444;color:#fff;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700}.badge-skip{background:#6B7280;color:#fff;padding:2px 8px;border-radius:4px;font-size:10px}
  .design-table{width:100%;border-collapse:collapse;font-size:11px}.design-table th{background:#2B2F36;color:#A0A4AA;font-size:10px;padding:8px;position:sticky;top:0;text-align:left}.design-table td{padding:6px 8px;border-bottom:1px solid #3A404D}.design-table tr:hover{background:#333842}
- .heatmap-legend{position:static;flex:0 1 430px;min-width:220px;max-width:430px;background:rgba(26,29,33,0.88);border:1px solid #3A404D;border-radius:8px;padding:5px 12px;box-shadow:0 2px 10px rgba(0,0,0,0.35);pointer-events:none;backdrop-filter:blur(4px)}
+ .heatmap-legend{position:static;flex:0 1 470px;min-width:220px;max-width:470px;background:rgba(26,29,33,0.88);border:1px solid #3A404D;border-radius:8px;padding:5px 12px;box-shadow:0 2px 10px rgba(0,0,0,0.35);pointer-events:none;backdrop-filter:blur(4px)}
  .heatmap-legend .legend-title{display:block;font-size:10px;color:#A0A4AA;text-align:center;margin-bottom:5px;font-weight:600;letter-spacing:1px}
  .heatmap-legend .legend-gradient{height:12px;border-radius:4px;background:linear-gradient(to right, #0000ff, #00ffff, #00ff00, #ffff00, #ff0000, #9900ff);border:1px solid rgba(255,255,255,0.15)}
+ .heatmap-legend .legend-rows{display:grid;gap:3px}
+ .heatmap-legend .legend-row{display:flex;align-items:center;gap:6px}
+ .heatmap-legend .legend-row-label{flex:0 0 72px;font-size:9px;color:#A0A4AA;text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+ .heatmap-legend .legend-row .legend-gradient{flex:1 1 auto;height:10px}
+ .heatmap-legend .legend-row-value{flex:0 0 auto;font:9px Consolas,monospace;color:#E2E4E8;white-space:nowrap}
  .heatmap-legend .legend-ticks{display:flex;justify-content:space-between;font-size:9px;color:#E2E4E8;margin-top:3px;font-family:monospace}
  .local-axes-badge{position:static;background:rgba(26,29,33,0.85);border:1px solid #3A404D;border-radius:6px;padding:4px 10px;font-size:10px;display:flex;gap:10px;pointer-events:none;backdrop-filter:blur(3px)}
  .local-axes-badge .ax-x{color:#EF4444;font-weight:700}
