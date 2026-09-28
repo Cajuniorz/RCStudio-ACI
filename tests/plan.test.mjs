@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {groupLevels,nearestPlanNode,validateMemberEndpoints,planNodeDraft,snapPlanPoint,splitBeamAtDistance,nearestBeamOnPlan,validPlanGridStep} from '../static/plan.js';
+import {groupLevels,nearestPlanNode,validateMemberEndpoints,planNodeDraft,snapPlanPoint,splitBeamAtDistance,nearestBeamOnPlan,validPlanGridStep,buildGridLayout,planGridModel,constrainPlanPoint} from '../static/plan.js';
 
 const nodes=[
   {id:'N1',x:0,y:0,z:0},
@@ -47,6 +47,35 @@ for(const invalid of [0,.049,.051,1.001,NaN,Infinity])assert.equal(validPlanGrid
 assert.deepEqual(snapPlanPoint({x:1.237,y:1.5,z:-1.237},[],1.5,.05,.0),{x:1.25,y:1.5,z:-1.25},'5cm grid snaps positive and negative coordinates');
 assert.deepEqual(snapPlanPoint({x:1.26,y:1.5,z:-1.26},[],1.5,.25,.0),{x:1.25,y:1.5,z:-1.25},'25cm grid snaps coordinates');
 assert.equal(snapPlanPoint({x:1.2,y:1.5,z:0},[],1.5,.049,.0),null,'invalid grid step fails closed');
+
+const grid=buildGridLayout({countX:5,countZ:5,spacingX:4.5,spacingZ:4,startX:0,startZ:0,y:3});
+assert.equal(grid.lines.x.length,5);assert.equal(grid.lines.z.length,5);
+assert.deepEqual(grid.lines.x.map(g=>g.label),['1','2','3','4','5']);
+assert.deepEqual(grid.lines.z.map(g=>g.label),['A','B','C','D','E']);
+assert.deepEqual(grid.lines.x.map(g=>g.value),[0,4.5,9,13.5,18]);
+assert.deepEqual(grid.lines.z.map(g=>g.value),[0,4,8,12,16]);
+assert.equal(grid.nodes.length,25);assert.equal(grid.edgesX.length,20);assert.equal(grid.edgesZ.length,20);
+assert.deepEqual(grid.nodes[12],{x:9,y:3,z:8});
+const smallGrid=buildGridLayout({countX:3,countZ:2,spacingX:4.5,spacingZ:4,startX:0,startZ:0,y:3});
+const gridModel={nodes:[{id:'N1',x:0,y:3,z:0,restraints:[false,false,false,false,false,false]},{id:'N2',x:4.5,y:3,z:0,restraints:[false,false,false,false,false,false]}],members:[{id:'M1',i:'N1',j:'N2',kind:'beam',behavior:'frame',b:.25,h:.45}],slabs:[]};
+const generated=planGridModel(gridModel,smallGrid,{beamsX:true,beamsZ:true,b:.3,h:.5});
+assert.equal(generated.ok,true);assert.equal(generated.nodes.length,4);assert.equal(generated.members.length,6);assert.deepEqual(generated.gridLines,smallGrid.lines);
+assert.equal(generated.members.every(m=>m.kind==='beam'&&m.b===.3&&m.h===.5),true);
+const merged={...gridModel,nodes:[...gridModel.nodes,...generated.nodes],members:[...gridModel.members,...generated.members]};
+const repeat=planGridModel(merged,smallGrid,{beamsX:true,beamsZ:true,b:.3,h:.5});
+assert.equal(repeat.ok,true);assert.equal(repeat.nodes.length,0);assert.equal(repeat.members.length,0,'regenerating same grid must not duplicate nodes or beams');
+assert.equal(planGridModel(gridModel,smallGrid,{beamsX:false,beamsZ:false,b:.3,h:.5}).members.length,0);
+const crossing={nodes:[{id:'A',x:0,y:3,z:0},{id:'B',x:4,y:3,z:4},{id:'C',x:0,y:3,z:4},{id:'D',x:4,y:3,z:0}],members:[{id:'M1',i:'A',j:'B',kind:'beam',behavior:'frame'}]};
+assert.equal(validateMemberEndpoints(crossing.nodes,crossing.members,'C','D',{levelY:3,disallowIntervening:true}).reason.includes('ตัด'),true,'reject unconnected beam crossings');
+assert.equal(validateMemberEndpoints(crossing.nodes,crossing.members,'B','C',{levelY:3,disallowIntervening:true}).ok,true,'allow shared endpoint connections');
+assert.equal(buildGridLayout({countX:1,countZ:5,spacingX:4,spacingZ:4,startX:0,startZ:0,y:0}).ok,false);
+assert.equal(buildGridLayout({countX:5,countZ:5,spacingX:0,spacingZ:4,startX:0,startZ:0,y:0}).ok,false);
+assert.equal(buildGridLayout({countX:30,countZ:30,spacingX:4,spacingZ:4,startX:0,startZ:0,y:0}).ok,false,'keep one-level grid under node cap');
+const constrainedX=constrainPlanPoint({x:0,y:3,z:0},{x:1.237,y:3,z:2.198},'x',.05,true);
+assert.deepEqual(constrainedX,{x:1.25,y:3,z:0},'X lock keeps Z at the start axis and snaps the free coordinate');
+assert.deepEqual(constrainPlanPoint({x:0,y:3,z:0},{x:1.237,y:3,z:2.198},'z',.05,true),{x:0,y:3,z:2.2});
+assert.deepEqual(constrainPlanPoint({x:4.5,y:3,z:2},{x:1.237,y:3,z:2.198},'x',.05,false),{x:1.237,y:3,z:2},'free-axis mode still locks the perpendicular axis');
+assert.equal(constrainPlanPoint({x:0,y:0,z:0},{x:1,y:0,z:2},'y',.05,true),null);
 
 const splitSource={nodes:[{id:'N1',x:0,y:3,z:0},{id:'N2',x:4.5,y:3,z:0},{id:'N3',x:0,y:0,z:0}],members:[{id:'M1',i:'N1',j:'N2',kind:'beam',behavior:'frame',b:.25,h:.45},{id:'M2',i:'N3',j:'N1',kind:'column',behavior:'frame'}],memberLoads:[{member:'M1',case:'D',qx:0,qy:-5,qz:0,axes:'global'}],slabs:[]};
 const snapshot=JSON.stringify(splitSource);

@@ -1,3 +1,17 @@
+function alphaLabel(index){let n=index+1,label='';while(n>0){n--;label=String.fromCharCode(65+n%26)+label;n=Math.floor(n/26);}return label;}
+export function buildGridLayout({countX,countZ,spacingX,spacingZ,startX=0,startZ=0,y=0}={}){
+  const reject=reason=>({ok:false,reason});
+  if(!Number.isInteger(countX)||!Number.isInteger(countZ)||countX<2||countZ<2||countX>20||countZ>20||countX*countZ>400)return reject('กริดต้องมี 2–20 แนวต่อแกน และไม่เกิน 400 จุดตัด');
+  if(![spacingX,spacingZ,startX,startZ,y].every(Number.isFinite)||spacingX<.05||spacingZ<.05||spacingX>1000||spacingZ>1000||Math.abs(startX)>10000||Math.abs(startZ)>10000||Math.abs(y)>10000)return reject('ระยะกริดต้อง ≥0.05 m และพิกัดต้องอยู่ในช่วง ±10000 m');
+  const round=v=>Number(v.toFixed(3));
+  const lines={x:Array.from({length:countX},(_,i)=>({label:String(i+1),value:round(startX+i*spacingX)})),z:Array.from({length:countZ},(_,i)=>({label:alphaLabel(i),value:round(startZ+i*spacingZ)}))};
+  if(new Set(lines.x.map(g=>g.value)).size!==countX||new Set(lines.z.map(g=>g.value)).size!==countZ)return reject('ระยะกริดเล็กกว่าความละเอียดพิกัด 1 mm');
+  const nodes=lines.x.flatMap(x=>lines.z.map(z=>({x:x.value,y:round(y),z:z.value})));
+  const edgesX=lines.z.flatMap(z=>lines.x.slice(0,-1).map((x,i)=>({start:{x:x.value,y:round(y),z:z.value},end:{x:lines.x[i+1].value,y:round(y),z:z.value}})));
+  const edgesZ=lines.x.flatMap(x=>lines.z.slice(0,-1).map((z,i)=>({start:{x:x.value,y:round(y),z:z.value},end:{x:x.value,y:round(y),z:lines.z[i+1].value}})));
+  return {ok:true,lines,nodes,edgesX,edgesZ};
+}
+
 const finitePoint = node => node && [node.x,node.y,node.z].every(Number.isFinite);
 
 export function groupLevels(nodes, tolerance = 1e-5) {
@@ -35,6 +49,13 @@ export function validPlanGridStep(step) {
   if (!Number.isFinite(step)) return false;
   const hundredths=step*100;
   return hundredths>=5-1e-8&&hundredths<=100+1e-8&&Math.abs(hundredths-Math.round(hundredths))<1e-8;
+}
+
+export function constrainPlanPoint(start, point, axis, gridStep=1, useGrid=true) {
+  if(!finitePoint(start)||!point||![point.x,point.z].every(Number.isFinite)||!['x','z'].includes(axis)||(useGrid&&!validPlanGridStep(gridStep)))return null;
+  const freeAxis=axis==='x'?'x':'z',lockedAxis=axis==='x'?'z':'x';
+  const raw=point[freeAxis],value=useGrid?Math.round(raw/gridStep)*gridStep:raw;
+  return {[freeAxis]:Number(value.toFixed(3)),y:start.y,[lockedAxis]:start[lockedAxis]};
 }
 
 export function snapPlanPoint(point, nodes, levelY, gridStep = 1, axisTolerance = .12) {
@@ -81,6 +102,32 @@ export function nearestBeamOnPlan(model, point, levelY, maxDistance, levelTolera
   return nearest;
 }
 
+export function planGridModel(model, layout, {beamsX=false,beamsZ=false,b=.25,h=.45}={}) {
+  const reject=reason=>({ok:false,reason});
+  if(!layout?.ok)return reject(layout?.reason||'ข้อมูลกริดไม่ถูกต้อง');
+  if(!model||!Array.isArray(model.nodes)||!Array.isArray(model.members))return reject('ไม่พบโมเดลสำหรับสร้างกริด');
+  const stagedNodes=[],byPoint=new Map();
+  let nextNode=1;const usedNodeIds=new Set(model.nodes.map(n=>n.id));
+  const freshId=(prefix,used)=>{let id;do{id=prefix+nextNode++;}while(used.has(id));used.add(id);return id;};
+  for(const point of layout.nodes){
+    const key=`${point.x.toFixed(3)}|${point.y.toFixed(3)}|${point.z.toFixed(3)}`;
+    let existing=model.nodes.find(n=>finitePoint(n)&&Math.hypot(n.x-point.x,n.y-point.y,n.z-point.z)<.001);
+    if(!existing){const node={id:freshId('N',usedNodeIds),...point,restraints:[false,false,false,false,false,false]};stagedNodes.push(node);existing=node;}
+    byPoint.set(key,existing.id);
+  }
+  const pointKey=p=>`${p.x.toFixed(3)}|${p.y.toFixed(3)}|${p.z.toFixed(3)}`;
+  const resolveEdge=edge=>[byPoint.get(pointKey(edge.start)),byPoint.get(pointKey(edge.end))];
+  const stagedMembers=[],usedMemberIds=new Set(model.members.map(m=>m.id));
+  if(beamsX||beamsZ){if(!Number.isFinite(b)||!Number.isFinite(h)||b<.01||h<.01)return reject('ขนาดหน้าตัดคาน b/h ต้องมากกว่า 0.01 m');}
+  const allNodes=model.nodes.concat(stagedNodes),allMembers=model.members.slice();
+  const addEdges=edges=>{for(const edge of edges){const [i,j]=resolveEdge(edge);if(!i||!j||i===j)return reject('กริดสร้างโหนดปลายคานไม่ครบ');if(allMembers.some(m=>m.i===i&&m.j===j||m.i===j&&m.j===i))continue;const checked=validateMemberEndpoints(allNodes,allMembers,i,j,{levelY:edge.start.y,disallowIntervening:true});if(!checked.ok)return reject(`${i}–${j}: ${checked.reason}`);const id=freshId('M',usedMemberIds),member={id,i,j,b,h,rotation:0,kind:'beam',sectionType:'rc_rect',A:null,Iy:null,Iz:null,J:null,roofType:'custom',behavior:'frame'};stagedMembers.push(member);allMembers.push(member);}return null;};
+  if(beamsX){const error=addEdges(layout.edgesX);if(error)return error;}
+  if(beamsZ){const error=addEdges(layout.edgesZ);if(error)return error;}
+  if(model.nodes.length+stagedNodes.length>500)return reject('กริดนี้จะเกินขีดจำกัด 500 โหนด');
+  if(model.members.length+stagedMembers.length>1000)return reject('กริดนี้จะเกินขีดจำกัด 1000 สมาชิก');
+  return {ok:true,gridLines:layout.lines,nodes:stagedNodes,members:stagedMembers,intersectionCount:layout.nodes.length};
+}
+
 export function splitBeamAtDistance(model, memberId, fromNodeId, distance, newNodeId, newMemberId) {
   const reject=reason=>({ok:false,reason});
   const member=model?.members?.find(m=>m.id===memberId);
@@ -103,6 +150,14 @@ export function splitBeamAtDistance(model, memberId, fromNodeId, distance, newNo
     memberLoads:loads.flatMap(load=>[{...load},{...load,member:newMemberId}]),length};
 }
 
+function planSegmentsIntersect(a,b,c,d,tol=1e-8){
+  const rx=b.x-a.x,rz=b.z-a.z,sx=d.x-c.x,sz=d.z-c.z,den=rx*sz-rz*sx,qx=c.x-a.x,qz=c.z-a.z,qxr=qx*rz-qz*rx;
+  if(Math.abs(den)<=tol){if(Math.abs(qxr)>tol)return false;const rr=rx*rx+rz*rz;if(rr<=tol)return false;const t0=(qx*rx+qz*rz)/rr,t1=t0+(sx*rx+sz*rz)/rr;return Math.min(1,Math.max(t0,t1))-Math.max(0,Math.min(t0,t1))>tol;}
+  const t=(qx*sz-qz*sx)/den,u=(qx*rz-qz*rx)/den;if(t<-tol||t>1+tol||u<-tol||u>1+tol)return false;
+  const tEnd=t<=tol?a.id:t>=1-tol?b.id:null,uEnd=u<=tol?c.id:u>=1-tol?d.id:null;
+  return !(tEnd&&uEnd&&tEnd===uEnd);
+}
+
 export function validateMemberEndpoints(nodes, members, i, j, {levelY,levelTolerance=1e-5,lineTolerance=1e-6,disallowIntervening=false} = {}) {
   const reject = reason => ({ok:false,reason});
   if (!i || !j || i===j) return reject('เลือกโหนดต้นและปลายคนละโหนด');
@@ -122,6 +177,13 @@ export function validateMemberEndpoints(nodes, members, i, j, {levelY,levelToler
       if (t<=lineTolerance||t>=1-lineTolerance) continue;
       const distance=Math.abs((node.x-a.x)*dz-(node.z-a.z)*dx)/Math.sqrt(length2);
       if (distance<=lineTolerance*Math.max(1,Math.sqrt(length2))) return reject('มีโหนดคั่นกลาง กรุณาวาดแยกช่วง');
+    }
+    const byId=new Map(nodes.map(node=>[node.id,node]));
+    for(const member of members){
+      if(member.kind!=='beam'||member.behavior==='truss'||member.i===i||member.i===j||member.j===i||member.j===j)continue;
+      const c=byId.get(member.i),d=byId.get(member.j);
+      if(!finitePoint(c)||!finitePoint(d)||Math.abs(c.y-levelY)>levelTolerance||Math.abs(d.y-levelY)>levelTolerance)continue;
+      if(planSegmentsIntersect(a,b,c,d,lineTolerance))return reject('เส้นคานตัด/ซ้อนกับสมาชิกเดิมโดยไม่มีโหนดร่วม กรุณาแบ่งหรือเชื่อมโหนดก่อน');
     }
   }
   return {ok:true,a,b,length};

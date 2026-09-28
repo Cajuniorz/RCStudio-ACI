@@ -19,6 +19,23 @@ def slab_frame():
 
 
 class BuildingTests(unittest.TestCase):
+    def test_grid_axes_are_persisted_and_validated_without_affecting_analysis(self):
+        p=migrate(beam())
+        self.assertEqual(p['gridLines'], {'x': [], 'z': []})
+        p['gridLines']={'x':[{'label':'1','value':0.0},{'label':'2','value':4.5}],
+                        'z':[{'label':'A','value':0.0},{'label':'B','value':4.0}]}
+        self.assertEqual(migrate(p)['gridLines'],p['gridLines'])
+        before=solve(p)['combinations']
+        p_without_grid=copy.deepcopy(p);p_without_grid.pop('gridLines')
+        self.assertEqual(solve(p_without_grid)['combinations'],before)
+        for bad in [
+            {'x':[{'label':'1','value':0},{'label':'1','value':4}], 'z':[]},
+            {'x':[{'label':'1','value':0},{'label':'2','value':0}], 'z':[]},
+            {'x':[{'label':'1','value':0}], 'z':[{'label':'A','value':float('nan')}]},
+        ]:
+            invalid=copy.deepcopy(p);invalid['gridLines']=bad
+            with self.assertRaises(ModelError):validate(invalid,draft=True)
+
     def test_stairs_cannot_be_silently_omitted_from_analysis(self):
         p=migrate(beam())
         p['stairs']=[{'id':'ST1','live':3.0}]

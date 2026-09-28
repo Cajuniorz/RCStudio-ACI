@@ -4,6 +4,7 @@ Floor load transfer is not slab stiffness/design. Foundation geometry does not
 replace the explicitly assigned nodal supports. Unsupported behavior blocks solve.
 """
 import copy
+import re
 import numpy as np
 from engine import shape, number, identifier, fail, validate as validate_frame
 
@@ -24,7 +25,7 @@ def migrate(data):
     validate_frame(data, draft=True)
     p = copy.deepcopy(data)
     p.update(schemaVersion=2, canonicalUnits='m-kN-MPa', displayUnits={'system':'thai','force':'kgf'},
-             steel={'E':200000,'nu':.3,'density':77}, slabs=[], foundations=[])
+             steel={'E':200000,'nu':.3,'density':77}, slabs=[], foundations=[], gridLines={'x':[],'z':[]})
     nodes={n['id']:n for n in p['nodes']}
     for m in p['members']:
         a,b=nodes[m['i']],nodes[m['j']]
@@ -49,8 +50,27 @@ def validate_project(p, draft=True):
         allowed_roots.add('designBasis')
     if 'stairs' in p:
         allowed_roots.add('stairs')
+    if 'gridLines' in p:
+        allowed_roots.add('gridLines')
     if set(p.keys()) != allowed_roots:
         fail(f'Project v2: required fields: {ROOT_FIELDS}; unknown fields are not supported')
+    if 'gridLines' in p:
+        shape(p['gridLines'], 'x z', 'Grid lines')
+        for axis in ('x','z'):
+            rows=p['gridLines'][axis]
+            if not isinstance(rows,list) or len(rows)>20:
+                fail(f'Grid lines {axis}: maximum 20 axes')
+            labels=set();values=[]
+            for row in rows:
+                shape(row,'label value',f'Grid line {axis}')
+                label=row['label']
+                if not isinstance(label,str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,12}',label):
+                    fail(f'Grid line {axis}: label must be 1-12 ASCII letters/digits/_/-')
+                if label.lower() in labels:fail(f'Grid lines {axis}: duplicate label {label}')
+                labels.add(label.lower())
+                values.append(number(row['value'],f'Grid line {axis}.{label} (m)',-10000,10000))
+            if any(b-a<.001 for a,b in zip(values,values[1:])):
+                fail(f'Grid lines {axis}: coordinates must increase by at least 0.001 m')
     if 'designBasis' in p and p['designBasis'] is not None:
         basis = p['designBasis']
         required = set('fc_mpa fy_mpa fyt_mpa cover_mm agg_mm stirrup_mm'.split())
