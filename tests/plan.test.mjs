@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {groupLevels,nearestPlanNode,validateMemberEndpoints,planNodeDraft} from '../static/plan.js';
+import {groupLevels,nearestPlanNode,validateMemberEndpoints,planNodeDraft,snapPlanPoint} from '../static/plan.js';
 
 const nodes=[
   {id:'N1',x:0,y:0,z:0},
@@ -34,6 +34,12 @@ assert.equal(planNodeDraft(nodes,{x:4,y:0,z:0},'N6').ok,false,'overlapping nodes
 assert.equal(planNodeDraft(nodes,{x:Infinity,y:0,z:0},'N6').ok,false,'invalid coordinate must be rejected');
 assert.equal(planNodeDraft(nodes,{x:2,y:0,z:1},'N1').ok,false,'duplicate IDs must be rejected');
 assert.equal(planNodeDraft(nodes,{x:4,y:1,z:0},'N6').ok,true,'same XZ at different elevation is valid');
+
+const structuralAxes=[{id:'A',x:4.5,y:3,z:4},{id:'B',x:0,y:3,z:0}];
+assert.deepEqual(snapPlanPoint({x:1.014,y:1.5,z:2.198},structuralAxes,1.5,1,.12),{x:1,y:1.5,z:2});
+assert.deepEqual(snapPlanPoint({x:4.49,y:1.5,z:3.98},structuralAxes,1.5,1,.12),{x:4.5,y:1.5,z:4},'existing structural axes take precedence over 1m visual grid');
+assert.deepEqual(snapPlanPoint({x:-1.4,y:1.5,z:-2.6},[],1.5,1,.12),{x:-1,y:1.5,z:-3},'negative coordinates snap symmetrically');
+assert.equal(snapPlanPoint({x:NaN,y:0,z:1},[],0,1,.12),null);
 
 const before=JSON.stringify({nodes,members:[]});
 for(const [i,j,options] of [

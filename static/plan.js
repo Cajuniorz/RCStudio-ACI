@@ -31,6 +31,20 @@ export function nearestPlanNode(nodes, x, z, levelY, tolerance, maxDistance) {
   return nearest ? {node:nearest,distance:nearestDistance} : null;
 }
 
+export function snapPlanPoint(point, nodes, levelY, gridStep = 1, axisTolerance = .12) {
+  if (!point || ![point.x,point.z,levelY,gridStep,axisTolerance].every(Number.isFinite) || gridStep<=0 || axisTolerance<0) return null;
+  const snapAxis=(value,axis) => {
+    let snapped=Math.round(value/gridStep)*gridStep, distance=axisTolerance;
+    for (const node of nodes) {
+      if (!finitePoint(node)) continue;
+      const offset=Math.abs(value-node[axis]);
+      if (offset<distance) {distance=offset;snapped=node[axis];}
+    }
+    return Number(snapped.toFixed(3));
+  };
+  return {x:snapAxis(point.x,'x'),y:levelY,z:snapAxis(point.z,'z')};
+}
+
 export function planNodeDraft(nodes, point, id) {
   if (!point || ![point.x,point.y,point.z].every(Number.isFinite)) return {ok:false,reason:'พิกัดโหนดต้องเป็นตัวเลขที่มีค่าจำกัด'};
   if (!id || nodes.some(node => node.id===id)) return {ok:false,reason:'รหัสโหนดซ้ำหรือว่าง'};
