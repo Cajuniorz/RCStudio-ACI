@@ -59,6 +59,10 @@
 .slider-pill .sp-head{display:none;align-items:center;gap:5px;padding:0;border:0;background:transparent;color:inherit;font:inherit;cursor:pointer;flex:1 1 auto;justify-content:flex-start}
 .slider-pill .sp-head::after{content:'\25BE';color:#7dd3fc;margin-left:auto}
 .slider-pill.collapsed .sp-head{display:inline-flex}
+/* expanded: keep the short name so the two sliders are never ambiguous, but hide the value/caret
+   (the number field beside the track already shows the value) */
+.slider-pill:not(.collapsed) .sp-head{display:inline-flex;pointer-events:none;flex:0 0 auto}
+.slider-pill:not(.collapsed) .sp-head b,.slider-pill:not(.collapsed) .sp-head::after{display:none}
 .slider-pill.collapsed input[type=range],.slider-pill.collapsed .sp-number{display:none}
 .slider-pill .sp-number{width:54px;height:24px;min-width:0;margin:0;padding:1px 4px;font-size:10px;background:#1b222a;border-color:#4a637d;color:#d8e8f8;font-family:Consolas,monospace}
 .slider-pill .sp-number:focus{outline:1px solid #FF8F1F}
