@@ -11,6 +11,7 @@ let model, result=null, designResult=null, revision=0, tab='nodes', selected=nul
 let viewMode='3d',planLevelY=null,activeTool='select',beamDrag=null,beamAxisLock=null,lineSnapHover=null,pointerStart=null;
 let structMode='solid';  // solid | wire - one state, switched by a single click
 let viewScales={deformScale:100,diagramScale:1,lastPeakH:0};
+let dragLite=false;  // while a scale slider is held, draw the structure without the heavy overlays
 const PLAN_LEVEL_TOLERANCE=1e-5;
 const memberDraft={b:.25,h:.45};
 const empty=blankProject;
@@ -1197,14 +1198,17 @@ function drawModel(){
  const deformScale=Math.max(0,Number($('deformScale')?.value)||100);
  const diagramScale=Math.max(.05,Number($('diagramScale')?.value)||1);
  // diagnostic hook, same style as window.__rc_model/__rc_scene, used by the render tests
- viewScales={deformScale,diagramScale,lastPeakH:0};
+ // NOTE: read dragLite directly - 'lite' is declared further down and would be in TDZ here
+ viewScales={deformScale,diagramScale,lastPeakH:0,lite:dragLite,draws:(viewScales?.draws||0)+1};
  window.__rc_viewScales=viewScales;
  updateDisplayToggles();
  updateScaleControls();
- const showPointLoads=!$('showPointLoads')||$('showPointLoads').checked;
- const showUniformLoads=!$('showUniformLoads')||$('showUniformLoads').checked;
- const showSelfWeight=!$('showSelfWeight')||$('showSelfWeight').checked;
- const showRoofSheeting=!$('showRoofSheeting')||$('showRoofSheeting').checked;
+ const lite=dragLite;
+ const showPointLoads=(!$('showPointLoads')||$('showPointLoads').checked)&&!lite;
+ const showUniformLoads=(!$('showUniformLoads')||$('showUniformLoads').checked)&&!lite;
+ const showSelfWeight=(!$('showSelfWeight')||$('showSelfWeight').checked)&&!lite;
+ const showRoofSheeting=(!$('showRoofSheeting')||$('showRoofSheeting').checked)&&!lite;
+ const showMemberLabels=(!$('labels')||$('labels').checked)&&!lite;
  const columnPeaks=heatKey&&active?.members?model.members.filter(m=>m.kind==='column').map(m=>({id:m.id,peak:peakStation(active.members[m.id],heatKey)})).filter(x=>x.peak):[];
  const maxColumnPeak=columnPeaks.reduce((best,row)=>!best||row.peak.value>best.peak.value?row:best,null);
  const visibleMembers=new Set();for(const m of model.members){if(visibleNodeIds&&(!visibleNodeIds.has(m.i)||!visibleNodeIds.has(m.j)))continue;const a=pos.get(m.i),b=pos.get(m.j);if(!a||!b||a.distanceTo(b)<1e-6)continue;visibleMembers.add(m.id);
@@ -1222,10 +1226,15 @@ function drawModel(){
    }else{
     const posAttr=boxGeo.attributes.position;
     const colorArr=new Float32Array(posAttr.count*3);
+    // the box carries exactly nSegments steps along its length, so build the station colours
+    // once per member (nSegments+1 lookups) instead of running a lookup per vertex
+    const memberRange=rangeForMember(m);
+    const table=new Array(nSegments+1);
+    for(let i=0;i<=nSegments;i++)table[i]=getMemberStationRGB(m,i/nSegments,cm,memberRange,active,heatKey);
     for(let vi=0;vi<posAttr.count;vi++){
      const yVal=posAttr.getY(vi);
      const t=axes.L>1e-6?Math.max(0,Math.min(1,(yVal+axes.L/2)/axes.L)):0;
-     const rgb=getMemberStationRGB(m,t,cm,rangeForMember(m),active,heatKey);
+     const rgb=table[Math.round(t*nSegments)]||table[0];
      colorArr[vi*3]=rgb[0];colorArr[vi*3+1]=rgb[1];colorArr[vi*3+2]=rgb[2];
     }
     boxGeo.setAttribute('color',new THREE.BufferAttribute(colorArr,3));
@@ -1346,7 +1355,7 @@ function drawModel(){
     }
    }
   }
-  if($('labels').checked){
+  if(showMemberLabels){
    const isSelectedMem = selected?.kind === 'members' && selected.id === m.id;
    const isRoof = m.kind === 'roof' || m.sectionType === 'steel_custom';
    const isSecondaryWeb = isRoof && (m.roofRole === 'web' || (!m.roofRole && axes.L < 1.4));
@@ -2046,7 +2055,48 @@ function updateScaleControls(){
  const g=$('diagramScale'),gp=$('diagramScalePill');
  if(g&&gp){gp.classList.toggle('pill-hidden',!$('diagram3d')?.checked);const v=$('diagramScaleValue');if(v)v.textContent=fmt(Number(g.value)||1,1);}
 }
-for(const id of ['deformScale','diagramScale']){const input=$(id);if(input)input.addEventListener('input',()=>{updateScaleControls();drawModel();});}
+// one redraw per animation frame: a drag fires dozens of input events and each draw rebuilds the scene
+let pendingDraw=0;
+function drawModelSoon(){
+ if(pendingDraw)return;
+ pendingDraw=requestAnimationFrame(()=>{pendingDraw=0;drawModel();});
+}
+// each slider folds back to a single number once the user lets go
+const SCALE_CONTROLS=[
+ {pill:'deformScalePill',range:'deformScale',number:'deformScaleInput',head:'deformScaleHead',value:'deformScaleValue',digits:0},
+ {pill:'diagramScalePill',range:'diagramScale',number:'diagramScaleInput',head:'diagramScaleHead',value:'diagramScaleValue',digits:1},
+];
+for(const cfg of SCALE_CONTROLS){
+ const pill=$(cfg.pill),range=$(cfg.range),number=$(cfg.number),head=$(cfg.head);
+ if(!pill||!range||!number||!head)continue;
+ const bounds=()=>({min:Number(range.min),max:Number(range.max),step:Number(range.step)||1});
+ const apply=(raw,source)=>{
+  const {min,max}=bounds();
+  let value=Number(raw);
+  if(!Number.isFinite(value))value=Number(range.value);
+  value=Math.min(max,Math.max(min,value));            // stays inside the declared range
+  if(source!=='range')range.value=String(value);
+  if(source!=='number')number.value=String(value);
+  const label=$(cfg.value);if(label)label.textContent=fmt(value,cfg.digits);
+  drawModelSoon();
+ };
+ range.addEventListener('input',()=>apply(range.value,'range'));
+ range.addEventListener('pointerdown',()=>{
+  // hold: draw the light frame (structure + the diagram being sized) so dragging stays smooth
+  dragLite=true;
+  const end=()=>{window.removeEventListener('pointerup',end);dragLite=false;drawModel();};
+  window.addEventListener('pointerup',end);
+ });
+ range.addEventListener('pointerup',()=>pill.classList.add('collapsed'));
+ range.addEventListener('keyup',event=>{if(event.key==='Enter')pill.classList.add('collapsed');});
+ head.onclick=()=>{pill.classList.remove('collapsed');range.focus();};
+ number.addEventListener('input',()=>apply(number.value,'number'));
+ // normalise the typed text only when the edit is finished, so clamping cannot fight the typing
+ const settle=()=>{apply(number.value,'number');number.value=String(Number(range.value));pill.classList.add('collapsed');};
+ number.addEventListener('change',settle);
+ number.addEventListener('keydown',event=>{if(event.key==='Enter')settle();});
+ number.addEventListener('blur',settle);
+}
 const STRUCT_MODES=[['solid','โครงสร้าง 3D (Solid)'],['wire','เส้นแกน & โหนด']];
 function renderStructButton(){
  const button=$('structModeButton');

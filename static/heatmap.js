@@ -16,12 +16,20 @@ const sampleValue = (s, key) => {
  return Number.isFinite(v) ? Math.abs(v) : null;
 };
 
+// the same member result is sampled once per geometry vertex, so cache the sort per object
+const sortedCache = new WeakMap();
 const samplesOf = memberResult => {
- const samples = memberResult?.samples, length = memberResult?.length;
- if (!Array.isArray(samples) || !samples.length) return null;
- if (!Number.isFinite(length) || length <= 0) return null;
- if (samples.some(s => sampleMagnitude(s) === null)) return null;
- return [...samples].sort((a, b) => a.x - b.x);
+ if (!memberResult || typeof memberResult !== 'object') return null;
+ const cached = sortedCache.get(memberResult);
+ if (cached !== undefined) return cached;
+ const samples = memberResult.samples, length = memberResult.length;
+ let result = null;
+ if (Array.isArray(samples) && samples.length && Number.isFinite(length) && length > 0
+     && !samples.some(s => sampleMagnitude(s) === null)) {
+  result = [...samples].sort((a, b) => a.x - b.x);
+ }
+ sortedCache.set(memberResult, result);
+ return result;
 };
 
 // Interpolated value at 0..1 along the member, or null when the result is unusable.

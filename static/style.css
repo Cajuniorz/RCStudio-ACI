@@ -51,10 +51,17 @@
 .viewbottom>label.on::before{content:'✓'}
 .viewbottom label[hidden]{display:none!important}
 /* sliders that size the 3D diagrams and the deformed shape */
-.slider-pill{pointer-events:auto;display:inline-flex;align-items:center;gap:5px;padding:3px 8px;border-radius:4px;background:rgba(30,35,42,0.85);border:1px solid #4a637d;font-size:10px;color:#c2d3e4}
+.slider-pill{pointer-events:auto;display:inline-flex;align-items:center;gap:5px;height:30px;box-sizing:border-box;padding:2px 8px;border-radius:4px;background:rgba(30,35,42,0.85);border:1px solid #4a637d;font-size:10px;color:#c2d3e4}
 .slider-pill span{white-space:nowrap}
-.slider-pill input[type=range]{width:92px;min-width:0;padding:0;margin:0;background:transparent;border:0;accent-color:#38bdf8}
-.slider-pill b{min-width:32px;text-align:right;font:10px Consolas,monospace;color:#eaf4ff}
+.slider-pill input[type=range]{flex:1 1 auto;width:auto;min-width:0;padding:0;margin:0;background:transparent;border:0;accent-color:#38bdf8}
+.slider-pill b{min-width:30px;text-align:right;font:10px Consolas,monospace;color:#eaf4ff}
+/* folded state: one number the user can click to reveal the slider again */
+.slider-pill .sp-head{display:none;align-items:center;gap:5px;padding:0;border:0;background:transparent;color:inherit;font:inherit;cursor:pointer;flex:1 1 auto;justify-content:flex-start}
+.slider-pill .sp-head::after{content:'\25BE';color:#7dd3fc;margin-left:auto}
+.slider-pill.collapsed .sp-head{display:inline-flex}
+.slider-pill.collapsed input[type=range],.slider-pill.collapsed .sp-number{display:none}
+.slider-pill .sp-number{width:54px;height:24px;min-width:0;margin:0;padding:1px 4px;font-size:10px;background:#1b222a;border-color:#4a637d;color:#d8e8f8;font-family:Consolas,monospace}
+.slider-pill .sp-number:focus{outline:1px solid #FF8F1F}
 /* a control with nothing to show keeps its box, so every other control stays put */
 .pill-hidden{visibility:hidden!important;pointer-events:none!important}
 #pointLoadsToggle,#uniformLoadsToggle,#selfWeightToggle{border-color:#f59e0b;color:#fde68a}
