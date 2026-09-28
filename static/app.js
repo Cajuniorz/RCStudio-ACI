@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import {OrbitControls} from './vendor/OrbitControls.js';
+import {stationForceKN,forceRangeKN,peakForceStation} from './heatmap.js';
 import {unit,toDisplay,toCanonical} from './units.js';
 import {catalogs,memberRecord,slabRecord,foundationRecord,blankProject,roofSeatElevation} from './building.js';
 import {groupLevels,nearestPlanNode,validateMemberEndpoints,planNodeDraft,snapPlanPoint,splitBeamAtDistance,nearestBeamOnPlan,validPlanGridStep,buildGridLayout,buildGridLayoutFromLines,planGridModel,constrainPlanPoint,autoDetectGridLines,planContinuousBeamSegments} from './plan.js';
@@ -1179,16 +1180,8 @@ function drawModel(){
  if (cm === 'utilization') {
   cmMin = 0; cmMax = 1;
  } else if (cm === 'load') {
-  let maxL = 0;
-  for (const m of model.members) {
-   const bd = getMemberLoadBreakdown(m);
-   if (bd) {
-    if (bd.type === 'column') maxL = Math.max(maxL, quantity(bd.axialMaxKN, 'force'));
-    else if (bd.type === 'beam') maxL = Math.max(maxL, quantity(bd.totalQyKNm, 'line'));
-    else maxL = Math.max(maxL, quantity(Math.abs(bd.axialKN), 'force'));
-   }
-  }
-  cmMin = 0; cmMax = maxL > 0 ? maxL : 1000;
+  const range=forceRangeKN(model.members,active?.members);
+  cmMin=0; cmMax=range?.max||1;
  } else if (['Mz', 'Vy', 'N'].includes(cm)) {
   const vals = [];
   if (active?.members) {
@@ -1214,6 +1207,8 @@ function drawModel(){
  const showUniformLoads=!$('showUniformLoads')||$('showUniformLoads').checked;
  const showSelfWeight=!$('showSelfWeight')||$('showSelfWeight').checked;
  const showRoofSheeting=!$('showRoofSheeting')||$('showRoofSheeting').checked;
+ const columnPeaks=cm==='load'&&active?.members?model.members.filter(m=>m.kind==='column').map(m=>({id:m.id,peak:peakForceStation(active.members[m.id])})).filter(x=>x.peak):[];
+ const maxColumnPeak=columnPeaks.reduce((best,row)=>!best||row.peak.forceKN>best.peak.forceKN?row:best,null);
  const visibleMembers=new Set();for(const m of model.members){if(visibleNodeIds&&(!visibleNodeIds.has(m.i)||!visibleNodeIds.has(m.j)))continue;const a=pos.get(m.i),b=pos.get(m.j);if(!a||!b||a.distanceTo(b)<1e-6)continue;visibleMembers.add(m.id);
   const highlight=selected?.kind==='members'&&selected.id===m.id;
   const axes=getMemberLocalAxes(a,b,m.rotation||0);
@@ -1260,6 +1255,20 @@ function drawModel(){
    const wLine=new THREE.Line(lineGeo,lineMat);
    wLine.userData={kind:'members',id:m.id};
    group.add(wLine);
+  }
+  if(cm==='load'&&m.kind==='column'&&active?.members){
+   const peak=peakForceStation(active.members[m.id]);
+   if(peak){
+    // Peak of internal resultant demand, NOT the physical applied-load location.
+    const at=a.clone().lerp(b,peak.t);
+    const marker=new THREE.Mesh(new THREE.SphereGeometry(.11,12,8),new THREE.MeshBasicMaterial({color:0xffffff,depthTest:false}));
+    marker.position.copy(at);marker.userData={kind:'members',id:m.id,forcePeak:true};marker.renderOrder=12;group.add(marker);
+    if(highlight||maxColumnPeak?.id===m.id){
+     const text=`${m.id} · แรงภายในสูงสุด ${fmt(quantity(peak.forceKN,'force'),1)} ${unitLabel('force')} · จาก i ${fmt(peak.x,2)} m`;
+     const badge=labelSprite(text,0,34,13,{bg:'rgba(30,41,59,.95)',border:'#ffffff',color:'#ffffff',radius:6,alwaysOnTop:true});
+     badge.position.copy(at).add(new THREE.Vector3(.38,.2,.2));group.add(badge);
+    }
+   }
   }
   const showAxes=$('localAxes')?$('localAxes').checked:true;
   if(showAxes||highlight){
@@ -2174,21 +2183,8 @@ function getMemberStationRGB(m, t, cm, minVal, maxVal, active) {
   return getRainbowRGB(util, 0, 1.0);
  }
  if (cm === 'load') {
-  const bd = getMemberLoadBreakdown(m);
-  if (!bd) return [0.37, 0.8, 0.73];
-  let loadVal = 0;
-  if (bd.type === 'column') {
-   const a = model.nodes.find(n => n.id === m.i), b = model.nodes.find(n => n.id === m.j);
-   const isTopB = (b && a) ? (b.y >= a.y) : true;
-   const distFromTop = isTopB ? (1.0 - t) * (bd.L || 3) : t * (bd.L || 3);
-   const P = (bd.totalBeamReactionKN + bd.topNodeFyKN) + (bd.swKNm * distFromTop);
-   loadVal = quantity(P, 'force');
-  } else if (bd.type === 'beam') {
-   loadVal = quantity(bd.totalQyKNm, 'line');
-  } else {
-   loadVal = quantity(Math.abs(bd.axialKN), 'force');
-  }
-  return getRainbowRGB(loadVal, minVal, maxVal);
+  const valKN=stationForceKN(active?.members?.[m.id],t);
+  return valKN===null?[0.37,0.8,0.73]:getRainbowRGB(valKN,minVal,maxVal);
  }
  if (['Mz', 'Vy', 'N'].includes(cm)) {
   const smp = active?.members?.[m.id]?.samples;
@@ -2226,20 +2222,12 @@ function updateHeatmapLegend() {
  }
  const act = result?.combinations?.[$('resultCombo')?.value];
  if (cm === 'load') {
-  if (titleEl) titleEl.textContent = `น้ำหนักบรรทุก / โหลดกระทำ (${unitLabel('force')} เสา, ${unitLabel('line')} คาน) · ไล่เฉดสี`;
-  let maxL = 0;
-  for (const m of model.members) {
-   const bd = getMemberLoadBreakdown(m);
-   if (bd) {
-    if (bd.type === 'column') maxL = Math.max(maxL, quantity(bd.axialMaxKN, 'force'));
-    else if (bd.type === 'beam') maxL = Math.max(maxL, quantity(bd.totalQyKNm, 'line'));
-    else maxL = Math.max(maxL, quantity(Math.abs(bd.axialKN), 'force'));
-   }
-  }
-  if (maxL <= 0) maxL = 1000;
-  if (ticksEl) {
-   const t0 = '0', t1 = fmt(maxL * 0.25, 0), t2 = fmt(maxL * 0.5, 0), t3 = fmt(maxL * 0.75, 0), t4 = fmt(maxL, 0);
-   ticksEl.innerHTML = `<span>${t0}</span><span>${t1}</span><span>${t2}</span><span>${t3}</span><span>${t4} ${unitLabel('force')}</span>`;
+  if(titleEl) titleEl.textContent=`แรงภายในรวมตามตำแหน่ง |N,Vy,Vz| (${unitLabel('force')}) · จากผลวิเคราะห์ ไม่ใช่ตำแหน่งวางโหลด`;
+  const range=forceRangeKN(model.members,act?.members);
+  if(ticksEl){
+   if(!range){ ticksEl.textContent='ไม่มีผลวิเคราะห์ · กด “วิเคราะห์” ก่อน'; return; }
+   const max=quantity(range.max,'force');
+   ticksEl.replaceChildren(...[0,.25,.5,.75,1].map((fraction,i)=>el('span',`${fmt(max*fraction,1)}${i===4?' '+unitLabel('force'):''}`)));
   }
   return;
  }
