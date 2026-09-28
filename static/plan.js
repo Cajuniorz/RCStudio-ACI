@@ -31,8 +31,14 @@ export function nearestPlanNode(nodes, x, z, levelY, tolerance, maxDistance) {
   return nearest ? {node:nearest,distance:nearestDistance} : null;
 }
 
+export function validPlanGridStep(step) {
+  if (!Number.isFinite(step)) return false;
+  const hundredths=step*100;
+  return hundredths>=5-1e-8&&hundredths<=100+1e-8&&Math.abs(hundredths-Math.round(hundredths))<1e-8;
+}
+
 export function snapPlanPoint(point, nodes, levelY, gridStep = 1, axisTolerance = .12) {
-  if (!point || ![point.x,point.z,levelY,gridStep,axisTolerance].every(Number.isFinite) || gridStep<=0 || axisTolerance<0) return null;
+  if (!point || ![point.x,point.z,levelY,axisTolerance].every(Number.isFinite) || axisTolerance<0 || !validPlanGridStep(gridStep)) return null;
   const snapAxis=(value,axis) => {
     let snapped=Math.round(value/gridStep)*gridStep, distance=axisTolerance;
     for (const node of nodes) {
