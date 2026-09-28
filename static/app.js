@@ -9,6 +9,7 @@ const $=id=>document.getElementById(id), clone=x=>JSON.parse(JSON.stringify(x));
 const KEY='rcstudio-v1', dofs=['DX','DY','DZ','RX','RY','RZ'];
 let model, result=null, designResult=null, revision=0, tab='nodes', selected=null, history=[], busy=false;
 let viewMode='3d',planLevelY=null,activeTool='select',beamDrag=null,beamAxisLock=null,lineSnapHover=null,pointerStart=null;
+let structMode='solid';  // solid | wire | both - one state, switched by a single click
 const PLAN_LEVEL_TOLERANCE=1e-5;
 const memberDraft={b:.25,h:.45};
 const empty=blankProject;
@@ -1190,9 +1191,9 @@ function drawModel(){
   if (scaleMode === 'group' && heatGroups) return heatGroups[memberGroupOf(m)] || heatGlobal;
   return heatGlobal;
  };
- const structMode=$('structMode')?.value||'solid';
  const showSolid3D=structMode!=='wire';
  const showWireframe=structMode!=='solid';
+ updateDisplayToggles();
  const showPointLoads=!$('showPointLoads')||$('showPointLoads').checked;
  const showUniformLoads=!$('showUniformLoads')||$('showUniformLoads').checked;
  const showSelfWeight=!$('showSelfWeight')||$('showSelfWeight').checked;
@@ -2031,7 +2032,20 @@ $('addSlab').onclick=()=>{tab='slabs';addRow();};$('addFoundation').onclick=()=>
 $('undo').onclick=()=>{cancelInteraction(false);if(!history.length)return;model=history.pop();revision++;result=null;selected=null;persist();render();status('ย้อนแล้ว · ต้องวิเคราะห์ใหม่');};
 $('tabs').onclick=e=>{if(e.target.dataset.tab){tab=e.target.dataset.tab;renderTable();}};
 $('fit').onclick=fit;for(const id of ['labels','deformed','diagram3d','diagramValues','showPointLoads','showUniformLoads','showSelfWeight','showRoofSheeting']){if($(id))$(id).onchange=drawModel;}
-if($('structMode'))$('structMode').onchange=drawModel;
+function applyStructMode(mode){
+ if(!['solid','wire','both'].includes(mode))return;
+ structMode=mode;
+ for(const button of document.querySelectorAll('#structModeButtons button'))button.classList.toggle('active',button.dataset.struct===structMode);
+ drawModel();
+}
+for(const button of document.querySelectorAll('#structModeButtons button'))button.onclick=()=>applyStructMode(button.dataset.struct);
+function updateDisplayToggles(){
+ // hide a load toggle when the model has no data of that type (nothing it could show)
+ const hasData={pointLoadsToggle:model?.nodalLoads?.length>0,uniformLoadsToggle:model?.memberLoads?.length>0,selfWeightToggle:model?.members?.length>0};
+ for(const [id,available] of Object.entries(hasData)){const label=$(id);if(label)label.hidden=!available;}
+ // the pill itself shows on/off, so the user does not have to aim at a 15 px box
+ for(const label of document.querySelectorAll('.viewbottom label')){const input=label.querySelector('input[type=checkbox]');if(input)label.classList.toggle('on',input.checked);}
+}
 if($('diagram3d'))$('diagram3d').addEventListener('change',()=>{if($('diagramValuesToggle'))$('diagramValuesToggle').hidden=!$('diagram3d').checked;});$('view3d').onclick=()=>setViewMode('3d');$('viewPlan').onclick=()=>setViewMode('plan');$('planLevel').onchange=()=>{const next=Number($('planLevel').value);if(!Number.isFinite(next))return;cancelInteraction(false);planLevelY=next;renderPlanControls();if(viewMode==='plan')fitPlan();drawModel();};$('setPlanElevation').onclick=()=>{const input=$('planElevation');if(input.value.trim()===''||!Number.isFinite(Number(input.value)))return status('กรอกระดับ Y เป็นตัวเลขเมตรก่อน','error');const y=Number(input.value);if(Math.abs(y)>10000)return status('ระดับ Y ต้องอยู่ในช่วง ±10000 m','error');cancelInteraction(false);planLevelY=Number(y.toFixed(3));renderPlanControls();if(viewMode==='plan')fitPlan();drawModel();status(`ตั้งระดับวางโหนด Y ${fmt(planLevelY)} m · คลิก วางโหนด แล้วคลิกบนผัง`);};$('planElevation').onkeydown=e=>{if(e.key==='Enter')$('setPlanElevation').click();};$('generatePlanGrid').onclick=createBuildingGrid;$('openGridEditor').onclick=openGridEditor;$('closeGridEditor').onclick=()=> $('gridEditorDialog').close();$('closeGridEditorBottom').onclick=()=> $('gridEditorDialog').close();$('addGridX').onclick=()=>addGridEditorAxis('x');$('addGridZ').onclick=()=>addGridEditorAxis('z');$('buildGridFromEditor').onclick=buildGridFromEditor;
 if($('autoDetectGrids'))$('autoDetectGrids').onclick=()=>{const detected=autoDetectGridLines(model.nodes,{levelY:planLevelY});if(!detected.ok)return status(detected.reason,'error');renderGridEditorAxis('x',detected.lines.x);renderGridEditorAxis('z',detected.lines.z);status(`ตรวจจับแนวกริดจากเสาอาคารสำเร็จ: X ${detected.lines.x.length} แนว, Z ${detected.lines.z.length} แนว`);};
 if($('clearGridsBtn'))$('clearGridsBtn').onclick=()=>{if(!confirm('ต้องการล้างแนวกริดทั้งหมดในผังหรือไม่?'))return;mutate(()=>{model.gridLines={x:[],z:[]};});renderGridEditorAxis('x',[]);renderGridEditorAxis('z',[]);drawModel();status('ล้างแนวกริดในผังแล้ว');};
