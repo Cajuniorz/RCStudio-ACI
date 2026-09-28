@@ -9,7 +9,7 @@ const $=id=>document.getElementById(id), clone=x=>JSON.parse(JSON.stringify(x));
 const KEY='rcstudio-v1', dofs=['DX','DY','DZ','RX','RY','RZ'];
 let model, result=null, designResult=null, revision=0, tab='nodes', selected=null, history=[], busy=false;
 let viewMode='3d',planLevelY=null,activeTool='select',beamDrag=null,beamAxisLock=null,lineSnapHover=null,pointerStart=null;
-let structMode='solid';  // solid | wire | both - one state, switched by a single click
+let structMode='solid';  // solid | wire - one state, switched by a single click
 const PLAN_LEVEL_TOLERANCE=1e-5;
 const memberDraft={b:.25,h:.45};
 const empty=blankProject;
@@ -1192,7 +1192,7 @@ function drawModel(){
   return heatGlobal;
  };
  const showSolid3D=structMode!=='wire';
- const showWireframe=structMode!=='solid';
+ const showWireframe=structMode==='wire';
  updateDisplayToggles();
  const showPointLoads=!$('showPointLoads')||$('showPointLoads').checked;
  const showUniformLoads=!$('showUniformLoads')||$('showUniformLoads').checked;
@@ -2032,7 +2032,7 @@ $('addSlab').onclick=()=>{tab='slabs';addRow();};$('addFoundation').onclick=()=>
 $('undo').onclick=()=>{cancelInteraction(false);if(!history.length)return;model=history.pop();revision++;result=null;selected=null;persist();render();status('ย้อนแล้ว · ต้องวิเคราะห์ใหม่');};
 $('tabs').onclick=e=>{if(e.target.dataset.tab){tab=e.target.dataset.tab;renderTable();}};
 $('fit').onclick=fit;for(const id of ['labels','deformed','diagram3d','diagramValues','showPointLoads','showUniformLoads','showSelfWeight','showRoofSheeting']){if($(id))$(id).onchange=drawModel;}
-const STRUCT_MODES=[['solid','โครงสร้าง 3D (Solid)'],['wire','เส้นแกน & โหนด'],['both','Solid + เส้นแกน']];
+const STRUCT_MODES=[['solid','โครงสร้าง 3D (Solid)'],['wire','เส้นแกน & โหนด']];
 function renderStructButton(){
  const button=$('structModeButton');
  if(!button)return;
