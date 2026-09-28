@@ -1,0 +1,1 @@
+PASS: exact unit anchors, exponent conversions, signed roundtrips, null preservation (3 display modes).

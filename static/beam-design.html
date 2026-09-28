@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="th"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Cenviq Rc design · ตรวจคานเฉพาะกำลังดัด ACI 318-25</title><link rel="stylesheet" href="beam-design.css"></head><body>
+<header><a href="/">← โมเดล 3 มิติ</a><strong>Cenviq Rc design / DESIGN LAB</strong><span>ACI CODE-318-25 · SI</span></header>
+<main><section class="intro"><p class="eyebrow">01 / เลือกเหล็กหน้าตัดคาน</p><h1>จากแรงดัด สู่ชุดเหล็กที่ตรวจสอบได้</h1><p>คานสี่เหลี่ยม · เหล็กดึงชั้นเดียว · เปรียบเทียบชุดเหล็กที่ผ่านการตรวจเฉพาะหน้าตัด</p><div class="notice">รุ่นทดลอง — รับ Mu ประลัยที่ผู้ใช้ตรวจแล้ว ยังไม่ดึงแรงจากโมเดล 3 มิติอัตโนมัติ และยังไม่ตรวจผ่านคานทั้งตัวหรืออาคาร</div></section>
+<div class="layout"><form id="designForm"><div class="row"><h2>ข้อมูลออกแบบ</h2><select id="displaySystem" aria-label="ระบบหน่วย"><option value="thai">cm / ksc / kgf·m</option><option value="si">mm / MPa / kN·m</option></select></div>
+<label>ชื่อหน้าตัด / ตำแหน่ง<input id="name" required maxlength="300" placeholder="เช่น B1 เหล็กล่างกลางช่วง"></label>
+<label>ที่มา Mu ประลัย + ชุดน้ำหนัก + ตำแหน่ง<input id="demandSource" required maxlength="300" placeholder="ระบุผลวิเคราะห์ที่ตรวจแล้วและแรงร่วม ณ ตำแหน่งนี้"></label>
+<label>พื้นที่โครงการ / มาตรฐานแรงที่ใช้<input id="jurisdiction" required maxlength="300" placeholder="ยังไม่มีค่าเริ่มต้นแทนข้อมูลโครงการ"></label>
+<label>มาตรฐาน / เกรดเหล็กที่ระบุ<input id="rebarSpecification" required maxlength="300" placeholder="กรอกตามวัสดุจริง; โปรแกรมยังไม่ตรวจใบรับรอง"></label>
+<div class="fields" id="numericFields"></div>
+<label>ด้านเหล็กดึงที่กำลังตรวจ<select id="tensionFace" required><option value="">เลือกจากทิศโมเมนต์จริง</option><option value="bottom">ใต้คาน — เหล็กล่างรับแรงดึง</option><option value="top">บนคาน — เหล็กบนรับแรงดึง</option></select></label>
+<label>สภาพและวิธีจำลอง<select id="scope" required><option value="">เลือกขอบเขตของหน้าตัด</option><option value="protected-normalweight-nonseismic-rectangular">คสล. หล่อในที่ น้ำหนักปกติ ภายในอาคาร ไม่ใช่ระบบต้านแผ่นดินไหว</option></select></label>
+<p class="hint">รองรับแรงดัดล้วน: N, T และโมเมนต์แกนอ่อนต้องกรอก 0 เมื่อยืนยันว่าไม่มีจริง ค่าที่เว้นว่างไม่ใช่ศูนย์ · cover วัดถึงผิวนอกปลอก · ปลอกใช้หาระยะ d เท่านั้น</p>
+<fieldset><legend>เบอร์เหล็ก DB ที่ให้เปรียบเทียบ (mm)</legend><div id="barChoices" class="bar-choices"></div></fieldset>
+<p class="hint">เลือกจาก 2–12 เส้นในชั้นเดียว หน้าตัดคงที่ ไม่ลดเหล็กต่ำกว่าขั้นต่ำด้วยข้อยกเว้น 9.6.1.3</p>
+<div class="buttons"><button type="submit" class="primary">คำนวณและเปรียบเทียบเหล็ก</button><button id="example" type="button">ใส่ตัวอย่างตรวจสูตร</button></div><p id="message" role="status"></p>
+</form><section class="results"><div class="row"><h2>02 / ผลและรายการคำนวณ</h2><div><button id="download" disabled>บันทึกผล JSON</button><button id="print" disabled>พิมพ์ / PDF</button></div></div><article id="report"><div class="placeholder">กรอกข้อมูลเพื่อให้โปรแกรมเปรียบเทียบ<br>จำนวนเส้น เบอร์เหล็ก กำลังดัด และระยะเรียง</div></article></section></div>
+<section class="roadmap"><h2>เป้าหมายรายงานตามตัวอย่างที่ให้มา</h2><p>ผังระบุ B / S / C / F → โหลดและชุดน้ำหนัก → กราฟแรง → เลือกเหล็ก → ตรวจเกณฑ์ → รูปหน้าตัดและรายการคำนวณ โดยผูกผลกับรุ่นโมเดล</p><div class="cards"><div><b>คาน</b><p>เริ่มแล้ว: เลือกเหล็กดึงจาก Mu<br>ยังขาด: เฉือน บิด ฝัง/ทาบ และการโก่ง</p></div><div><b>พื้น</b><p>ยังไม่ออกแบบเหล็ก<br>ต้องได้โมเมนต์ตามระบบพื้นก่อน</p></div><div><b>เสา</b><p>ยังไม่ออกแบบเหล็ก<br>ต้องตรวจ P–Mx–My และความชะลูด</p></div><div><b>ฐานราก</b><p>ยังไม่ออกแบบ<br>ต้องแยกแรงใช้งาน/ประลัยและตรวจดิน</p></div><div><b>หลังคาเหล็ก</b><p>ยังไม่ออกแบบ<br>ต้องใช้มาตรฐานเหล็กที่เกี่ยวข้องเพิ่มเติม</p></div></div></section>
+</main><script type="module" src="beam-design.js"></script></body></html>

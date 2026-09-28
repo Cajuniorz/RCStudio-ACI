@@ -1,0 +1,520 @@
+{
+  "schemaVersion": 2,
+  "name": "ตัวอย่างศึกษา · ครบอาคาร คสล. + หลังคาเหล็ก",
+  "material": {
+    "E": 25000,
+    "nu": 0.2,
+    "density": 24
+  },
+  "nodes": [
+    {
+      "id": "N1",
+      "x": 0,
+      "y": 0,
+      "z": 0,
+      "restraints": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ]
+    },
+    {
+      "id": "N2",
+      "x": 4,
+      "y": 0,
+      "z": 0,
+      "restraints": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ]
+    },
+    {
+      "id": "N3",
+      "x": 0,
+      "y": 0,
+      "z": 4,
+      "restraints": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ]
+    },
+    {
+      "id": "N4",
+      "x": 4,
+      "y": 0,
+      "z": 4,
+      "restraints": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ]
+    },
+    {
+      "id": "N5",
+      "x": 0,
+      "y": 3,
+      "z": 0,
+      "restraints": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ]
+    },
+    {
+      "id": "N6",
+      "x": 4,
+      "y": 3,
+      "z": 0,
+      "restraints": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ]
+    },
+    {
+      "id": "N7",
+      "x": 0,
+      "y": 3,
+      "z": 4,
+      "restraints": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ]
+    },
+    {
+      "id": "N8",
+      "x": 4,
+      "y": 3,
+      "z": 4,
+      "restraints": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ]
+    },
+    {
+      "id": "N9",
+      "x": 2,
+      "y": 4.5,
+      "z": 0,
+      "restraints": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ]
+    },
+    {
+      "id": "N10",
+      "x": 2,
+      "y": 4.5,
+      "z": 4,
+      "restraints": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ]
+    }
+  ],
+  "members": [
+    {
+      "id": "M1",
+      "i": "N1",
+      "j": "N5",
+      "b": 0.3,
+      "h": 0.3,
+      "rotation": 0,
+      "kind": "column",
+      "sectionType": "rc_rect",
+      "A": null,
+      "Iy": null,
+      "Iz": null,
+      "J": null,
+      "roofType": "custom",
+      "behavior": "frame"
+    },
+    {
+      "id": "M2",
+      "i": "N5",
+      "j": "N6",
+      "b": 0.25,
+      "h": 0.45,
+      "rotation": 0,
+      "kind": "beam",
+      "sectionType": "rc_rect",
+      "A": null,
+      "Iy": null,
+      "Iz": null,
+      "J": null,
+      "roofType": "custom",
+      "behavior": "frame"
+    },
+    {
+      "id": "M3",
+      "i": "N5",
+      "j": "N7",
+      "b": 0.25,
+      "h": 0.45,
+      "rotation": 0,
+      "kind": "beam",
+      "sectionType": "rc_rect",
+      "A": null,
+      "Iy": null,
+      "Iz": null,
+      "J": null,
+      "roofType": "custom",
+      "behavior": "frame"
+    },
+    {
+      "id": "M4",
+      "i": "N2",
+      "j": "N6",
+      "b": 0.3,
+      "h": 0.3,
+      "rotation": 0,
+      "kind": "column",
+      "sectionType": "rc_rect",
+      "A": null,
+      "Iy": null,
+      "Iz": null,
+      "J": null,
+      "roofType": "custom",
+      "behavior": "frame"
+    },
+    {
+      "id": "M5",
+      "i": "N6",
+      "j": "N8",
+      "b": 0.25,
+      "h": 0.45,
+      "rotation": 0,
+      "kind": "beam",
+      "sectionType": "rc_rect",
+      "A": null,
+      "Iy": null,
+      "Iz": null,
+      "J": null,
+      "roofType": "custom",
+      "behavior": "frame"
+    },
+    {
+      "id": "M6",
+      "i": "N3",
+      "j": "N7",
+      "b": 0.3,
+      "h": 0.3,
+      "rotation": 0,
+      "kind": "column",
+      "sectionType": "rc_rect",
+      "A": null,
+      "Iy": null,
+      "Iz": null,
+      "J": null,
+      "roofType": "custom",
+      "behavior": "frame"
+    },
+    {
+      "id": "M7",
+      "i": "N7",
+      "j": "N8",
+      "b": 0.25,
+      "h": 0.45,
+      "rotation": 0,
+      "kind": "beam",
+      "sectionType": "rc_rect",
+      "A": null,
+      "Iy": null,
+      "Iz": null,
+      "J": null,
+      "roofType": "custom",
+      "behavior": "frame"
+    },
+    {
+      "id": "M8",
+      "i": "N4",
+      "j": "N8",
+      "b": 0.3,
+      "h": 0.3,
+      "rotation": 0,
+      "kind": "column",
+      "sectionType": "rc_rect",
+      "A": null,
+      "Iy": null,
+      "Iz": null,
+      "J": null,
+      "roofType": "custom",
+      "behavior": "frame"
+    },
+    {
+      "id": "M9",
+      "i": "N5",
+      "j": "N9",
+      "b": null,
+      "h": null,
+      "rotation": 0,
+      "kind": "roof",
+      "sectionType": "steel_custom",
+      "A": 0.0012,
+      "Iy": 2e-06,
+      "Iz": 2e-06,
+      "J": 3e-06,
+      "roofType": "gable",
+      "behavior": "frame"
+    },
+    {
+      "id": "M10",
+      "i": "N9",
+      "j": "N6",
+      "b": null,
+      "h": null,
+      "rotation": 0,
+      "kind": "roof",
+      "sectionType": "steel_custom",
+      "A": 0.0012,
+      "Iy": 2e-06,
+      "Iz": 2e-06,
+      "J": 3e-06,
+      "roofType": "gable",
+      "behavior": "frame"
+    },
+    {
+      "id": "M11",
+      "i": "N7",
+      "j": "N10",
+      "b": null,
+      "h": null,
+      "rotation": 0,
+      "kind": "roof",
+      "sectionType": "steel_custom",
+      "A": 0.0012,
+      "Iy": 2e-06,
+      "Iz": 2e-06,
+      "J": 3e-06,
+      "roofType": "gable",
+      "behavior": "frame"
+    },
+    {
+      "id": "M12",
+      "i": "N10",
+      "j": "N8",
+      "b": null,
+      "h": null,
+      "rotation": 0,
+      "kind": "roof",
+      "sectionType": "steel_custom",
+      "A": 0.0012,
+      "Iy": 2e-06,
+      "Iz": 2e-06,
+      "J": 3e-06,
+      "roofType": "gable",
+      "behavior": "frame"
+    },
+    {
+      "id": "M13",
+      "i": "N9",
+      "j": "N10",
+      "b": null,
+      "h": null,
+      "rotation": 0,
+      "kind": "roof",
+      "sectionType": "steel_custom",
+      "A": 0.0012,
+      "Iy": 2e-06,
+      "Iz": 2e-06,
+      "J": 3e-06,
+      "roofType": "gable",
+      "behavior": "frame"
+    }
+  ],
+  "nodalLoads": [
+    {
+      "node": "N9",
+      "case": "D",
+      "fx": 0,
+      "fy": -4.903325,
+      "fz": 0,
+      "mx": 0,
+      "my": 0,
+      "mz": 0
+    }
+  ],
+  "memberLoads": [
+    {
+      "member": "M9",
+      "case": "D",
+      "qx": 0,
+      "qy": -0.2941995,
+      "qz": 0
+    },
+    {
+      "member": "M10",
+      "case": "D",
+      "qx": 0,
+      "qy": -0.2941995,
+      "qz": 0
+    },
+    {
+      "member": "M11",
+      "case": "D",
+      "qx": 0,
+      "qy": -0.2941995,
+      "qz": 0
+    },
+    {
+      "member": "M12",
+      "case": "D",
+      "qx": 0,
+      "qy": -0.2941995,
+      "qz": 0
+    },
+    {
+      "member": "M13",
+      "case": "D",
+      "qx": 0,
+      "qy": -0.2941995,
+      "qz": 0
+    }
+  ],
+  "combinations": [
+    {
+      "name": "Service",
+      "D": 1,
+      "L": 1,
+      "W": 0
+    }
+  ],
+  "selfWeight": true,
+  "canonicalUnits": "m-kN-MPa",
+  "displayUnits": {
+    "system": "thai",
+    "force": "kgf"
+  },
+  "steel": {
+    "E": 200000,
+    "nu": 0.3,
+    "density": 77
+  },
+  "slabs": [
+    {
+      "id": "S1",
+      "type": "one_way",
+      "nodes": [
+        "N5",
+        "N6",
+        "N8",
+        "N7"
+      ],
+      "thickness": 0.12,
+      "weightMode": "volume",
+      "selfLoad": null,
+      "dead": 0.980665,
+      "live": 1.96133,
+      "mode": "one_way_load",
+      "support1": "M2",
+      "support2": "M7",
+      "note": "ตัวอย่างศึกษา ไม่ใช่แบบก่อสร้าง"
+    }
+  ],
+  "foundations": [
+    {
+      "id": "F1",
+      "type": "isolated",
+      "nodes": [
+        "N1"
+      ],
+      "bx": 1.5,
+      "bz": 1.5,
+      "depth": 0.5,
+      "embedment": null,
+      "qa": null,
+      "pileCount": null,
+      "pileCapacity": null,
+      "pileLength": null,
+      "mode": "ideal_support",
+      "note": "จุดรองรับยึดแน่นสมมติ ยังไม่ตรวจดิน/กำลังฐาน"
+    },
+    {
+      "id": "F2",
+      "type": "isolated",
+      "nodes": [
+        "N2"
+      ],
+      "bx": 1.5,
+      "bz": 1.5,
+      "depth": 0.5,
+      "embedment": null,
+      "qa": null,
+      "pileCount": null,
+      "pileCapacity": null,
+      "pileLength": null,
+      "mode": "ideal_support",
+      "note": "จุดรองรับยึดแน่นสมมติ ยังไม่ตรวจดิน/กำลังฐาน"
+    },
+    {
+      "id": "F3",
+      "type": "isolated",
+      "nodes": [
+        "N3"
+      ],
+      "bx": 1.5,
+      "bz": 1.5,
+      "depth": 0.5,
+      "embedment": null,
+      "qa": null,
+      "pileCount": null,
+      "pileCapacity": null,
+      "pileLength": null,
+      "mode": "ideal_support",
+      "note": "จุดรองรับยึดแน่นสมมติ ยังไม่ตรวจดิน/กำลังฐาน"
+    },
+    {
+      "id": "F4",
+      "type": "isolated",
+      "nodes": [
+        "N4"
+      ],
+      "bx": 1.5,
+      "bz": 1.5,
+      "depth": 0.5,
+      "embedment": null,
+      "qa": null,
+      "pileCount": null,
+      "pileCapacity": null,
+      "pileLength": null,
+      "mode": "ideal_support",
+      "note": "จุดรองรับยึดแน่นสมมติ ยังไม่ตรวจดิน/กำลังฐาน"
+    }
+  ]
+}

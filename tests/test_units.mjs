@@ -1,0 +1,18 @@
+import assert from 'node:assert/strict';
+import {unit,toDisplay,toCanonical} from '../static/units.js';
+const thai={system:'thai',force:'kgf'},ton={system:'thai',force:'tf'},si={system:'si',force:'kgf'};
+const near=(a,b)=>assert.ok(Math.abs(a-b)<=Math.max(1e-12,Math.abs(b)*1e-12),`${a} != ${b}`);
+near(toCanonical(1,'force',thai),.00980665);
+near(toCanonical(1,'force',ton),9.80665);
+near(toCanonical(1,'stress',thai),.0980665);
+near(toCanonical(25,'section',thai),.25);
+near(toCanonical(250,'section',si),.25);
+near(toCanonical(100,'area',thai),.01);
+near(toCanonical(10000,'inertia',thai),.0001);
+near(toCanonical(100,'line',thai),.980665);
+near(toCanonical(100,'pressure',thai),.980665);
+near(toCanonical(2400,'density',thai),23.53596);
+for(const prefs of [thai,ton,si])for(const kind of ['length','section','force','moment','line','pressure','stress','density','area','inertia'])for(const n of [0,-17.125,.0000037,25000])near(toCanonical(toDisplay(n,kind,prefs),kind,prefs),n);
+assert.equal(toDisplay(null,'force',thai),null);assert.equal(toCanonical(null,'stress',thai),null);
+assert.equal(unit('force',ton).label,'tf');
+console.log('PASS: exact unit anchors, exponent conversions, signed roundtrips, null preservation (3 display modes).');

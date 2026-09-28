@@ -1,0 +1,18 @@
+test_axial (test_engine.Benchmarks.test_axial) ... ok
+test_cantilever_two_axes (test_engine.Benchmarks.test_cantilever_two_axes) ... ok
+test_global_udl_inclined (test_engine.Benchmarks.test_global_udl_inclined) ... ok
+test_inclined_axial_and_moments (test_engine.Benchmarks.test_inclined_axial_and_moments) ... ok
+test_recoverable_incomplete_editor_drafts (test_engine.Benchmarks.test_recoverable_incomplete_editor_drafts) ... ok
+test_roundtrip_and_incomplete_draft (test_engine.Benchmarks.test_roundtrip_and_incomplete_draft) ... ok
+test_section_rotation (test_engine.Benchmarks.test_section_rotation) ... ok
+test_self_weight_and_combinations (test_engine.Benchmarks.test_self_weight_and_combinations) ... ok
+test_simply_supported_udl (test_engine.Benchmarks.test_simply_supported_udl) ... ok
+test_torsion (test_engine.Benchmarks.test_torsion) ... ok
+test_unstable_and_isolated (test_engine.Benchmarks.test_unstable_and_isolated) ... ok
+test_validation (test_engine.Benchmarks.test_validation) ... ok
+test_vertical_axes (test_engine.Benchmarks.test_vertical_axes) ... ok
+
+----------------------------------------------------------------------
+Ran 13 tests in 0.468s
+
+OK
