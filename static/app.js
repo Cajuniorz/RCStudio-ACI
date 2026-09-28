@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import {OrbitControls} from './vendor/OrbitControls.js';
 import {unit,toDisplay,toCanonical} from './units.js';
 import {catalogs,memberRecord,slabRecord,foundationRecord,blankProject,roofSeatElevation} from './building.js';
-import {groupLevels,nearestPlanNode,validateMemberEndpoints,planNodeDraft,snapPlanPoint,splitBeamAtDistance,nearestBeamOnPlan,validPlanGridStep,buildGridLayout,planGridModel,constrainPlanPoint} from './plan.js';
+import {groupLevels,nearestPlanNode,validateMemberEndpoints,planNodeDraft,snapPlanPoint,splitBeamAtDistance,nearestBeamOnPlan,validPlanGridStep,buildGridLayout,buildGridLayoutFromLines,planGridModel,constrainPlanPoint,autoDetectGridLines,planContinuousBeamSegments} from './plan.js';
 
 const $=id=>document.getElementById(id), clone=x=>JSON.parse(JSON.stringify(x));
 const KEY='rcstudio-v1', dofs=['DX','DY','DZ','RX','RY','RZ'];
@@ -17,7 +17,7 @@ const fmt=(n,d=3)=>Number.isFinite(n)?n.toLocaleString('en-US',{maximumFractionD
 const el=(tag,text)=>{const e=document.createElement(tag);if(text!==undefined)e.textContent=text;return e;};
 function status(message,type=''){$('status').textContent=message;$('status').className=type;}
 function persist(){try{localStorage.setItem(KEY,JSON.stringify(model));$('saveStatus').textContent='บันทึกอัตโนมัติแล้ว · '+new Date().toLocaleTimeString('th-TH')+' · ควรเก็บไฟล์สำรอง';}catch{$('saveStatus').textContent='บันทึกอัตโนมัติไม่ได้ กรุณาบันทึกไฟล์';}}
-function mutate(fn){cancelInteraction(false);const previous=clone(model);fn();const caps={nodes:500,members:1000,nodalLoads:1000,memberLoads:1000,combinations:16,slabs:100,foundations:100};if(Object.entries(caps).some(([key,max])=>model[key].length>max)||model.name.length>120||model.combinations.some(c=>c.name.length>120)||[...model.slabs,...model.foundations].some(e=>e.note.length>500)){model=previous;render();status('เกินขีดจำกัด: 500 โหนด / 1000 สมาชิก / 1000 แรงต่อประเภท / 16 ชุดน้ำหนัก / ชื่อ 120 ตัวอักษร','error');return;}history.push(previous);if(history.length>40)history.shift();revision++;result=null;status('โมเดลเปลี่ยนแล้ว · ต้องวิเคราะห์ใหม่');persist();render();}
+function mutate(fn){cancelInteraction(false);const previous=clone(model);fn();const caps={nodes:500,members:1000,nodalLoads:1000,memberLoads:1000,combinations:16,slabs:100,foundations:100};if(Object.entries(caps).some(([key,max])=>model[key].length>max)||model.name.length>120||model.combinations.some(c=>c.name.length>120)||[...model.slabs,...model.foundations].some(e=>e.note.length>500)){model=previous;render();status('เกินขีดจำกัด: 500 โหนด / 1000 สมาชิก / 1000 แรงต่อประเภท / 16 ชุดน้ำหนัก / ชื่อ 120 ตัวอักษร','error');return;}history.push(previous);if(history.length>40)history.shift();revision++;result=null;persist();render();const elevated=model.nodes.find(n=>n.y>0.05&&n.restraints?.some(Boolean));if(elevated)status(`⚠️ คำเตือน: โหนด ${elevated.id} อยู่ที่ระดับ Y=${fmt(elevated.y)} m (ลอยฟ้า) ถูกตั้งเป็นจุดรองรับ ทำให้น้ำหนักไม่ถ่ายลงเสา`,'error');else status('โมเดลเปลี่ยนแล้ว · ต้องวิเคราะห์ใหม่');}
 function options(select,values,current){select.replaceChildren();for(const v of values){const option=el('option',v);option.value=v;select.append(option);}if(values.includes(current))select.value=current;}
 function grid(sx=4,sz=4,nx=1,nz=1,height=3,floors=1,withLoads=false){
  const p=empty();p.name=withLoads?'ตัวอย่างศึกษา · อาคาร 1 ชั้น':'กริดอาคารใหม่';p.selfWeight=true;
@@ -31,6 +31,10 @@ function grid(sx=4,sz=4,nx=1,nz=1,height=3,floors=1,withLoads=false){
   if(iz<nz)add(n,ids.get(`${ix},${iz+1},${f}`),false);
  }
  if(withLoads){for(const m of p.members){const a=p.nodes.find(n=>n.id===m.i),b=p.nodes.find(n=>n.id===m.j);if(a.y===b.y)p.memberLoads.push({member:m.id,case:'L',qx:0,qy:-5,qz:0});}}
+ p.gridLines={
+  x:Array.from({length:nx+1},(_,i)=>({label:String(i+1),value:Number((i*sx).toFixed(3))})),
+  z:Array.from({length:nz+1},(_,i)=>({label:alphaGridLabel(i),value:Number((i*sz).toFixed(3))}))
+ };
  return p;
 }
 
@@ -424,9 +428,8 @@ function generateFullBuilding(opts = {}) {
    for (let ix = 0; ix < nx; ix++) {
     const mid = addRC(ids.get(`${ix},${iz},${f}`), ids.get(`${ix + 1},${iz},${f}`), 'beam', beamB, beamH, null);
     beamsX.set(`${ix},${iz},${f}`, mid);
-    if (isRoof) {
-     p.memberLoads.push({ member: mid, case: 'D', axes: 'local', qx: 0, qy: -1.0, qz: 0 });
-     p.memberLoads.push({ member: mid, case: 'L', axes: 'local', qx: 0, qy: -0.6, qz: 0 });
+    if (isRoof && (iz === 0 || iz === nz)) {
+     p.memberLoads.push({ member: mid, case: 'D', axes: 'local', qx: 0, qy: -0.8, qz: 0 });
     }
    }
   }
@@ -435,9 +438,8 @@ function generateFullBuilding(opts = {}) {
    for (let iz = 0; iz < nz; iz++) {
     const mid = addRC(ids.get(`${ix},${iz},${f}`), ids.get(`${ix},${iz + 1},${f}`), 'beam', beamB, beamH, null);
     beamsZ.set(`${ix},${iz},${f}`, mid);
-    if (isRoof) {
-     p.memberLoads.push({ member: mid, case: 'D', axes: 'local', qx: 0, qy: -1.0, qz: 0 });
-     p.memberLoads.push({ member: mid, case: 'L', axes: 'local', qx: 0, qy: -0.6, qz: 0 });
+    if (isRoof && (ix === 0 || ix === nx)) {
+     p.memberLoads.push({ member: mid, case: 'D', axes: 'local', qx: 0, qy: -0.8, qz: 0 });
     }
    }
   }
@@ -543,7 +545,7 @@ function threeStoryBuilding(sx=4.5,sz=4.0,nx=2,nz=1,height=3.0){
  return generateFullBuilding({ sx, sz, nx, nz, height, floors: 3, roofStyle: 'gable', overhang: 0.90, slabType: 'two_way', hasStaircase: true, footingType: 'pile_cap' });
 }
 
-function warehouse(spanX=12,bayZ=5,numBaysZ=3,colH=4.5,trussH=1.8,panels=4,centerCol=false){
+function warehouse(spanX=12,bayZ=5,numBaysZ=3,colH=4.5,trussH=1.8,panels=4,centerCol=false,groundBeams=true){
  const p=empty();p.name='อาคารโรงงาน + โครงถักเหล็ก ACI';p.selfWeight=true;
  p.designBasis={fc_mpa:23.5,fy_mpa:392,fyt_mpa:235,cover_mm:40,agg_mm:20,stirrup_mm:9,fy_steel_mpa:245};
  p.combinations=[{name:'U1',D:1.4,L:0,W:0},{name:'U2',D:1.2,L:1.6,W:0},{name:'Service',D:1,L:1,W:0}];
@@ -556,24 +558,49 @@ function warehouse(spanX=12,bayZ=5,numBaysZ=3,colH=4.5,trussH=1.8,panels=4,cente
  };
  const addRC=(i,j,kind,b,h)=>{const id='M'+(p.members.length+1);p.members.push({...memberRecord(id,i,j,kind),b,h,sectionType:'rc_rect',behavior:'frame'});return id;};
  const addSteel=(i,j,A=0.0016,Iy=1.5e-6,Iz=1.5e-6,J=1e-7)=>{const id='M'+(p.members.length+1);p.members.push({...memberRecord(id,i,j,'roof'),sectionType:'steel_custom',A,Iy,Iz,J,roofType:'custom',behavior:'frame'});return id;};
+ // 1. Generate all base nodes (y=0) first so they are N1..N_base and have base restraints
  for(let iz=0;iz<=numBaysZ;iz++){
   const z=iz*bayZ;
-  const bL=getNode(`bL_${iz}`,0,0,z,true),tL=getNode(`tL_${iz}`,0,colH,z,false);addRC(bL,tL,'column',0.35,0.35);
-  const bR=getNode(`bR_${iz}`,spanX,0,z,true),tR=getNode(`tR_${iz}`,spanX,colH,z,false);addRC(bR,tR,'column',0.35,0.35);
-  let bC,tC;if(centerCol){bC=getNode(`bC_${iz}`,spanX/2,0,z,true);tC=getNode(`tC_${iz}`,spanX/2,colH,z,false);addRC(bC,tC,'column',0.35,0.35);}
+  getNode(`bL_${iz}`,0,0,z,true);
+  getNode(`bR_${iz}`,spanX,0,z,true);
+  if(centerCol)getNode(`bC_${iz}`,spanX/2,0,z,true);
+ }
+ // 2. Generate all column top nodes (y=colH) next (free/unrestrained)
+ for(let iz=0;iz<=numBaysZ;iz++){
+  const z=iz*bayZ;
+  getNode(`tL_${iz}`,0,colH,z,false);
+  getNode(`tR_${iz}`,spanX,colH,z,false);
+  if(centerCol)getNode(`tC_${iz}`,spanX/2,colH,z,false);
+ }
+ // 3. Generate intermediate truss nodes (free/unrestrained)
+ for(let iz=0;iz<=numBaysZ;iz++){
+  const z=iz*bayZ;
+  for(let k=1;k<totalPanels;k++){
+   if(centerCol&&k===panels)continue;
+   getNode(`tr_bot_${iz}_${k}`,k*dx,colH,z,false);
+  }
+  for(let k=1;k<totalPanels;k++){
+   const pitchFactor=1.0-Math.abs(2*k/totalPanels-1.0);
+   const yTop=colH+trussH*pitchFactor;
+   getNode(`tr_top_${iz}_${k}`,k*dx,yTop,z,false);
+  }
+ }
+ for(let iz=0;iz<=numBaysZ;iz++){
+  const z=iz*bayZ;
+  const bL=nodeMap.get(`bL_${iz}`),tL=nodeMap.get(`tL_${iz}`);addRC(bL,tL,'column',0.35,0.35);
+  const bR=nodeMap.get(`bR_${iz}`),tR=nodeMap.get(`tR_${iz}`);addRC(bR,tR,'column',0.35,0.35);
+  let bC,tC;if(centerCol){bC=nodeMap.get(`bC_${iz}`);tC=nodeMap.get(`tC_${iz}`);addRC(bC,tC,'column',0.35,0.35);}
   p.foundations.push({...foundationRecord('F'+(p.foundations.length+1)),nodes:[bL],bx:1.5,bz:1.5,depth:0.45,qa:150,mode:'ideal_support'});
   p.foundations.push({...foundationRecord('F'+(p.foundations.length+1)),nodes:[bR],bx:1.5,bz:1.5,depth:0.45,qa:150,mode:'ideal_support'});
   if(centerCol)p.foundations.push({...foundationRecord('F'+(p.foundations.length+1)),nodes:[bC],bx:1.5,bz:1.5,depth:0.45,qa:150,mode:'ideal_support'});
   const botNodes=[],topNodes=[];
+  const trib=(iz===0||iz===numBaysZ)?0.5:1.0;
   for(let k=0;k<=totalPanels;k++){
-   const x=k*dx;
-   let botId=k===0?tL:k===totalPanels?tR:centerCol&&k===panels?tC:getNode(`tr_bot_${iz}_${k}`,x,colH,z,false);botNodes.push(botId);
-   const pitchFactor=1.0-Math.abs(2*k/totalPanels-1.0);
-   const yTop=colH+(k===0||k===totalPanels?0:trussH*pitchFactor);
-   let topId=k===0?tL:k===totalPanels?tR:getNode(`tr_top_${iz}_${k}`,x,yTop,z,false);topNodes.push(topId);
+   let botId=k===0?tL:k===totalPanels?tR:centerCol&&k===panels?tC:nodeMap.get(`tr_bot_${iz}_${k}`);botNodes.push(botId);
+   let topId=k===0?tL:k===totalPanels?tR:nodeMap.get(`tr_top_${iz}_${k}`);topNodes.push(topId);
    if(k>0&&k<totalPanels){
-    p.nodalLoads.push({node:topId,case:'D',fx:0,fy:-2.5,fz:0,mx:0,my:0,mz:0});
-    p.nodalLoads.push({node:topId,case:'L',fx:0,fy:-4.0,fz:0,mx:0,my:0,mz:0});
+    p.nodalLoads.push({node:topId,case:'D',fx:0,fy:Math.round(-2.5*trib*1000)/1000,fz:0,mx:0,my:0,mz:0});
+    p.nodalLoads.push({node:topId,case:'L',fx:0,fy:Math.round(-4.0*trib*1000)/1000,fz:0,mx:0,my:0,mz:0});
    }
   }
   for(let k=0;k<totalPanels;k++)addSteel(botNodes[k],botNodes[k+1],0.0016,1.5e-6,1.5e-6,1e-7);
@@ -593,30 +620,113 @@ function warehouse(spanX=12,bayZ=5,numBaysZ=3,colH=4.5,trussH=1.8,panels=4,cente
    if(p0&&p1&&p0!==p1)addSteel(p0,p1,0.0008,5e-7,5e-7,5e-8);
   }
  }
+ if(groundBeams){
+  for(let iz=0;iz<numBaysZ;iz++){
+   addRC(getNode(`bL_${iz}`),getNode(`bL_${iz+1}`),'beam',0.25,0.40);
+   addRC(getNode(`bR_${iz}`),getNode(`bR_${iz+1}`),'beam',0.25,0.40);
+   if(centerCol)addRC(getNode(`bC_${iz}`),getNode(`bC_${iz+1}`),'beam',0.25,0.40);
+  }
+  for(let iz=0;iz<=numBaysZ;iz++){
+   if(centerCol){
+    addRC(getNode(`bL_${iz}`),getNode(`bC_${iz}`),'beam',0.25,0.40);
+    addRC(getNode(`bC_${iz}`),getNode(`bR_${iz}`),'beam',0.25,0.40);
+   }else{
+    addRC(getNode(`bL_${iz}`),getNode(`bR_${iz}`),'beam',0.25,0.40);
+   }
+  }
+ }
+ p.gridLines={
+  x:[{label:'1',value:0},...(centerCol?[{label:'2',value:Math.round(spanX/2*1000)/1000}]:[]),{label:centerCol?'3':'2',value:Math.round(spanX*1000)/1000}],
+  z:Array.from({length:numBaysZ+1},(_,i)=>({label:alphaGridLabel(i),value:Math.round(i*bayZ*1000)/1000}))
+ };
  return p;
 }
 
 
 // A local, self-contained viewer. Global Y is up in both renderer and solver.
 const scene=new THREE.Scene();let camera=new THREE.PerspectiveCamera(42,1,.01,10000),controls;
-const renderer=new THREE.WebGLRenderer({antialias:true,alpha:true});renderer.setPixelRatio(Math.min(devicePixelRatio,2));$('canvas').append(renderer.domElement);
+const renderer=new THREE.WebGLRenderer({antialias:true,alpha:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.toneMapping=THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure=1.0;
+$('canvas').append(renderer.domElement);
 let saved3D={position:new THREE.Vector3(11,9,13),target:new THREE.Vector3(2,1.5,2)},planFrustumHeight=12;
-function bindControls(target,position,up){controls?.dispose();controls=new OrbitControls(camera,renderer.domElement);controls.enableDamping=true;controls.enableRotate=viewMode!=='plan';controls.enabled=!(viewMode==='plan'&&activeTool==='beam');if(up)camera.up.copy(up);camera.position.copy(position);camera.lookAt(target);controls.target.copy(target);controls.update();}
+let currentPlanGridTags=[];
+function updatePlanGridOverlay(){
+ if(viewMode!=='plan'||!currentPlanGridTags.length)return;
+ const overlay=$('gridLabelsOverlay');if(!overlay)return;
+ const box=overlay.getBoundingClientRect();if(!box.width||!box.height)return;
+ for(const item of currentPlanGridTags){
+  const p=item.world.clone().project(camera);
+  if(p.z>1||Math.abs(p.x)>1.15||Math.abs(p.y)>1.15){item.el.style.display='none';continue;}
+  item.el.style.display='';
+  item.el.style.left=`${(p.x+1)*box.width/2}px`;
+  item.el.style.top=`${(1-p.y)*box.height/2}px`;
+ }
+}
+function bindControls(target,position,up){controls?.dispose();controls=new OrbitControls(camera,renderer.domElement);controls.enableDamping=true;controls.enableRotate=viewMode!=='plan';controls.enabled=!(viewMode==='plan'&&activeTool==='beam');if(up)camera.up.copy(up);camera.position.copy(position);camera.lookAt(target);controls.target.copy(target);controls.addEventListener('change',updatePlanGridOverlay);controls.update();window.__rc_camera=camera;window.__rc_renderer=renderer;window.__rc_controls=controls;}
 bindControls(saved3D.target,saved3D.position);
-scene.add(new THREE.AmbientLight(0xffffff,2));const light=new THREE.DirectionalLight(0xffffff,3);light.position.set(4,10,6);scene.add(light);
+scene.add(new THREE.AmbientLight(0xffffff,1.2));
+const mainLight=new THREE.DirectionalLight(0xffffff,1.2);mainLight.position.set(10,20,15);scene.add(mainLight);
+const fillLight=new THREE.DirectionalLight(0xffffff,0.5);fillLight.position.set(-10,-10,-10);scene.add(fillLight);
 const gridHelper=new THREE.GridHelper(40,40,0x395776,0x24384e);scene.add(gridHelper);scene.add(new THREE.AxesHelper(1.5));let group=new THREE.Group();scene.add(group);
 const ray=new THREE.Raycaster(),pointer=new THREE.Vector2();
-function resizeViewport(){const {width,height}=$('canvas').getBoundingClientRect(),w=Math.max(1,width),h=Math.max(1,height);renderer.setSize(w,h);if(camera.isPerspectiveCamera)camera.aspect=w/h;else{const aspect=w/h;camera.left=-planFrustumHeight*aspect/2;camera.right=planFrustumHeight*aspect/2;camera.top=planFrustumHeight/2;camera.bottom=-planFrustumHeight/2;}camera.updateProjectionMatrix();}
+ray.params.Line={threshold:0.18};
+function resizeViewport(){const {width,height}=$('canvas').getBoundingClientRect(),w=Math.max(1,width),h=Math.max(1,height);renderer.setSize(w,h);if(camera.isPerspectiveCamera)camera.aspect=w/h;else{const aspect=w/h;camera.left=-planFrustumHeight*aspect/2;camera.right=planFrustumHeight*aspect/2;camera.top=planFrustumHeight/2;camera.bottom=-planFrustumHeight/2;}camera.updateProjectionMatrix();updatePlanGridOverlay();}
 new ResizeObserver(()=>{resizeViewport();if(model)drawModel();}).observe($('canvas'));
-renderer.setAnimationLoop(()=>{controls.update();renderer.render(scene,camera);});
-function labelSprite(text, width=280, height=64, fontSize=24){
- const c=document.createElement('canvas');c.width=width;c.height=height;
- const ctx=c.getContext('2d');ctx.font=`bold ${fontSize}px sans-serif`;
- ctx.fillStyle='#d2e3f6';ctx.textAlign='center';ctx.textBaseline='middle';
- ctx.fillText(text,width/2,height/2);
- const texture=new THREE.CanvasTexture(c);
- const sprite=new THREE.Sprite(new THREE.SpriteMaterial({map:texture,depthTest:false}));
- sprite.scale.set((width/250)*0.7,(height/64)*0.23,1);return sprite;
+renderer.setAnimationLoop(()=>{controls.update();updatePlanGridOverlay();renderer.render(scene,camera);});
+function labelSprite(text, width=0, height=44, fontSize=16, options={}){
+ const dpr = 2;
+ const c = document.createElement('canvas');
+ const ctxM = c.getContext('2d');
+ ctxM.font = `bold ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+ const textW = ctxM.measureText(text).width;
+ const padX = options.padX ?? 12;
+ const realW = Math.max(width || 40, Math.ceil(textW + padX * 2));
+ const realH = height || 44;
+
+ c.width = realW * dpr;
+ c.height = realH * dpr;
+ const ctx = c.getContext('2d');
+ ctx.scale(dpr, dpr);
+
+ const bg = options.bg ?? 'rgba(15, 23, 42, 0.88)';
+ const border = options.border ?? 'rgba(148, 163, 184, 0.45)';
+ const color = options.color ?? '#e2e8f0';
+ const radius = options.radius ?? 6;
+
+ if (bg) {
+  ctx.beginPath();
+  if (ctx.roundRect) {
+   ctx.roundRect(1.5, 1.5, realW - 3, realH - 3, radius);
+  } else {
+   ctx.rect(1.5, 1.5, realW - 3, realH - 3);
+  }
+  ctx.fillStyle = bg;
+  ctx.fill();
+  if (border) {
+   ctx.lineWidth = 1.5;
+   ctx.strokeStyle = border;
+   ctx.stroke();
+  }
+ }
+
+ ctx.font = `bold ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+ ctx.fillStyle = color;
+ ctx.textAlign = 'center';
+ ctx.textBaseline = 'middle';
+ ctx.fillText(text, realW / 2, realH / 2);
+
+ const texture = new THREE.CanvasTexture(c);
+ texture.minFilter = THREE.LinearFilter;
+ const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
+  map: texture,
+  depthTest: options.alwaysOnTop ? false : (options.depthTest ?? true),
+  depthWrite: false
+ }));
+ if (options.alwaysOnTop) sprite.renderOrder = 1000;
+ sprite.scale.set((realW / 200) * 0.52, (realH / 44) * 0.18, 1);
+ return sprite;
 }
 
 let cachedMemberMarks=new Map(),cachedFoundationMarks=new Map(),cachedSlabMarks=new Map(),cachedMarkRev=-1;
@@ -703,7 +813,7 @@ function computeMarks(){
 function getMemberMark(m){if(!m)return '';if(designResult?.labels?.[m.id])return designResult.labels[m.id];computeMarks();return cachedMemberMarks.get(m.id)||m.id;}
 function getFoundationMark(f){if(!f)return '';if(designResult?.labels?.[f.id])return designResult.labels[f.id];if(designResult?.footings?.[f.id]?.label)return designResult.footings[f.id].label;computeMarks();return cachedFoundationMarks.get(f.id)||f.id;}
 function getSlabMark(s){if(!s)return '';if(designResult?.labels?.[s.id])return designResult.labels[s.id];if(designResult?.slabs?.[s.id]?.label)return designResult.slabs[s.id].label;computeMarks();return cachedSlabMarks.get(s.id)||s.id;}
-function line(points,color){const g=new THREE.BufferGeometry().setFromPoints(points);const l=new THREE.Line(g,new THREE.LineBasicMaterial({color}));group.add(l);return l;}
+function line(points,color,dashed=false){const g=new THREE.BufferGeometry().setFromPoints(points);const material=dashed?new THREE.LineDashedMaterial({color,dashSize:.28,gapSize:.18,transparent:true,opacity:.7}):new THREE.LineBasicMaterial({color});const l=new THREE.Line(g,material);if(dashed)l.computeLineDistances();group.add(l);return l;}
 function getMemberLocalAxes(a,b,rotationDeg=0){
  const dx=b.x-a.x,dy=b.y-a.y,dz=b.z-a.z,L=Math.hypot(dx,dy,dz);
  if(L<1e-6)return{x:[1,0,0],y:[0,1,0],z:[0,0,1],L:0};
@@ -737,11 +847,41 @@ function getMemberLocalAxes(a,b,rotationDeg=0){
 }
 const planLevels=()=>groupLevels(model.nodes,PLAN_LEVEL_TOLERANCE);
 function choosePlanLevel(levels){let best=levels[0],bestCount=-1;for(const level of levels){const ids=new Set(level.nodes.map(node=>node.id));const count=model.members.filter(member=>ids.has(member.i)&&ids.has(member.j)&&member.kind==='beam').length+model.slabs.filter(slab=>slab.nodes.length>=3&&slab.nodes.every(id=>ids.has(id))).length*2;if(count>bestCount){best=level;bestCount=count;}}return best?.y??null;}
-function renderPlanControls(){const levels=planLevels(),select=$('planLevel'),previous=planLevelY;select.replaceChildren();for(const level of levels){const option=el('option',level.label);option.value=String(level.y);select.append(option);}if(levels.length){const custom=Number.isFinite(previous)&&!levels.some(level=>Math.abs(level.y-previous)<=PLAN_LEVEL_TOLERANCE);if(custom){const option=el('option',`ระดับอิสระ · Y ${Number(previous.toFixed(3))} m`);option.value=String(previous);select.append(option);}else if(!levels.some(level=>Math.abs(level.y-(previous??NaN))<=PLAN_LEVEL_TOLERANCE))planLevelY=choosePlanLevel(levels);const level=levels.find(item=>Math.abs(item.y-planLevelY)<=PLAN_LEVEL_TOLERANCE);if(level)planLevelY=level.y;select.value=String(planLevelY);}else if(!Number.isFinite(planLevelY))planLevelY=null;select.disabled=!levels.length&&planLevelY===null;select.hidden=viewMode!=='plan';$('planElevation').hidden=viewMode!=='plan';$('setPlanElevation').hidden=viewMode!=='plan';$('planGridStep').disabled=!$('planSnap').checked;$('planTools').hidden=viewMode!=='plan';$('labelToggle').hidden=viewMode==='plan';$('deformedToggle').hidden=viewMode==='plan';if($('localAxesToggle'))$('localAxesToggle').hidden=viewMode==='plan';if($('diagram3dToggle'))$('diagram3dToggle').hidden=viewMode==='plan';$('view3d').classList.toggle('active',viewMode==='3d');$('viewPlan').classList.toggle('active',viewMode==='plan');$('planSelectTool').classList.toggle('active',activeTool==='select');$('planNodeTool').classList.toggle('active',activeTool==='node');$('planMemberNodeTool').classList.toggle('active',activeTool==='memberNode');$('planBeamTool').classList.toggle('active',activeTool==='beam');$('planBeamLockX').hidden=viewMode!=='plan'||activeTool!=='beam';$('planBeamLockZ').hidden=viewMode!=='plan'||activeTool!=='beam';$('planBeamLockX').classList.toggle('active',beamAxisLock==='x');$('planBeamLockZ').classList.toggle('active',beamAxisLock==='z');$('viewHint').textContent=viewMode==='plan'?'ผัง X–Z · ระดับ '+(levels.find(item=>item.y===planLevelY)?.label??`Y ${fmt(planLevelY)} m`):'ลากหมุน · ล้อเมาส์ซูม · คลิกเลือก';if(viewMode==='plan'&&previous!==planLevelY){cancelInteraction(false);fitPlan();}}
+function renderPlanControls(){const levels=planLevels(),select=$('planLevel'),previous=planLevelY;select.replaceChildren();for(const level of levels){const option=el('option',level.label);option.value=String(level.y);select.append(option);}if(levels.length){const custom=Number.isFinite(previous)&&!levels.some(level=>Math.abs(level.y-previous)<=PLAN_LEVEL_TOLERANCE);if(custom){const option=el('option',`ระดับอิสระ · Y ${Number(previous.toFixed(3))} m`);option.value=String(previous);select.append(option);}else if(!levels.some(level=>Math.abs(level.y-(previous??NaN))<=PLAN_LEVEL_TOLERANCE))planLevelY=choosePlanLevel(levels);const level=levels.find(item=>Math.abs(item.y-planLevelY)<=PLAN_LEVEL_TOLERANCE);if(level)planLevelY=level.y;select.value=String(planLevelY);}else if(!Number.isFinite(planLevelY))planLevelY=null;select.disabled=!levels.length&&planLevelY===null;select.hidden=viewMode!=='plan';$('planElevation').hidden=viewMode!=='plan';$('setPlanElevation').hidden=viewMode!=='plan';$('planGridStep').disabled=!$('planSnap').checked;$('planTools').hidden=viewMode!=='plan';$('labelToggle').hidden=viewMode==='plan';$('deformedToggle').hidden=viewMode==='plan';if($('localAxesToggle'))$('localAxesToggle').hidden=viewMode==='plan';if($('diagram3dToggle'))$('diagram3dToggle').hidden=viewMode==='plan';if($('diagramValuesToggle'))$('diagramValuesToggle').hidden=viewMode==='plan'||!$('diagram3d')?.checked;$('view3d').classList.toggle('active',viewMode==='3d');$('viewPlan').classList.toggle('active',viewMode==='plan');$('planSelectTool').classList.toggle('active',activeTool==='select');$('planNodeTool').classList.toggle('active',activeTool==='node');$('planMemberNodeTool').classList.toggle('active',activeTool==='memberNode');$('planBeamTool').classList.toggle('active',activeTool==='beam');$('planBeamLockX').hidden=viewMode!=='plan'||activeTool!=='beam';$('planBeamLockZ').hidden=viewMode!=='plan'||activeTool!=='beam';$('planBeamLockX').classList.toggle('active',beamAxisLock==='x');$('planBeamLockZ').classList.toggle('active',beamAxisLock==='z');$('viewHint').textContent=viewMode==='plan'?'ผัง X–Z · ระดับ '+(levels.find(item=>item.y===planLevelY)?.label??`Y ${fmt(planLevelY)} m`):'ลากหมุน · ล้อเมาส์ซูม · คลิกเลือก';if(viewMode==='plan'&&previous!==planLevelY){cancelInteraction(false);fitPlan();}}
 function cancelInteraction(redraw=true){pointerStart=null;beamDrag=null;lineSnapHover=null;$('beamHint').textContent='';if(controls)controls.enabled=!(viewMode==='plan'&&activeTool==='beam');if(redraw&&model)drawModel();}
 function setPlanTool(tool){cancelInteraction(false);activeTool=tool;beamAxisLock=null;if(controls)controls.enabled=!(viewMode==='plan'&&activeTool==='beam');renderPlanControls();drawModel();}
 function setBeamAxisLock(axis){beamAxisLock=beamAxisLock===axis?null:axis;renderPlanControls();if(beamDrag)drawModel();status(beamAxisLock?`ล็อกแนว ${beamAxisLock.toUpperCase()} · ${beamAxisLock==='x'?'คง Z':'คง X'} จากโหนดเริ่ม · กด ${beamAxisLock.toUpperCase()} ซ้ำเพื่อปลดล็อก`:'ปลดล็อกแกน');}
-function fitPlan(){const all=model.nodes.filter(node=>[node.x,node.y,node.z].every(Number.isFinite)),levelNodes=all.filter(node=>planLevelY!==null&&Math.abs(node.y-planLevelY)<=PLAN_LEVEL_TOLERANCE),nodes=levelNodes.length?levelNodes:all;const minX=nodes.length?Math.min(...nodes.map(n=>n.x)):0,maxX=nodes.length?Math.max(...nodes.map(n=>n.x)):10,minZ=nodes.length?Math.min(...nodes.map(n=>n.z)):0,maxZ=nodes.length?Math.max(...nodes.map(n=>n.z)):10,minY=nodes.length?Math.min(...nodes.map(n=>n.y)):0,maxY=nodes.length?Math.max(...nodes.map(n=>n.y)):0,center=new THREE.Vector3((minX+maxX)/2,(minY+maxY)/2,(minZ+maxZ)/2),aspect=Math.max(1,$('canvas').clientWidth)/Math.max(1,$('canvas').clientHeight);planFrustumHeight=Math.max(maxZ-minZ,(maxX-minX)/aspect,1)*1.5;const distance=Math.max(20,maxY-minY+10);camera=new THREE.OrthographicCamera(-planFrustumHeight*aspect/2,planFrustumHeight*aspect/2,planFrustumHeight/2,-planFrustumHeight/2,.1,10000);bindControls(center,new THREE.Vector3(center.x,center.y+distance,center.z),new THREE.Vector3(0,0,-1));gridHelper.position.y=planLevelY??0;resizeViewport();}
+function fitPlan(){
+ const all=model.nodes.filter(node=>[node.x,node.y,node.z].every(Number.isFinite)),
+       levelNodes=all.filter(node=>planLevelY!==null&&Math.abs(node.y-planLevelY)<=PLAN_LEVEL_TOLERANCE),
+       nodes=levelNodes.length?levelNodes:all,
+       gridX=model.gridLines?.x||[],
+       gridZ=model.gridLines?.z||[],
+       xs=[...nodes.map(n=>n.x),...gridX.map(g=>g.value).filter(Number.isFinite)],
+       zs=[...nodes.map(n=>n.z),...gridZ.map(g=>g.value).filter(Number.isFinite)],
+       minX=xs.length?Math.min(...xs):0,
+       maxX=xs.length?Math.max(...xs):10,
+       minZ=zs.length?Math.min(...zs):0,
+       maxZ=zs.length?Math.max(...zs):10,
+       minY=nodes.length?Math.min(...nodes.map(n=>n.y)):0,
+       maxY=nodes.length?Math.max(...nodes.map(n=>n.y)):0,
+       spanX=Math.max(maxX-minX,1),
+       spanZ=Math.max(maxZ-minZ,1),
+       leftMargin=Math.max(2.8,spanX*.25),
+       topMargin=Math.max(2.8,spanZ*.25),
+       rightMargin=Math.max(1.2,spanX*.1),
+       bottomMargin=Math.max(1.2,spanZ*.1),
+       totalSpanX=spanX+leftMargin+rightMargin,
+       totalSpanZ=spanZ+topMargin+bottomMargin,
+       center=new THREE.Vector3(minX-leftMargin+totalSpanX/2,(minY+maxY)/2,minZ-topMargin+totalSpanZ/2),
+       aspect=Math.max(1,$('canvas').clientWidth)/Math.max(1,$('canvas').clientHeight);
+ planFrustumHeight=Math.max(totalSpanZ/.85,totalSpanX/(.85*aspect),1)*1.05;
+ const distance=Math.max(20,maxY-minY+10);
+ camera=new THREE.OrthographicCamera(-planFrustumHeight*aspect/2,planFrustumHeight*aspect/2,planFrustumHeight/2,-planFrustumHeight/2,.1,10000);
+ bindControls(center,new THREE.Vector3(center.x,center.y+distance,center.z),new THREE.Vector3(0,0,-1));
+ gridHelper.position.y=planLevelY??0;
+ resizeViewport();
+}
 function setViewMode(mode){if(mode===viewMode)return;cancelInteraction(false);activeTool='select';beamAxisLock=null;if(viewMode==='3d'){saved3D={position:camera.position.clone(),target:controls.target.clone()};}viewMode=mode;renderPlanControls();if(mode==='plan')fitPlan();else{camera=new THREE.PerspectiveCamera(42,1,.01,10000);bindControls(saved3D.target,saved3D.position);gridHelper.position.y=0;resizeViewport();}drawModel();}
 function planPointerPoint(event){const rect=renderer.domElement.getBoundingClientRect();if(!rect.width||!rect.height||planLevelY===null)return null;pointer.set((event.clientX-rect.left)/rect.width*2-1,-(event.clientY-rect.top)/rect.height*2+1);ray.setFromCamera(pointer,camera);return ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0,1,0),-planLevelY),new THREE.Vector3());}
 function snapPlanNode(event){const point=planPointerPoint(event);if(!point)return null;const zoom=camera.isOrthographicCamera?camera.zoom:1,threshold=planFrustumHeight/Math.max(.01,zoom)/Math.max(1,renderer.domElement.clientHeight)*18;return nearestPlanNode(model.nodes,point.x,point.z,planLevelY,PLAN_LEVEL_TOLERANCE,threshold);}
@@ -754,8 +894,8 @@ function commitReferenceNode(memberId,fromNodeId,distance){
  mutate(()=>{const idx=model.members.findIndex(m=>m.id===memberId);model.nodes.push(plan.node);model.members.splice(idx,1,...plan.members);model.memberLoads=model.memberLoads.filter(load=>load.member!==memberId).concat(plan.memberLoads);selected={kind:'nodes',id:plan.node.id};tab='nodes';});
  if(revision!==before)status(`สร้าง ${plan.node.id} ห่างจาก ${fromNodeId} ${fmt(distance)} m บนคาน ${memberId} · แบ่งคานเป็น ${plan.members.map(m=>m.id).join(' / ')} แล้ว · ต้องวิเคราะห์ใหม่`);
 }
-async function createBuildingGrid(){
- const layout=buildGridLayout({countX:Number($('gridCountX').value),countZ:Number($('gridCountZ').value),spacingX:Number($('gridSpacingX').value),spacingZ:Number($('gridSpacingZ').value),startX:Number($('gridStartX').value),startZ:Number($('gridStartZ').value),y:Number($('gridLevelY').value)});
+async function createBuildingGrid(layoutOverride=null){
+ const layout=layoutOverride||buildGridLayout({countX:Number($('gridCountX').value),countZ:Number($('gridCountZ').value),spacingX:Number($('gridSpacingX').value),spacingZ:Number($('gridSpacingZ').value),startX:Number($('gridStartX').value),startZ:Number($('gridStartZ').value),y:Number($('gridLevelY').value)});
  if(!layout.ok)return status(layout.reason,'error');
  const proposed=planGridModel(model,layout,{beamsX:$('gridBeamsX').checked,beamsZ:$('gridBeamsZ').checked,b:memberDraft.b,h:memberDraft.h});
  if(!proposed.ok)return status(proposed.reason,'error');
@@ -765,6 +905,70 @@ async function createBuildingGrid(){
  const before=revision,candidate=clone(model);candidate.gridLines=proposed.gridLines;candidate.nodes.push(...proposed.nodes);candidate.members.push(...proposed.members);
  status('ตรวจสอบข้อมูลกริดและการเชื่อมต่อก่อนสร้าง…');
  try{const checked=await api('/api/validate',candidate);if(revision!==before)return status('โมเดลเปลี่ยนระหว่างตรวจกริด กรุณากดสร้างอีกครั้ง','error');mutate(()=>{model=checked.model;selected=proposed.members.length?{kind:'members',id:proposed.members[0].id}:proposed.nodes.length?{kind:'nodes',id:proposed.nodes[0].id}:null;tab=proposed.members.length?'beams':'nodes';});if(revision!==before){if(viewMode==='plan')fitPlan();status(`สร้างกริด X 1–${layout.lines.x.length} / Z A–${layout.lines.z.map(g=>g.label).at(-1)} · จุดตัด ${layout.nodes.length} · เพิ่มโหนด ${proposed.nodes.length} · เพิ่มคาน ${proposed.members.length} · b/h ${fmt(memberDraft.b)}×${fmt(memberDraft.h)} m · ตรวจแบบใหม่ก่อนวิเคราะห์`);}}catch(error){if(revision===before)status(`สร้างกริดไม่ได้: ${error.message}`,'error');}
+}
+function gridEditorRows(axis){return [...$(`gridEditor${axis.toUpperCase()}`).querySelectorAll('tr')].map(row=>({label:row.querySelector('.axis-label-input').value.trim(),value:row.querySelector('.axis-value-input').value.trim()===''?NaN:Number(row.querySelector('.axis-value-input').value)}));}
+function refreshGridEditorGaps(axis){
+ const rows=[...$(`gridEditor${axis.toUpperCase()}`).querySelectorAll('tr')];
+ rows.forEach((row,i)=>{
+  const current=Number(row.querySelector('.axis-value-input').value),previous=i?Number(rows[i-1].querySelector('.axis-value-input').value):NaN,gapInput=row.querySelector('.grid-gap-input');
+  if(!gapInput)return;
+  if(i&&Number.isFinite(current)&&Number.isFinite(previous)){gapInput.value=fmt(current-previous,3);}else{gapInput.value='';}
+ });
+}
+function onGridGapChange(axis,changedIndex){
+ const rows=[...$(`gridEditor${axis.toUpperCase()}`).querySelectorAll('tr')];
+ if(changedIndex<=0||changedIndex>=rows.length)return;
+ const gapVal=Number(rows[changedIndex].querySelector('.grid-gap-input').value);
+ if(!Number.isFinite(gapVal)||gapVal<=0)return;
+ for(let k=changedIndex;k<rows.length;k++){
+  const prevVal=Number(rows[k-1].querySelector('.axis-value-input').value);
+  const thisGap=k===changedIndex?gapVal:Number(rows[k].querySelector('.grid-gap-input').value);
+  if(Number.isFinite(prevVal)&&Number.isFinite(thisGap)){
+   const newVal=Number((prevVal+thisGap).toFixed(3));
+   rows[k].querySelector('.axis-value-input').value=String(newVal);
+  }
+ }
+ refreshGridEditorGaps(axis);
+}
+function renderGridEditorAxis(axis,lines){
+ const body=$(`gridEditor${axis.toUpperCase()}`);body.replaceChildren();
+ lines.forEach((line,index)=>{
+  const row=el('tr'),labelCell=el('td'),valueCell=el('td'),gapCell=el('td'),actionCell=el('td');
+  const label=el('input');label.className='axis-label-input';label.value=line.label;label.maxLength=12;label.setAttribute('aria-label',`ชื่อแนว ${axis} ${index+1}`);
+  const value=el('input');value.className='axis-value-input';value.type='number';value.step='.001';value.value=String(line.value);value.setAttribute('aria-label',`พิกัดแนว ${axis} ${index+1} เมตร`);
+  labelCell.append(label);valueCell.append(value);
+  if(index>0){
+   const gapInput=el('input');gapInput.className='grid-gap-input';gapInput.type='number';gapInput.step='.001';gapInput.min='0.001';gapInput.placeholder='ช่วง (m)';gapInput.setAttribute('aria-label',`ระยะช่วงแกน ${axis} แนวที่ ${index+1} จากแนวก่อนหน้า`);
+   gapInput.addEventListener('input',()=>onGridGapChange(axis,index));
+   gapCell.append(gapInput);
+  }else{
+   gapCell.style.textAlign='center';gapCell.style.color='#7e93a7';gapCell.textContent='(เริ่ม)';
+  }
+  const remove=el('button','ลบ');remove.type='button';remove.className='remove-grid-axis';remove.disabled=lines.length<=2;remove.setAttribute('aria-label',`ลบแนว ${axis} ${line.label}`);
+  remove.onclick=()=>{const current=gridEditorRows(axis);if(current.length<=2)return;current.splice(index,1);renderGridEditorAxis(axis,current);};
+  actionCell.append(remove);row.append(labelCell,valueCell,gapCell,actionCell);body.append(row);
+  value.addEventListener('input',()=>refreshGridEditorGaps(axis));
+ });
+ refreshGridEditorGaps(axis);
+}
+function openGridEditor(){
+ const saved=model.gridLines||{x:[],z:[]};let lines=(saved.x?.length>=2&&saved.z?.length>=2)?{x:clone(saved.x),z:clone(saved.z)}:null;
+ if(!lines){
+  const detected=autoDetectGridLines(model.nodes,{levelY:planLevelY});
+  if(detected.ok){lines=detected.lines;}
+  else{
+   const layout=buildGridLayout({countX:Number($('gridCountX')?.value||2),countZ:Number($('gridCountZ')?.value||2),spacingX:Number($('gridSpacingX')?.value||4),spacingZ:Number($('gridSpacingZ')?.value||4),startX:Number($('gridStartX')?.value||0),startZ:Number($('gridStartZ')?.value||0),y:Number($('gridLevelY')?.value||0)});
+   lines=layout.ok?layout.lines:{x:[{label:'1',value:0},{label:'2',value:4}],z:[{label:'A',value:0},{label:'B',value:4}]};
+  }
+ }
+ renderGridEditorAxis('x',lines.x);renderGridEditorAxis('z',lines.z);$('gridEditorHelp').textContent='💡 แก้ไขได้ทั้งช่อง "พิกัดสะสม" หรือ "ช่วงจากก่อน" (แก้ระยะช่วงจะปรับพิกัดสะสมอัตโนมัติ) · ตรวจจับจากเสาได้ทันที';$('gridEditorDialog').showModal();
+}
+function addGridEditorAxis(axis){const rows=gridEditorRows(axis);if(rows.length>=20)return status('เพิ่มได้สูงสุด 20 แนวต่อแกน','error');const step=Math.max(.05,Number($(`gridSpacing${axis.toUpperCase()}`).value)||4);const last=rows.at(-1),value=(Number.isFinite(last?.value)?last.value:0)+step,label=axis==='x'?String(rows.length+1):alphaGridLabel(rows.length);rows.push({label,value:Number(value.toFixed(3))});renderGridEditorAxis(axis,rows);}
+function alphaGridLabel(index){let n=index+1,out='';while(n>0){n--;out=String.fromCharCode(65+n%26)+out;n=Math.floor(n/26);}return out;}
+async function buildGridFromEditor(){
+ const layout=buildGridLayoutFromLines({linesX:gridEditorRows('x'),linesZ:gridEditorRows('z'),y:Number($('gridLevelY').value)});
+ if(!layout.ok){$('gridEditorHelp').textContent=layout.reason;$('gridEditorHelp').classList.add('error');return status(layout.reason,'error');}
+ $('gridEditorHelp').classList.remove('error');const before=revision;await createBuildingGrid(layout);if(revision!==before)$('gridEditorDialog').close();
 }
 function planBeamEndpoint(event,startNode){
  const raw=planPointerPoint(event);if(!raw)return {error:'เลือกระดับแปลนก่อนวาดคาน'};
@@ -779,27 +983,197 @@ function planBeamEndpoint(event,startNode){
  const snap=nearestPlanNode(candidates,point.x,point.z,planLevelY,PLAN_LEVEL_TOLERANCE,tol);
  return {point:snap?{x:snap.node.x,y:snap.node.y,z:snap.node.z}:point,node:snap?.node||null,useGrid,step};
 }
+function getActiveMemberProps(role=$('planBeamRole')?.value||'beam'){
+ if(role==='beam'){
+  return {kind:'beam',b:memberDraft.b,h:memberDraft.h,rotation:0,sectionType:'rc_rect',A:null,Iy:null,Iz:null,J:null,roofType:'custom',behavior:'frame',roofRole:null};
+ }
+ const steelDefs={
+  AS:{b:.10,h:.125,A:1.8e-3,Iy:1.8e-6,Iz:4.0e-6,J:5e-8},
+  rafter:{b:.08,h:.125,A:1.4e-3,Iy:1.2e-6,Iz:3.5e-6,J:4e-8},
+  purlin:{b:.05,h:.10,A:7e-4,Iy:6e-7,Iz:1.8e-6,J:4e-8},
+  ridge:{b:.10,h:.15,A:1.6e-3,Iy:1.5e-6,Iz:5.0e-6,J:6e-8}
+ };
+ const def=steelDefs[role]||steelDefs.AS;
+ return {kind:'roof',b:def.b,h:def.h,rotation:0,sectionType:'steel_custom',A:def.A,Iy:def.Iy,Iz:def.Iz,J:def.J,roofType:'custom',behavior:'frame',roofRole:role};
+}
 function commitPlanBeamPoint(startId,point){
  const start=model.nodes.find(n=>n.id===startId);if(!start)return status('ไม่พบโหนดเริ่มต้น','error');
- const b=memberDraft.b,h=memberDraft.h;if(!Number.isFinite(b)||!Number.isFinite(h)||b<.01||h<.01)return status('กรอกขนาด b และ h ของคานให้มากกว่า 0.01 m','error');
- const draft=planNodeDraft(model.nodes,point,nextId('N',model.nodes));if(!draft.ok)return status(draft.reason,'error');
- const validation=validateMemberEndpoints([...model.nodes,draft.node],model.members,startId,draft.node.id,{levelY:planLevelY,levelTolerance:PLAN_LEVEL_TOLERANCE,disallowIntervening:true});if(!validation.ok)return status(validation.reason,'error');
- const before=revision;mutate(()=>{const member=memberRecord(nextId('M',model.members),startId,draft.node.id,'beam');member.b=b;member.h=h;model.nodes.push(draft.node);model.members.push(member);selected={kind:'members',id:member.id};tab='beams';});if(revision!==before)status(`วาดคาน ${startId} → ${draft.node.id} แล้ว · ปลายใหม่ X ${fmt(draft.node.x)} Z ${fmt(draft.node.z)} m · ต้องวิเคราะห์ใหม่`);
+ const role=$('planBeamRole')?.value||'beam',props=getActiveMemberProps(role);
+ if(props.kind==='beam'&&(!Number.isFinite(props.b)||!Number.isFinite(props.h)||props.b<.01||props.h<.01))return status('กรอกขนาด b และ h ของคานให้มากกว่า 0.01 m','error');
+ const isContinuous=$('planContinuous')?.checked??true;
+ if(isContinuous){
+  const freshNodeId=nextId('N',model.nodes);
+  const res=planContinuousBeamSegments(model.nodes,model.members,startId,point,{levelY:planLevelY,levelTolerance:PLAN_LEVEL_TOLERANCE,allowNewEndNode:true,freshNodeId,memberProps:props,nextMemberIdFn:mems=>nextId('M',mems)});
+  if(!res.ok)return status(res.reason,'error');
+  const before=revision;
+  mutate(()=>{
+   model.nodes.push(...res.nodesToAdd);
+   model.members.push(...res.segments);
+   selected={kind:'members',id:res.segments[0].id};
+   tab=memberTab(res.segments[0]);
+  });
+  if(revision!==before){
+   const endNode=res.nodesToAdd[0],roleLabel=role==='beam'?'คาน':role==='AS'?'เหล็กอะเส (AS)':role==='rafter'?'เหล็กจันทัน (RAF)':role==='purlin'?'แป (Purlin)':'อกไก่ (OK)';
+   if(res.segments.length>1)status(`วาด${roleLabel}ต่อเนื่อง ${startId} → ${endNode.id} แบ่งเป็น ${res.segments.length} ช่วง (${res.segments.map(s=>s.id).join(', ')}) · โหนดปลายใหม่ X ${fmt(endNode.x)} Z ${fmt(endNode.z)} m · ต้องวิเคราะห์ใหม่`);
+   else status(`วาด${roleLabel} ${startId} → ${endNode.id} แล้ว · โหนดปลายใหม่ X ${fmt(endNode.x)} Z ${fmt(endNode.z)} m · ต้องวิเคราะห์ใหม่`);
+  }
+ }else{
+  const draft=planNodeDraft(model.nodes,point,nextId('N',model.nodes));if(!draft.ok)return status(draft.reason,'error');
+  const validation=validateMemberEndpoints([...model.nodes,draft.node],model.members,startId,draft.node.id,{levelY:planLevelY,levelTolerance:PLAN_LEVEL_TOLERANCE,disallowIntervening:true});if(!validation.ok)return status(validation.reason,'error');
+  const before=revision;
+  mutate(()=>{
+   const member={id:nextId('M',model.members),i:startId,j:draft.node.id,...props};
+   model.nodes.push(draft.node);model.members.push(member);
+   selected={kind:'members',id:member.id};tab=memberTab(member);
+  });
+  if(revision!==before)status(`วาดสมาชิก ${startId} → ${draft.node.id} แล้ว · ปลายใหม่ X ${fmt(draft.node.x)} Z ${fmt(draft.node.z)} m · ต้องวิเคราะห์ใหม่`);
+ }
 }
-function commitPlanBeam(startId,endId){const validation=validateMemberEndpoints(model.nodes,model.members,startId,endId,{levelY:planLevelY,levelTolerance:PLAN_LEVEL_TOLERANCE,disallowIntervening:true});if(!validation.ok)return status(validation.reason,'error');const b=memberDraft.b,h=memberDraft.h;if(!Number.isFinite(b)||!Number.isFinite(h)||b<.01||h<.01)return status('กรอกขนาด b และ h ของคานให้มากกว่า 0.01 m','error');const before=revision;mutate(()=>{const member=memberRecord(nextId('M',model.members),startId,endId,'beam');member.b=b;member.h=h;model.members.push(member);selected={kind:'members',id:member.id};tab=memberTab(member);});if(revision!==before)status(`เพิ่มคาน ${startId} → ${endId} แล้ว · ต้องวิเคราะห์ใหม่`);}
+function commitPlanBeam(startId,endId){
+ const role=$('planBeamRole')?.value||'beam',props=getActiveMemberProps(role);
+ if(props.kind==='beam'&&(!Number.isFinite(props.b)||!Number.isFinite(props.h)||props.b<.01||props.h<.01))return status('กรอกขนาด b และ h ของคานให้มากกว่า 0.01 m','error');
+ const isContinuous=$('planContinuous')?.checked??true;
+ if(isContinuous){
+  const res=planContinuousBeamSegments(model.nodes,model.members,startId,endId,{levelY:planLevelY,levelTolerance:PLAN_LEVEL_TOLERANCE,memberProps:props,nextMemberIdFn:mems=>nextId('M',mems)});
+  if(!res.ok)return status(res.reason,'error');
+  const before=revision;
+  mutate(()=>{
+   model.members.push(...res.segments);
+   selected={kind:'members',id:res.segments[0].id};
+   tab=memberTab(res.segments[0]);
+  });
+  if(revision!==before){
+   const roleLabel=role==='beam'?'คาน':role==='AS'?'เหล็กอะเส (AS)':role==='rafter'?'เหล็กจันทัน (RAF)':role==='purlin'?'แป (Purlin)':'อกไก่ (OK)';
+   if(res.segments.length>1)status(`สร้าง${roleLabel}ต่อเนื่อง ${startId} → ${endId} แบ่งเป็น ${res.segments.length} ช่วง (${res.segments.map(s=>s.id).join(', ')}) · จุดต่อแข็ง Rigid Joint · ต้องวิเคราะห์ใหม่`);
+   else status(`เพิ่ม${roleLabel} ${startId} → ${endId} (${res.segments[0].id}) แล้ว · ต้องวิเคราะห์ใหม่`);
+  }
+ }else{
+  const validation=validateMemberEndpoints(model.nodes,model.members,startId,endId,{levelY:planLevelY,levelTolerance:PLAN_LEVEL_TOLERANCE,disallowIntervening:true});
+  if(!validation.ok)return status(validation.reason,'error');
+  const before=revision;
+  mutate(()=>{
+   const member={id:nextId('M',model.members),i:startId,j:endId,...props};
+   model.members.push(member);selected={kind:'members',id:member.id};tab=memberTab(member);
+  });
+  if(revision!==before)status(`เพิ่มสมาชิก ${startId} → ${endId} แล้ว · ต้องวิเคราะห์ใหม่`);
+ }
+}
 renderer.domElement.addEventListener('pointerdown',event=>{if(viewMode==='plan'&&activeTool==='beam'){event.preventDefault();if(!beamDrag){const start=snapPlanNode(event);if(!start){$('beamHint').textContent='เริ่มจากโหนดกริด/โหนดเดิมก่อน';return;}beamDrag={startId:start.node.id,startNode:start.node,world:new THREE.Vector3(start.node.x,start.node.y,start.node.z),endId:start.node.id};$('beamHint').textContent=`เริ่ม ${start.node.id} · คลิกปลายคาน · X/Z ล็อกแกน`;drawModel();return;}const start=beamDrag;const end=planBeamEndpoint(event,start.startNode);beamDrag=null;$('beamHint').textContent='';if(end.error)status(end.error,'error');else if(end.node){if(end.node.id===start.startId)status('ปลายคานต้องต่างจากโหนดเริ่ม','error');else commitPlanBeam(start.startId,end.node.id);}else commitPlanBeamPoint(start.startId,end.point);drawModel();return;}pointerStart=[event.clientX,event.clientY];});
-renderer.domElement.addEventListener('pointermove',event=>{if(viewMode==='plan'&&activeTool==='beam'&&beamDrag){const end=planBeamEndpoint(event,beamDrag.startNode);beamDrag.endId=end.node?.id||null;beamDrag.world=end.point?new THREE.Vector3(end.point.x,end.point.y,end.point.z):null;$('beamHint').textContent=end.error?end.error:`${beamDrag.startId} → ${beamDrag.endId||'โหนดใหม่'} · X ${fmt(end.point?.x)} Z ${fmt(end.point?.z)} m${beamAxisLock?` · 🔒 ${beamAxisLock.toUpperCase()}`:''}${end.useGrid?` · กริด ${fmt(end.step,2)} m`:''}`;drawModel();return;}if(viewMode==='plan'&&activeTool==='memberNode'&&!beamDrag){const hit=snapPlanBeam(event),previous=lineSnapHover;lineSnapHover=hit&&!hit.ambiguous?hit:null;$('beamHint').textContent=hit?.ambiguous?'เส้นคานซ้อนกัน เลือกคานในตารางแทน':hit?`${hit.member.id} · จาก ${hit.fromId} ${fmt(hit.distanceFromI)} m${model.slabs.some(s=>['support1','support2','support3','support4'].some(k=>s[k]===hit.member.id))?' · คานรับพื้น แบ่งไม่ได้':''}`:'ชี้ใกล้เส้นคานที่ระดับนี้';if(previous?.member?.id!==lineSnapHover?.member?.id||Math.abs((previous?.distanceFromI??-1)-(lineSnapHover?.distanceFromI??-1))>.02)drawModel();return;}if(viewMode==='plan'&&activeTool==='node'&&!beamDrag){const point=planPointerPoint(event),gridStep=Number($('planGridStep').value),valid=$('planSnap').checked?validPlanGridStep(gridStep):true,snapped=valid&&$('planSnap').checked&&!event.altKey&&point?snapPlanPoint(point,model.nodes,planLevelY,gridStep,Math.min(.25,planFrustumHeight/Math.max(.01,camera.zoom||1)/Math.max(1,renderer.domElement.clientHeight)*18)):point;$('beamHint').textContent=!valid?'ระยะกริด 0.05–1.00 m · เพิ่มครั้งละ 0.05 m':snapped?`X ${fmt(snapped.x)} · Z ${fmt(snapped.z)} m${$('planSnap').checked&&!event.altKey?` · กริด ${fmt(gridStep,2)} m`:''}`:'';return;}});
+renderer.domElement.addEventListener('pointermove',event=>{if(viewMode==='plan'&&activeTool==='beam'&&beamDrag){const end=planBeamEndpoint(event,beamDrag.startNode);beamDrag.endId=end.node?.id||null;beamDrag.world=end.point?new THREE.Vector3(end.point.x,end.point.y,end.point.z):null;$('beamHint').textContent=end.error?end.error:`${beamDrag.startId} → ${beamDrag.endId||'โหนดใหม่'} · X ${fmt(end.point?.x)} Z ${fmt(end.point?.z)} m${$('planContinuous')?.checked?' (ต่อเนื่อง)':''}${beamAxisLock?` · 🔒 ${beamAxisLock.toUpperCase()}`:''}${end.useGrid?` · กริด ${fmt(end.step,2)} m`:''}`;drawModel();return;}if(viewMode==='plan'&&activeTool==='memberNode'&&!beamDrag){const hit=snapPlanBeam(event),previous=lineSnapHover;lineSnapHover=hit&&!hit.ambiguous?hit:null;$('beamHint').textContent=hit?.ambiguous?'เส้นคานซ้อนกัน เลือกคานในตารางแทน':hit?`${hit.member.id} · จาก ${hit.fromId} ${fmt(hit.distanceFromI)} m${model.slabs.some(s=>['support1','support2','support3','support4'].some(k=>s[k]===hit.member.id))?' · คานรับพื้น แบ่งไม่ได้':''}`:'ชี้ใกล้เส้นคานที่ระดับนี้';if(previous?.member?.id!==lineSnapHover?.member?.id||Math.abs((previous?.distanceFromI??-1)-(lineSnapHover?.distanceFromI??-1))>.02)drawModel();return;}if(viewMode==='plan'&&activeTool==='node'&&!beamDrag){const point=planPointerPoint(event),gridStep=Number($('planGridStep').value),valid=$('planSnap').checked?validPlanGridStep(gridStep):true,snapped=valid&&$('planSnap').checked&&!event.altKey&&point?snapPlanPoint(point,model.nodes,planLevelY,gridStep,Math.min(.25,planFrustumHeight/Math.max(.01,camera.zoom||1)/Math.max(1,renderer.domElement.clientHeight)*18)):point;$('beamHint').textContent=!valid?'ระยะกริด 0.05–1.00 m · เพิ่มครั้งละ 0.05 m':snapped?`X ${fmt(snapped.x)} · Z ${fmt(snapped.z)} m${$('planSnap').checked&&!event.altKey?` · กริด ${fmt(gridStep,2)} m`:''}`:'';return;}});
 renderer.domElement.addEventListener('pointerup',event=>{if(!pointerStart||Math.hypot(event.clientX-pointerStart[0],event.clientY-pointerStart[1])>4){pointerStart=null;return;}pointerStart=null;if(viewMode==='plan'&&activeTool==='memberNode'){const hit=snapPlanBeam(event);if(!hit)return status('คลิกใกล้เส้นคานที่ระดับชั้นนี้','error');if(hit.ambiguous)return status('เส้นคานซ้อนกัน เลือกคานในตารางแล้วระบุระยะแทน','error');commitReferenceNode(hit.member.id,hit.fromId,hit.distanceFromI);lineSnapHover=null;drawModel();return;}if(viewMode==='plan'&&activeTool==='node'){const point=planPointerPoint(event);if(point)commitPlanNode(point,event);else status('เลือกระดับชั้นก่อนวางโหนด','error');return;}const rect=renderer.domElement.getBoundingClientRect();pointer.set((event.clientX-rect.left)/rect.width*2-1,-(event.clientY-rect.top)/rect.height*2+1);ray.setFromCamera(pointer,camera);const allHits=ray.intersectObjects(group.children,true),hit=viewMode==='plan'?(allHits.find(item=>['nodes','members'].includes(item.object.userData.kind))||allHits.find(item=>['slabs','foundations'].includes(item.object.userData.kind))):allHits.find(item=>item.object.userData.kind);selected=hit?hit.object.userData:null;if(selected?.kind==='members'){$('resultMember').value=selected.id;drawDiagram();}renderSelection();drawModel();renderTable();});
 renderer.domElement.addEventListener('pointercancel',()=>cancelInteraction());
 renderer.domElement.addEventListener('pointerleave',()=>{if(lineSnapHover){lineSnapHover=null;$('beamHint').textContent='';drawModel();}});
 function drawModel(){
  updateHeatmapLegend();
  $('gridLabelsOverlay').replaceChildren();$('gridLabelsOverlay').hidden=viewMode!=='plan';
+ currentPlanGridTags=[];
  if($('localAxesBadge'))$('localAxesBadge').style.display=(viewMode==='plan'||($('localAxes')&&!$('localAxes').checked))?'none':'flex';
  scene.remove(group);group.traverse(o=>{o.geometry?.dispose();if(o.material){o.material.map?.dispose();o.material.dispose();}});group=new THREE.Group();scene.add(group);
  const visibleNodeIds=viewMode==='plan'?new Set(model.nodes.filter(n=>Math.abs(n.y-planLevelY)<=PLAN_LEVEL_TOLERANCE).map(n=>n.id)):null;gridHelper.position.y=viewMode==='plan'?(planLevelY??0):0;
  const pos=new Map(model.nodes.filter(n=>[n.x,n.y,n.z].every(Number.isFinite)).map(n=>[n.id,new THREE.Vector3(n.x,n.y,n.z)]));const active=result?.combinations[$('resultCombo').value];
-  if(viewMode==='plan'&&model.gridLines){const valid=model.nodes.filter(n=>[n.x,n.y,n.z].every(Number.isFinite));const minX=valid.length?Math.min(...valid.map(n=>n.x)):Math.min(0,...model.gridLines.x.map(g=>g.value))-2,maxX=valid.length?Math.max(...valid.map(n=>n.x)):Math.max(10,...model.gridLines.x.map(g=>g.value))+2,minZ=valid.length?Math.min(...valid.map(n=>n.z)):Math.min(0,...model.gridLines.z.map(g=>g.value))-2,maxZ=valid.length?Math.max(...valid.map(n=>n.z)):Math.max(10,...model.gridLines.z.map(g=>g.value))+2,axisY=planLevelY+.006,overlay=$('gridLabelsOverlay'),box=overlay.getBoundingClientRect();const tag=(text,x,z,kind)=>{const p=new THREE.Vector3(x,axisY,z).project(camera),node=el('span',text);node.className=`grid-axis-label grid-${kind}`;node.style.left=`${(p.x+1)*box.width/2}px`;node.style.top=`${(1-p.y)*box.height/2}px`;overlay.append(node);};for(const g of model.gridLines.x||[]){line([new THREE.Vector3(g.value,axisY,minZ),new THREE.Vector3(g.value,axisY,maxZ)],0x5b7892);tag(g.label,g.value,minZ+.6,'x');}for(const g of model.gridLines.z||[]){line([new THREE.Vector3(minX,axisY,g.value),new THREE.Vector3(maxX,axisY,g.value)],0x987b5e);tag(g.label,minX-.6,g.value,'z');}}
+ if(viewMode==='plan'&&model.gridLines){
+  const gridX=(model.gridLines.x||[]).filter(g=>Number.isFinite(g.value)).sort((a,b)=>a.value-b.value),
+        gridZ=(model.gridLines.z||[]).filter(g=>Number.isFinite(g.value)).sort((a,b)=>a.value-b.value),
+        valid=model.nodes.filter(n=>[n.x,n.y,n.z].every(Number.isFinite)&&(planLevelY===null||Math.abs(n.y-planLevelY)<=PLAN_LEVEL_TOLERANCE)),
+        xs=[...valid.map(n=>n.x),...gridX.map(g=>g.value)],
+        zs=[...valid.map(n=>n.z),...gridZ.map(g=>g.value)],
+        minX=xs.length?Math.min(...xs):0,
+        maxX=xs.length?Math.max(...xs):10,
+        minZ=zs.length?Math.min(...zs):0,
+        maxZ=zs.length?Math.max(...zs):10,
+        spanX=Math.max(maxX-minX,1),
+        spanZ=Math.max(maxZ-minZ,1),
+        leftMargin=Math.max(2.8,spanX*.25),
+        topMargin=Math.max(2.8,spanZ*.25),
+        axisY=(Number.isFinite(planLevelY)?planLevelY:0)+.006,
+        overlay=$('gridLabelsOverlay');
+
+  const addPlanTag=(elNode,worldVec)=>{
+   overlay.append(elNode);
+   currentPlanGridTags.push({el:elNode,world:worldVec});
+  };
+
+  // 1. Grid X (Numbered 1..N on TOP / -Z side)
+  if(gridX.length>0){
+   const bubbleZ=minZ-(topMargin-0.45);
+   const tier2Z=minZ-(topMargin*0.62);
+   const tier1Z=minZ-(topMargin*0.32);
+
+   for(const gx of gridX){
+    line([new THREE.Vector3(gx.value,axisY,bubbleZ+0.22),new THREE.Vector3(gx.value,axisY,maxZ+0.6)],0x6688a8,true);
+    const bubble=el('span',gx.label);
+    bubble.className='grid-axis-label grid-x';
+    bubble.setAttribute('aria-label',`แนวกริด ${gx.label}`);
+    addPlanTag(bubble,new THREE.Vector3(gx.value,axisY,bubbleZ));
+   }
+
+   if(gridX.length>=2){
+    const minGx=gridX[0].value,maxGx=gridX[gridX.length-1].value;
+    line([new THREE.Vector3(minGx,axisY,tier1Z),new THREE.Vector3(maxGx,axisY,tier1Z)],0x4e6275);
+    for(let i=0;i<gridX.length;i++){
+     const gx=gridX[i];
+     line([new THREE.Vector3(gx.value-0.1,axisY,tier1Z-0.1),new THREE.Vector3(gx.value+0.1,axisY,tier1Z+0.1)],0x5b9bd5);
+     if(i<gridX.length-1){
+      const nextGx=gridX[i+1],spanDist=nextGx.value-gx.value,midX=(gx.value+nextGx.value)/2;
+      const badge=el('span',fmt(spanDist,2));
+      badge.className='grid-dim-badge';
+      badge.title=`ช่วง ${gx.label}–${nextGx.label}: ${fmt(spanDist,3)} m`;
+      addPlanTag(badge,new THREE.Vector3(midX,axisY,tier1Z));
+     }
+    }
+
+    line([new THREE.Vector3(minGx,axisY,tier2Z),new THREE.Vector3(maxGx,axisY,tier2Z)],0x4e6275);
+    line([new THREE.Vector3(minGx-0.12,axisY,tier2Z-0.12),new THREE.Vector3(minGx+0.12,axisY,tier2Z+0.12)],0xe68a35);
+    line([new THREE.Vector3(maxGx-0.12,axisY,tier2Z-0.12),new THREE.Vector3(maxGx+0.12,axisY,tier2Z+0.12)],0xe68a35);
+    const totalSpan=maxGx-minGx,midXTotal=(minGx+maxGx)/2;
+    const totalBadge=el('span',fmt(totalSpan,2));
+    totalBadge.className='grid-dim-badge total';
+    totalBadge.title=`ระยะรวม ${gridX[0].label}–${gridX[gridX.length-1].label}: ${fmt(totalSpan,3)} m`;
+    addPlanTag(totalBadge,new THREE.Vector3(midXTotal,axisY,tier2Z));
+   }
+  }
+
+  // 2. Grid Z (Lettered A..N on LEFT / -X side)
+  if(gridZ.length>0){
+   const bubbleX=minX-(leftMargin-0.45);
+   const tier2X=minX-(leftMargin*0.62);
+   const tier1X=minX-(leftMargin*0.32);
+
+   for(const gz of gridZ){
+    line([new THREE.Vector3(bubbleX+0.22,axisY,gz.value),new THREE.Vector3(maxX+0.6,axisY,gz.value)],0x987451,true);
+    const bubble=el('span',gz.label);
+    bubble.className='grid-axis-label grid-z';
+    bubble.setAttribute('aria-label',`แนวกริด ${gz.label}`);
+    addPlanTag(bubble,new THREE.Vector3(bubbleX,axisY,gz.value));
+   }
+
+   if(gridZ.length>=2){
+    const minGz=gridZ[0].value,maxGz=gridZ[gridZ.length-1].value;
+    line([new THREE.Vector3(tier1X,axisY,minGz),new THREE.Vector3(tier1X,axisY,maxGz)],0x4e6275);
+    for(let i=0;i<gridZ.length;i++){
+     const gz=gridZ[i];
+     line([new THREE.Vector3(tier1X-0.1,axisY,gz.value-0.1),new THREE.Vector3(tier1X+0.1,axisY,gz.value+0.1)],0xe68a35);
+     if(i<gridZ.length-1){
+      const nextGz=gridZ[i+1],spanDist=nextGz.value-gz.value,midZ=(gz.value+nextGz.value)/2;
+      const badge=el('span',fmt(spanDist,2));
+      badge.className='grid-dim-badge';
+      badge.title=`ช่วง ${gz.label}–${nextGz.label}: ${fmt(spanDist,3)} m`;
+      addPlanTag(badge,new THREE.Vector3(tier1X,axisY,midZ));
+     }
+    }
+
+    line([new THREE.Vector3(tier2X,axisY,minGz),new THREE.Vector3(tier2X,axisY,maxGz)],0x4e6275);
+    line([new THREE.Vector3(tier2X-0.12,axisY,minGz-0.12),new THREE.Vector3(tier2X+0.12,axisY,minGz+0.12)],0x5b9bd5);
+    line([new THREE.Vector3(tier2X-0.12,axisY,maxGz-0.12),new THREE.Vector3(tier2X+0.12,axisY,maxGz+0.12)],0x5b9bd5);
+    const totalSpan=maxGz-minGz,midZTotal=(minGz+maxGz)/2;
+    const totalBadge=el('span',fmt(totalSpan,2));
+    totalBadge.className='grid-dim-badge total';
+    totalBadge.title=`ระยะรวม ${gridZ[0].label}–${gridZ[gridZ.length-1].label}: ${fmt(totalSpan,3)} m`;
+    addPlanTag(totalBadge,new THREE.Vector3(tier2X,axisY,midZTotal));
+   }
+  }
+  updatePlanGridOverlay();
+ }
  const cm = $('colorMode')?.value || 'default';
  let cmMin = 0, cmMax = 1;
  if (cm === 'utilization') {
@@ -834,38 +1208,58 @@ function drawModel(){
   }
   if (cmMax <= cmMin) cmMax = cmMin + 10;
  }
+ const showSolid3D=!$('showSolid3D')||$('showSolid3D').checked;
+ const showWireframe=$('showWireframe')?$('showWireframe').checked:false;
+ const showPointLoads=!$('showPointLoads')||$('showPointLoads').checked;
+ const showUniformLoads=!$('showUniformLoads')||$('showUniformLoads').checked;
+ const showSelfWeight=!$('showSelfWeight')||$('showSelfWeight').checked;
+ const showRoofSheeting=!$('showRoofSheeting')||$('showRoofSheeting').checked;
  const visibleMembers=new Set();for(const m of model.members){if(visibleNodeIds&&(!visibleNodeIds.has(m.i)||!visibleNodeIds.has(m.j)))continue;const a=pos.get(m.i),b=pos.get(m.j);if(!a||!b||a.distanceTo(b)<1e-6)continue;visibleMembers.add(m.id);
   const highlight=selected?.kind==='members'&&selected.id===m.id;
   const axes=getMemberLocalAxes(a,b,m.rotation||0);
   const secB=(m.kind==='roof'||m.sectionType==='steel_custom')?0.08:Math.max(0.08,m.b||0.25);
   const secH=(m.kind==='roof'||m.sectionType==='steel_custom')?0.08:Math.max(0.08,m.h||0.35);
-  const nSegments=(cm!=='default')?40:1;
-  const boxGeo=new THREE.BoxGeometry(secB,axes.L,secH,1,nSegments,1);
-  let memberMat;
-  if(cm==='default'){
-   const memberColor=highlight?0xffbe66:m.kind==='roof'?0xe0a75f:m.kind==='column'?0x80d7c7:0x5fcbbb;
-   memberMat=new THREE.MeshStandardMaterial({color:memberColor,metalness:.1,roughness:.5});
-  }else{
-   const posAttr=boxGeo.attributes.position;
-   const colorArr=new Float32Array(posAttr.count*3);
-   for(let vi=0;vi<posAttr.count;vi++){
-    const yVal=posAttr.getY(vi);
-    const t=axes.L>1e-6?Math.max(0,Math.min(1,(yVal+axes.L/2)/axes.L)):0;
-    const rgb=getMemberStationRGB(m,t,cm,cmMin,cmMax,active);
-    colorArr[vi*3]=rgb[0];colorArr[vi*3+1]=rgb[1];colorArr[vi*3+2]=rgb[2];
+  if(showSolid3D){
+   const nSegments=(cm!=='default')?40:1;
+   const boxGeo=new THREE.BoxGeometry(secB,axes.L,secH,1,nSegments,1);
+   let memberMat;
+   if(cm==='default'){
+    const memberColor=highlight?0xffbe66:m.kind==='roof'?0xe0a75f:m.kind==='column'?0x80d7c7:0x5fcbbb;
+    memberMat=new THREE.MeshStandardMaterial({color:memberColor,metalness:.05,roughness:.85});
+   }else{
+    const posAttr=boxGeo.attributes.position;
+    const colorArr=new Float32Array(posAttr.count*3);
+    for(let vi=0;vi<posAttr.count;vi++){
+     const yVal=posAttr.getY(vi);
+     const t=axes.L>1e-6?Math.max(0,Math.min(1,(yVal+axes.L/2)/axes.L)):0;
+     const rgb=getMemberStationRGB(m,t,cm,cmMin,cmMax,active);
+     colorArr[vi*3]=rgb[0];colorArr[vi*3+1]=rgb[1];colorArr[vi*3+2]=rgb[2];
+    }
+    boxGeo.setAttribute('color',new THREE.BufferAttribute(colorArr,3));
+    memberMat=new THREE.MeshBasicMaterial({vertexColors:true});
    }
-   boxGeo.setAttribute('color',new THREE.BufferAttribute(colorArr,3));
-   memberMat=new THREE.MeshStandardMaterial({vertexColors:true,metalness:.1,roughness:.5});
+   const mesh=new THREE.Mesh(boxGeo,memberMat);
+   const rotMat=new THREE.Matrix4();
+   rotMat.makeBasis(new THREE.Vector3(...axes.z),new THREE.Vector3(...axes.x),new THREE.Vector3(...axes.y));
+   mesh.quaternion.setFromRotationMatrix(rotMat);
+   mesh.position.copy(a).add(b).multiplyScalar(.5);
+   mesh.userData={kind:'members',id:m.id};group.add(mesh);
+   if(highlight){
+    const boxOutline=new THREE.BoxHelper(mesh,0xffbe66);
+    group.add(boxOutline);
+   }
   }
-  const mesh=new THREE.Mesh(boxGeo,memberMat);
-  const rotMat=new THREE.Matrix4();
-  rotMat.makeBasis(new THREE.Vector3(...axes.z),new THREE.Vector3(...axes.x),new THREE.Vector3(...axes.y));
-  mesh.quaternion.setFromRotationMatrix(rotMat);
-  mesh.position.copy(a).add(b).multiplyScalar(.5);
-  mesh.userData={kind:'members',id:m.id};group.add(mesh);
-  if(highlight){
-   const boxOutline=new THREE.BoxHelper(mesh,0xffbe66);
-   group.add(boxOutline);
+  if(showWireframe||!showSolid3D){
+   let wireColor=highlight?0xffbe66:m.kind==='roof'?0xf59e0b:m.kind==='column'?0x10b981:0x38bdf8;
+   if(cm!=='default'){
+    const rgb=getMemberStationRGB(m,0.5,cm,cmMin,cmMax,active);
+    wireColor=new THREE.Color(rgb[0],rgb[1],rgb[2]).getHex();
+   }
+   const lineGeo=new THREE.BufferGeometry().setFromPoints([a,b]);
+   const lineMat=new THREE.LineBasicMaterial({color:wireColor,linewidth:2});
+   const wLine=new THREE.Line(lineGeo,lineMat);
+   wLine.userData={kind:'members',id:m.id};
+   group.add(wLine);
   }
   const showAxes=$('localAxes')?$('localAxes').checked:true;
   if(showAxes||highlight){
@@ -915,159 +1309,433 @@ function drawModel(){
      group.add(new THREE.Line(lineGeo,lineMat));
      line([a,linePts[0]],0x64748b);
      line([b,linePts[linePts.length-1]],0x64748b);
-     if(diagMax>0.05){
-      let kPeak=0,peakVal=0;
-      for(let k=0;k<memRes.samples.length;k++){
-       const av=Math.abs(memRes.samples[k][diagKey]);
-       if(av>peakVal){peakVal=av;kPeak=k;}
+     const showDiagValues = !$('diagramValues') || $('diagramValues').checked;
+     const isSelectedMem = selected?.kind === 'members' && selected.id === m.id;
+     const isInspectedMem = isSelectedMem || ($('resultMember')?.value === m.id);
+     const isRoof = m.kind === 'roof' || m.sectionType === 'steel_custom';
+
+     if(showDiagValues && (!isRoof || isInspectedMem) && diagMax > 0.05){
+      let kPeak = 0, peakVal = 0;
+      for(let k = 0; k < memRes.samples.length; k++){
+       const av = Math.abs(memRes.samples[k][diagKey]);
+       if(av > peakVal){ peakVal = av; kPeak = k; }
       }
-      const uKey=diagKey==='Mz'?'moment':'force';
-      const label=labelSprite(`${diagKey}=${fmt(quantity(peakVal,uKey),1)} ${unitLabel(uKey)}`);
-      label.scale.set(.65,.22,1);
-      label.position.copy(linePts[kPeak]).addScaledVector(dirY,.12);
+      const uKey = diagKey === 'Mz' ? 'moment' : 'force';
+      const numPts = linePts.length;
+      let kLabel = kPeak;
+      // Joint clearance anti-collision: clamp label point to 22% - 78% of span
+      // so beam, column and cross-beam peak values don't collide directly at the joint node
+      if(numPts >= 5){
+       const fracPeak = kPeak / (numPts - 1);
+       if(fracPeak < 0.20){
+        kLabel = Math.min(numPts - 1, Math.max(kPeak, Math.round((numPts - 1) * 0.22)));
+       }else if(fracPeak > 0.80){
+        kLabel = Math.max(0, Math.min(kPeak, Math.round((numPts - 1) * 0.78)));
+       }
+      }
+      const valStr = `${diagKey} = ${fmt(quantity(peakVal, uKey), 1)} ${unitLabel(uKey)}`;
+      const labelOpts = isInspectedMem
+       ? { bg: 'rgba(234, 88, 12, 0.95)', border: '#fef08a', color: '#ffffff', radius: 6, alwaysOnTop: true }
+       : { bg: diagKey === 'Mz' ? 'rgba(12, 74, 110, 0.92)' : 'rgba(120, 53, 15, 0.92)',
+           border: diagKey === 'Mz' ? '#38bdf8' : '#fbbf24',
+           color: '#f8fafc', radius: 6 };
+      const label = labelSprite(valStr, 0, 36, 14, labelOpts);
+      label.position.copy(linePts[kLabel]).addScaledVector(dirY, 0.16);
       group.add(label);
      }
     }
    }
   }
   if($('labels').checked){
-   const mark=getMemberMark(m);
-   const label=labelSprite(`${mark} (${m.id})`);
-   label.position.copy(a).lerp(b,0.5).add(new THREE.Vector3(0,(secH/2)+0.15,0));
-   group.add(label);
+   const isSelectedMem = selected?.kind === 'members' && selected.id === m.id;
+   const isRoof = m.kind === 'roof' || m.sectionType === 'steel_custom';
+   const isSecondaryWeb = isRoof && (m.roofRole === 'web' || (!m.roofRole && axes.L < 1.4));
+   if(!isSecondaryWeb || isSelectedMem || model.members.length < 50){
+    const mark = getMemberMark(m);
+    const labelOpts = isSelectedMem
+     ? { bg: 'rgba(245, 158, 11, 0.95)', border: '#fef08a', color: '#0f172a', radius: 6, alwaysOnTop: true }
+     : { bg: 'rgba(30, 41, 59, 0.88)', border: 'rgba(148, 163, 184, 0.4)', color: '#cbd5e1', radius: 6 };
+    const label = labelSprite(`${mark} (${m.id})`, 0, 32, 13, labelOpts);
+    label.position.copy(a).lerp(b, 0.5).add(new THREE.Vector3(0, (secH / 2) + 0.15, 0));
+    group.add(label);
+   }
   }
   if(active&&$('deformed').checked){const da=active.nodes[m.i].displacement,db=active.nodes[m.j].displacement;line([a.clone().add(new THREE.Vector3(...da.slice(0,3)).multiplyScalar(100)),b.clone().add(new THREE.Vector3(...db.slice(0,3)).multiplyScalar(100))],0xffb861);}
  }
- for(const n of model.nodes){if(visibleNodeIds&&!visibleNodeIds.has(n.id))continue;const p=pos.get(n.id);if(!p)continue;const mesh=new THREE.Mesh(new THREE.SphereGeometry(.05,10,10),new THREE.MeshStandardMaterial({color:selected?.kind==='nodes'&&selected.id===n.id?0xffbe66:0xd8edf9}));mesh.position.copy(p);mesh.userData={kind:'nodes',id:n.id};group.add(mesh);
-  if(n.restraints.some(Boolean)){const support=new THREE.Mesh(new THREE.ConeGeometry(.22,.28,4),new THREE.MeshStandardMaterial({color:0x6885a6,transparent:true,opacity:.7}));support.position.copy(p).add(new THREE.Vector3(0,-.2,0));group.add(support);}
-  if($('labels').checked){const label=labelSprite(n.id);label.position.copy(p).add(new THREE.Vector3(.12,.24,0));group.add(label);}
+ for(const n of model.nodes){if(visibleNodeIds&&!visibleNodeIds.has(n.id))continue;const p=pos.get(n.id);if(!p)continue;
+  const isWireOnly=showWireframe&&!showSolid3D;
+  const nodeColor=selected?.kind==='nodes'&&selected.id===n.id?0xffbe66:isWireOnly?0x38bdf8:0xd8edf9;
+  const nodeRadius=isWireOnly?0.04:0.025;
+  const mesh=new THREE.Mesh(new THREE.SphereGeometry(nodeRadius,10,10),new THREE.MeshStandardMaterial({color:nodeColor}));mesh.position.copy(p);mesh.userData={kind:'nodes',id:n.id};group.add(mesh);
+  if(n.restraints.some(Boolean)){
+   const isElevated=(n.y>0.05);
+   const coneColor=isElevated?0xef4444:0x6885a6;
+   const support=new THREE.Mesh(new THREE.ConeGeometry(.24,.32,4),new THREE.MeshStandardMaterial({color:coneColor,transparent:true,opacity:.85}));
+   support.position.copy(p).add(new THREE.Vector3(0,-.2,0));
+   group.add(support);
+   if(isElevated&&$('labels').checked){
+    const badge=labelSprite(`⚠️ ${n.id} (Support ลอยฟ้า Y=${fmt(n.y)}m)`,0,30,13,{bg:'rgba(239, 68, 68, 0.95)',border:'#fef08a',color:'#ffffff',radius:6,alwaysOnTop:true});
+    badge.position.copy(p).add(new THREE.Vector3(0,0.35,0));
+    group.add(badge);
+   }
+  }
+  if($('labels').checked){
+   const isSelNode = selected?.kind === 'nodes' && selected.id === n.id;
+   const labelOpts = isSelNode
+    ? { bg: 'rgba(245, 158, 11, 0.95)', border: '#fef08a', color: '#0f172a', radius: 8, alwaysOnTop: true }
+    : { bg: 'rgba(15, 23, 42, 0.90)', border: 'rgba(56, 189, 248, 0.5)', color: '#93c5fd', radius: 8 };
+   const label = labelSprite(n.id, 0, 26, 12, labelOpts);
+   label.position.copy(p).add(new THREE.Vector3(0.08, 0.18, 0));
+   group.add(label);
+  }
  }
  // Point Loads (Nodal)
- for(const load of model.nodalLoads){
-  if(visibleNodeIds&&!visibleNodeIds.has(load.node))continue;
-  const p=pos.get(load.node);
-  if(!p)continue;
-  const v=new THREE.Vector3(load.fx,load.fy,load.fz);
-  const pVal=v.length();
-  if(pVal>1e-6){
-   const d=v.clone().normalize();
-   const arrowLen=0.85;
-   group.add(new THREE.ArrowHelper(d,p.clone().sub(d.clone().multiplyScalar(arrowLen)),arrowLen,0xef4444,0.22,0.12));
-   const badge=labelSprite(`P = ${fmt(quantity(pVal,'force'),1)} ${unitLabel('force')} (${load.case})`,260,60,22);
-   badge.scale.set(0.65,0.22,1);
-   badge.position.copy(p).sub(d.clone().multiplyScalar(arrowLen+0.16));
-   group.add(badge);
+ if(showPointLoads){
+  for(const load of model.nodalLoads){
+   if(visibleNodeIds&&!visibleNodeIds.has(load.node))continue;
+   const p=pos.get(load.node);
+   if(!p)continue;
+   const v=new THREE.Vector3(load.fx,load.fy,load.fz);
+   const pVal=v.length();
+   if(pVal>1e-6){
+    const d=v.clone().normalize();
+    const arrowLen=0.85;
+    group.add(new THREE.ArrowHelper(d,p.clone().sub(d.clone().multiplyScalar(arrowLen)),arrowLen,0xef4444,0.22,0.12));
+    const isRoofNode = model.members.some(m=>m.kind==='roof'&&(m.i===load.node||m.j===load.node));
+    const loadNote = isRoofNode ? ` (${load.case} · ถ่ายจากแป)` : ` (${load.case})`;
+    const badge=labelSprite(`P = ${fmt(quantity(pVal,'force'),1)} ${unitLabel('force')}${loadNote}`,0,28,12,{bg:'rgba(153, 27, 27, 0.92)',border:'rgba(248, 113, 113, 0.65)',color:'#fee2e2',radius:5});
+    badge.position.copy(p).sub(d.clone().multiplyScalar(arrowLen+0.16));
+    group.add(badge);
+   }
   }
  }
  // Uniform Distributed Loads (UDL)
- for(const load of model.memberLoads){
-  if(visibleNodeIds&&!visibleMembers.has(load.member))continue;
-  const m=model.members.find(m=>m.id===load.member);
-  if(!m)continue;
-  const a=pos.get(m.i),b=pos.get(m.j);
-  if(!a||!b)continue;
-  const L=a.distanceTo(b);
-  if(L<1e-6)continue;
-  let v;
-  if(load.axes==='local'){
-   const ax=getMemberLocalAxes(a,b,m.rotation||0);
-   v=new THREE.Vector3(ax.x[0]*load.qx+ax.y[0]*load.qy+ax.z[0]*load.qz,ax.x[1]*load.qx+ax.y[1]*load.qy+ax.z[1]*load.qz,ax.x[2]*load.qx+ax.y[2]*load.qy+ax.z[2]*load.qz);
-  }else{
-   v=new THREE.Vector3(load.qx,load.qy,load.qz);
+ if(showUniformLoads){
+  for(const load of model.memberLoads){
+   if(visibleNodeIds&&!visibleMembers.has(load.member))continue;
+   const m=model.members.find(m=>m.id===load.member);
+   if(!m)continue;
+   const a=pos.get(m.i),b=pos.get(m.j);
+   if(!a||!b)continue;
+   const L=a.distanceTo(b);
+   if(L<1e-6)continue;
+   let v;
+   if(load.axes==='local'){
+    const ax=getMemberLocalAxes(a,b,m.rotation||0);
+    v=new THREE.Vector3(ax.x[0]*load.qx+ax.y[0]*load.qy+ax.z[0]*load.qz,ax.x[1]*load.qx+ax.y[1]*load.qy+ax.z[1]*load.qz,ax.x[2]*load.qx+ax.y[2]*load.qy+ax.z[2]*load.qz);
+   }else{
+    v=new THREE.Vector3(load.qx,load.qy,load.qz);
+   }
+   const qVal=v.length();
+   if(qVal<1e-6)continue;
+   const dirLoad=v.clone().normalize();
+   const dirBox=dirLoad.clone().negate();
+   const boxH=Math.min(0.65,Math.max(0.35,L*0.12));
+   const topA=a.clone().addScaledVector(dirBox,boxH);
+   const topB=b.clone().addScaledVector(dirBox,boxH);
+
+   // Rectangular wireframe frame lines
+   line([topA,topB],0xf59e0b);
+   line([a,topA],0xf59e0b);
+   line([b,topB],0xf59e0b);
+   line([a,b],0xd97706);
+
+   // Shaded quad
+   const quadGeo=new THREE.BufferGeometry();
+   const quadVerts=[
+    a.x,a.y,a.z, topA.x,topA.y,topA.z, topB.x,topB.y,topB.z,
+    a.x,a.y,a.z, topB.x,topB.y,topB.z, b.x,b.y,b.z
+   ];
+   quadGeo.setAttribute('position',new THREE.Float32BufferAttribute(quadVerts,3));
+   quadGeo.computeVertexNormals();
+   const quadMat=new THREE.MeshBasicMaterial({color:0xfbbf24,transparent:true,opacity:0.22,side:THREE.DoubleSide,depthWrite:false});
+   group.add(new THREE.Mesh(quadGeo,quadMat));
+
+   // Downward arrows inside the box
+   const numArrows=Math.max(4,Math.min(8,Math.round(L*1.5)));
+   for(let i=0;i<numArrows;i++){
+    const t=(i+0.5)/numArrows;
+    const pTop=topA.clone().lerp(topB,t);
+    const pBeam=a.clone().lerp(b,t);
+    const arrLen=pTop.distanceTo(pBeam);
+    const hl=Math.min(arrLen*0.35,0.14);
+    group.add(new THREE.ArrowHelper(dirLoad,pTop,arrLen,0xf59e0b,hl,hl*0.6));
+   }
+
+   // Badge with load in kg/m and case (centered at t=0.50)
+   const badge=labelSprite(`q = ${fmt(quantity(qVal,'line'),1)} ${unitLabel('line')} (${load.case})`,280,60,22);
+   badge.scale.set(0.7,0.22,1);
+   badge.position.copy(topA).lerp(topB,0.5).addScaledVector(dirBox,0.14);
+   group.add(badge);
   }
-  const qVal=v.length();
-  if(qVal<1e-6)continue;
-  const dirLoad=v.clone().normalize();
-  const dirBox=dirLoad.clone().negate();
-  const boxH=Math.min(0.65,Math.max(0.35,L*0.12));
-  const topA=a.clone().addScaledVector(dirBox,boxH);
-  const topB=b.clone().addScaledVector(dirBox,boxH);
-
-  // Rectangular wireframe frame lines
-  line([topA,topB],0xf59e0b);
-  line([a,topA],0xf59e0b);
-  line([b,topB],0xf59e0b);
-  line([a,b],0xd97706);
-
-  // Shaded quad
-  const quadGeo=new THREE.BufferGeometry();
-  const quadVerts=[
-   a.x,a.y,a.z, topA.x,topA.y,topA.z, topB.x,topB.y,topB.z,
-   a.x,a.y,a.z, topB.x,topB.y,topB.z, b.x,b.y,b.z
-  ];
-  quadGeo.setAttribute('position',new THREE.Float32BufferAttribute(quadVerts,3));
-  quadGeo.computeVertexNormals();
-  const quadMat=new THREE.MeshBasicMaterial({color:0xfbbf24,transparent:true,opacity:0.22,side:THREE.DoubleSide,depthWrite:false});
-  group.add(new THREE.Mesh(quadGeo,quadMat));
-
-  // Downward arrows inside the box
-  const numArrows=Math.max(4,Math.min(8,Math.round(L*1.5)));
-  for(let i=0;i<numArrows;i++){
-   const t=(i+0.5)/numArrows;
-   const pTop=topA.clone().lerp(topB,t);
-   const pBeam=a.clone().lerp(b,t);
-   const arrLen=pTop.distanceTo(pBeam);
-   const hl=Math.min(arrLen*0.35,0.14);
-   group.add(new THREE.ArrowHelper(dirLoad,pTop,arrLen,0xf59e0b,hl,hl*0.6));
-  }
-
-  // Badge with load in kg/m and case
-  const badge=labelSprite(`q = ${fmt(quantity(qVal,'line'),1)} ${unitLabel('line')} (${load.case})`,280,60,22);
-  badge.scale.set(0.7,0.22,1);
-  badge.position.copy(topA).lerp(topB,0.5).addScaledVector(dirBox,0.14);
-  group.add(badge);
  }
 
- for(const slab of model.slabs){if(visibleNodeIds&&!slab.nodes.every(id=>visibleNodeIds.has(id)))continue;const pts=slab.nodes.map(id=>pos.get(id));if(pts.length<3||pts.some(p=>!p))continue;const contour=pts.map(p=>new THREE.Vector2(p.x,p.z));const triangles=THREE.ShapeUtils.triangulateShape(contour,[]),vertices=[];for(const tri of triangles)for(const i of tri)vertices.push(pts[i].x,pts[i].y-.025,pts[i].z);const geo=new THREE.BufferGeometry();geo.setAttribute('position',new THREE.Float32BufferAttribute(vertices,3));geo.computeVertexNormals();const mesh=new THREE.Mesh(geo,new THREE.MeshStandardMaterial({color:slab.mode==='pending'?0xddae66:0x5e9acd,transparent:true,opacity:.35,side:THREE.DoubleSide,depthWrite:false}));mesh.userData={kind:'slabs',id:slab.id};group.add(mesh);}
- for(const f of model.foundations){
-  if(visibleNodeIds&&!f.nodes.every(id=>visibleNodeIds.has(id)))continue;
-  const pts=f.nodes.map(id=>pos.get(id));
-  if(!pts.length||pts.some(p=>!p))continue;
-  const c=pts.reduce((sum,p)=>sum.add(p),new THREE.Vector3()).multiplyScalar(1/pts.length);
-  const isSelected=selected?.kind==='foundations'&&selected.id===f.id;
-  const pCount=f.pileCount||(f.type==='pile_cap'?4:0);
-  const pLen=f.pileLength||12.0;
-  if([f.bx,f.bz,f.depth].every(v=>Number.isFinite(v)&&v>0)){
-   const capGeo=new THREE.BoxGeometry(f.bx,f.depth,f.bz);
-   const capMat=new THREE.MeshStandardMaterial({color:isSelected?0xffbe66:(f.mode==='pending'?0xc99653:0x8593a5),transparent:true,opacity:.8});
-   const mesh=new THREE.Mesh(capGeo,capMat);
-   mesh.position.copy(c).add(new THREE.Vector3(0,-f.depth/2,0));
-   mesh.userData={kind:'foundations',id:f.id};
-   group.add(mesh);
-   if(isSelected)group.add(new THREE.BoxHelper(mesh,0xffbe66));
-  }
-  if(pCount>0){
-   const pileR=0.125;
-   const dx=Math.min((f.bx||1.4)*0.28,0.45),dz=Math.min((f.bz||1.4)*0.28,0.45);
-   let pileOffsets=[[0,0]];
-   if(pCount===1)pileOffsets=[[0,0]];
-   else if(pCount===2)pileOffsets=[[-dx,0],[dx,0]];
-   else if(pCount===3)pileOffsets=[[-dx,-dz*0.7],[dx,-dz*0.7],[0,dz*0.7]];
-   else if(pCount===4)pileOffsets=[[-dx,-dz],[dx,-dz],[-dx,dz],[dx,dz]];
-   else if(pCount===5)pileOffsets=[[-dx,-dz],[dx,-dz],[-dx,dz],[dx,dz],[0,0]];
-   else if(pCount===6)pileOffsets=[[-dx,-dz],[0,-dz],[dx,-dz],[-dx,dz],[0,dz],[dx,dz]];
-   else pileOffsets=[[-dx,-dz],[dx,-dz],[-dx,dz],[dx,dz]];
-   const cylGeo=new THREE.CylinderGeometry(pileR,pileR,pLen,16);
-   const edgeGeo=new THREE.EdgesGeometry(cylGeo,30);
-   const pileMat=new THREE.MeshStandardMaterial({color:isSelected?0xffd59e:0x94a3b8,roughness:.6,metalness:.1,transparent:true,opacity:.85});
-   const edgeMat=new THREE.LineBasicMaterial({color:0x334155});
-   const pileY=c.y-(f.depth||0.5)-pLen/2;
-   for(const [ox,oz] of pileOffsets){
-    const pMesh=new THREE.Mesh(cylGeo,pileMat);
-    pMesh.position.set(c.x+ox,pileY,c.z+oz);
-    pMesh.userData={kind:'foundations',id:f.id};
-    group.add(pMesh);
-    const edgeLine=new THREE.LineSegments(edgeGeo,edgeMat);
-    edgeLine.position.copy(pMesh.position);
-    group.add(edgeLine);
+ // Material Self-Weight & Floor Load Transfers (SW)
+ if(showSelfWeight && model.selfWeight){
+  for(const m of model.members){
+   if(visibleNodeIds&&(!visibleNodeIds.has(m.i)||!visibleNodeIds.has(m.j)))continue;
+   const a=pos.get(m.i),b=pos.get(m.j);
+   if(!a||!b||a.distanceTo(b)<1e-6)continue;
+   const L=a.distanceTo(b);
+   const density=(m.sectionType==='steel_custom'?model.steel.density:model.material.density)||24;
+   const secA=(m.kind==='roof'||m.sectionType==='steel_custom')?(m.A||0.002):(m.b||0.25)*(m.h||0.35);
+   const swKNm=secA*density; // line load in kN/m
+   const swTotalKN=swKNm*L;
+   const isSelectedMem=selected?.kind==='members'&&selected.id===m.id;
+
+   if(m.kind==='beam'&&swKNm>0.005){
+    const dirLoad=new THREE.Vector3(0,-1,0);
+    const dirBox=new THREE.Vector3(0,1,0);
+    const boxH=Math.min(0.40,Math.max(0.18,L*0.08));
+    const topA=a.clone().addScaledVector(dirBox,boxH);
+    const topB=b.clone().addScaledVector(dirBox,boxH);
+
+    // Cyan wireframe lines for self-weight
+    line([topA,topB],0x0284c7);
+    line([a,topA],0x0284c7);
+    line([b,topB],0x0284c7);
+
+    // Shaded cyan quad
+    const quadGeo=new THREE.BufferGeometry();
+    const quadVerts=[
+     a.x,a.y,a.z, topA.x,topA.y,topA.z, topB.x,topB.y,topB.z,
+     a.x,a.y,a.z, topB.x,topB.y,topB.z, b.x,b.y,b.z
+    ];
+    quadGeo.setAttribute('position',new THREE.Float32BufferAttribute(quadVerts,3));
+    quadGeo.computeVertexNormals();
+    const quadMat=new THREE.MeshBasicMaterial({color:0x38bdf8,transparent:true,opacity:0.18,side:THREE.DoubleSide,depthWrite:false});
+    group.add(new THREE.Mesh(quadGeo,quadMat));
+
+    // Downward arrows
+    const numArrows=Math.max(3,Math.min(6,Math.round(L*1.2)));
+    for(let i=0;i<numArrows;i++){
+     const t=(i+0.5)/numArrows;
+     const pTop=topA.clone().lerp(topB,t);
+     const pBeam=a.clone().lerp(b,t);
+     const arrLen=pTop.distanceTo(pBeam);
+     const hl=Math.min(arrLen*0.35,0.11);
+     group.add(new THREE.ArrowHelper(dirLoad,pTop,arrLen,0x0284c7,hl,hl*0.6));
+    }
+
+    // SW Badge offset to t=0.28 to avoid colliding with uniform load badge at t=0.50
+    if(isSelectedMem || model.members.length < 35){
+     const swVal=quantity(swKNm,'line');
+     const badge=labelSprite(`SW = ${fmt(swVal,1)} ${unitLabel('line')}`,0,28,12,{bg:'rgba(12, 74, 110, 0.90)',border:'rgba(56, 189, 248, 0.65)',color:'#e0f2fe',radius:5});
+     badge.position.copy(topA).lerp(topB,0.28).addScaledVector(dirBox,0.12);
+     group.add(badge);
+    }
+   }else if((m.kind==='column'||m.kind==='roof')&&swTotalKN>0.01){
+    // Column or roof self-weight badge at midpoint
+    if(isSelectedMem || (m.kind==='column'&&model.members.length<35)){
+     const swVal=quantity(swTotalKN,'force');
+     const mid=a.clone().lerp(b,0.5);
+     const badge=labelSprite(`SW = ${fmt(swVal,1)} ${unitLabel('force')}`,0,26,11,{bg:'rgba(15, 23, 42, 0.88)',border:'rgba(56, 189, 248, 0.5)',color:'#7dd3fc',radius:5});
+     badge.position.copy(mid).add(new THREE.Vector3(0.12,0.1,0.12));
+     group.add(badge);
+    }
    }
   }
-  const fmark=getFoundationMark(f);
-  const pileText=pCount>0?` · ${pCount} เข็ม`:'';
-  const label=labelSprite(`${fmark} (${f.id})${pileText}`);
-  label.position.copy(c).add(new THREE.Vector3(.3,-f.depth-0.2,.3));
-  group.add(label);
+
+  // Floor load transfers (slab tributary lines onto beams)
+  const floorTransfers=result?.coverage?.floorLoadTransfers||[];
+  for(const ft of floorTransfers){
+   const m=model.members.find(x=>x.id===ft.member);
+   if(!m)continue;
+   const a=pos.get(m.i),b=pos.get(m.j);
+   if(!a||!b)continue;
+   const L=a.distanceTo(b);
+   if(L<1e-6)continue;
+   const qVal=ft.qyKNm||0;
+   if(qVal>0.005){
+    const dirBox=new THREE.Vector3(0,1,0);
+    const boxH=Math.min(0.48,Math.max(0.22,L*0.10));
+    const topA=a.clone().addScaledVector(dirBox,boxH);
+    const topB=b.clone().addScaledVector(dirBox,boxH);
+    const isSelectedMem=selected?.kind==='members'&&selected.id===m.id;
+    if(isSelectedMem || (model.members.length<35)){
+     const qDisp=quantity(qVal,'line');
+     const badge=labelSprite(`พื้น ${ft.source} = ${fmt(qDisp,1)} ${unitLabel('line')}`,0,28,12,{bg:'rgba(6, 78, 59, 0.92)',border:'rgba(52, 211, 153, 0.65)',color:'#d1fae5',radius:5});
+     badge.position.copy(topA).lerp(topB,0.72).addScaledVector(dirBox,0.12);
+     group.add(badge);
+    }
+   }
+  }
  }
+
+  // 3D Roofing Surface (แผ่นมุงหลังคา Metal Sheet + ฉนวน PU)
+  if(showRoofSheeting && showSolid3D){
+   const roofMembers = model.members.filter(m => m.kind === 'roof');
+   if(roofMembers.length){
+    const roofNodeIds = new Set();
+    for(const m of roofMembers){ roofNodeIds.add(m.i); roofNodeIds.add(m.j); }
+    const zSlices = new Map();
+    for(const nid of roofNodeIds){
+     const p = pos.get(nid);
+     if(!p) continue;
+     const zKey = Math.round(p.z * 1000) / 1000;
+     if(!zSlices.has(zKey)) zSlices.set(zKey, []);
+     zSlices.get(zKey).push({ id: nid, x: p.x, y: p.y, z: p.z });
+    }
+    const sortedZ = Array.from(zSlices.keys()).sort((a,b) => a - b);
+    if(sortedZ.length >= 2){
+     const profileMap = new Map();
+     for(const zVal of sortedZ){
+      const nodes = zSlices.get(zVal);
+      const topByX = new Map();
+      for(const n of nodes){
+       const xKey = Math.round(n.x * 1000) / 1000;
+       if(!topByX.has(xKey) || n.y > topByX.get(xKey).y){
+        topByX.set(xKey, n);
+       }
+      }
+      const sortedX = Array.from(topByX.values()).sort((a,b) => a.x - b.x);
+      profileMap.set(zVal, sortedX);
+     }
+     const vertices = [], ribLines = [];
+     let overallMinX = Infinity, overallMaxX = -Infinity, overallMaxY = -Infinity;
+     for(let i = 0; i < sortedZ.length - 1; i++){
+      const z0 = sortedZ[i], z1 = sortedZ[i+1];
+      const profA = profileMap.get(z0);
+      const profB = profileMap.get(z1);
+      if(!profA || !profB || profA.length < 2 || profA.length !== profB.length) continue;
+      for(let k = 0; k < profA.length - 1; k++){
+       const p0 = profA[k], p1 = profA[k+1];
+       const p3 = profB[k], p2 = profB[k+1];
+       overallMinX = Math.min(overallMinX, p0.x, p1.x);
+       overallMaxX = Math.max(overallMaxX, p0.x, p1.x);
+       overallMaxY = Math.max(overallMaxY, p0.y, p1.y, p2.y, p3.y);
+       vertices.push(p0.x, p0.y + 0.02, p0.z, p1.x, p1.y + 0.02, p1.z, p2.x, p2.y + 0.02, p2.z);
+       vertices.push(p0.x, p0.y + 0.02, p0.z, p2.x, p2.y + 0.02, p2.z, p3.x, p3.y + 0.02, p3.z);
+       ribLines.push([new THREE.Vector3(p0.x, p0.y + 0.025, p0.z), new THREE.Vector3(p1.x, p1.y + 0.025, p1.z)]);
+       ribLines.push([new THREE.Vector3(p3.x, p3.y + 0.025, p3.z), new THREE.Vector3(p2.x, p2.y + 0.025, p2.z)]);
+       ribLines.push([new THREE.Vector3(p0.x, p0.y + 0.025, p0.z), new THREE.Vector3(p3.x, p3.y + 0.025, p3.z)]);
+       ribLines.push([new THREE.Vector3(p1.x, p1.y + 0.025, p1.z), new THREE.Vector3(p2.x, p2.y + 0.025, p2.z)]);
+       for(const t of [0.33, 0.67]){
+        const r0 = new THREE.Vector3(p0.x, p0.y + 0.028, p0.z).lerp(new THREE.Vector3(p3.x, p3.y + 0.028, p3.z), t);
+        const r1 = new THREE.Vector3(p1.x, p1.y + 0.028, p1.z).lerp(new THREE.Vector3(p2.x, p2.y + 0.028, p2.z), t);
+        ribLines.push([r0, r1]);
+       }
+      }
+     }
+     if(vertices.length){
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+      geo.computeVertexNormals();
+      const mat = new THREE.MeshStandardMaterial({color: 0x38bdf8, metalness: 0.35, roughness: 0.55, transparent: true, opacity: 0.28, side: THREE.DoubleSide, depthWrite: false});
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.userData = { kind: 'roofSheeting', id: 'RS1' };
+      group.add(mesh);
+      const lineMat = new THREE.LineBasicMaterial({ color: 0x0284c7, transparent: true, opacity: 0.75 });
+      for(const [ptA, ptB] of ribLines){
+       const lGeo = new THREE.BufferGeometry().setFromPoints([ptA, ptB]);
+       group.add(new THREE.Line(lGeo, lineMat));
+      }
+      if(Number.isFinite(overallMinX) && Number.isFinite(overallMaxX) && Number.isFinite(overallMaxY)){
+       const midX = (overallMinX + overallMaxX) / 2;
+       const midZ = (sortedZ[0] + sortedZ[sortedZ.length - 1]) / 2;
+       const badge = labelSprite(`แผ่นมุง Metal Sheet 0.47 mm + ฉนวน PU (DL ~15 kg/m², LL ~30 kg/m²)\nกลไกถ่ายแรง: แผ่นมุง w → แป q (kg/m) → ถ่ายลงโหนดโครงถัก P (kg)`, 0, 52, 12, { bg: 'rgba(12, 74, 110, 0.94)', border: 'rgba(56, 189, 248, 0.8)', color: '#f0f9ff', radius: 6, alwaysOnTop: true });
+       badge.position.set(midX, overallMaxY + 0.45, midZ);
+       group.add(badge);
+      }
+     }
+    }
+   }
+  }
+
+  for(const slab of model.slabs){
+   if(visibleNodeIds&&!slab.nodes.every(id=>visibleNodeIds.has(id)))continue;
+   const pts=slab.nodes.map(id=>pos.get(id));
+   if(pts.length<3||pts.some(p=>!p))continue;
+   if(showSolid3D){
+    const contour=pts.map(p=>new THREE.Vector2(p.x,p.z));
+    const triangles=THREE.ShapeUtils.triangulateShape(contour,[]),vertices=[];
+    for(const tri of triangles)for(const i of tri)vertices.push(pts[i].x,pts[i].y-.025,pts[i].z);
+    const geo=new THREE.BufferGeometry();
+    geo.setAttribute('position',new THREE.Float32BufferAttribute(vertices,3));
+    geo.computeVertexNormals();
+    const mesh=new THREE.Mesh(geo,new THREE.MeshStandardMaterial({color:slab.mode==='pending'?0xddae66:0x5e9acd,transparent:true,opacity:.35,side:THREE.DoubleSide,depthWrite:false}));
+    mesh.userData={kind:'slabs',id:slab.id};
+    group.add(mesh);
+   }
+   if(showWireframe||!showSolid3D){
+    const loopPts=[...pts,pts[0]];
+    const lineGeo=new THREE.BufferGeometry().setFromPoints(loopPts);
+    const lineMat=new THREE.LineBasicMaterial({color:0x38bdf8,linewidth:2});
+    const slabBorder=new THREE.Line(lineGeo,lineMat);
+    slabBorder.userData={kind:'slabs',id:slab.id};
+    group.add(slabBorder);
+   }
+  }
+
+  for(const f of model.foundations){
+   if(visibleNodeIds&&!f.nodes.every(id=>visibleNodeIds.has(id)))continue;
+   const pts=f.nodes.map(id=>pos.get(id));
+   if(!pts.length||pts.some(p=>!p))continue;
+   const c=pts.reduce((sum,p)=>sum.add(p),new THREE.Vector3()).multiplyScalar(1/pts.length);
+   const isSelected=selected?.kind==='foundations'&&selected.id===f.id;
+   const pCount=f.pileCount||(f.type==='pile_cap'?4:0);
+   const pLen=f.pileLength||12.0;
+   if([f.bx,f.bz,f.depth].every(v=>Number.isFinite(v)&&v>0)){
+    const capGeo=new THREE.BoxGeometry(f.bx,f.depth,f.bz);
+    if(showSolid3D){
+     const capMat=new THREE.MeshStandardMaterial({color:isSelected?0xffbe66:(f.mode==='pending'?0xc99653:0x8593a5),transparent:true,opacity:.8});
+     const mesh=new THREE.Mesh(capGeo,capMat);
+     mesh.position.copy(c).add(new THREE.Vector3(0,-f.depth/2,0));
+     mesh.userData={kind:'foundations',id:f.id};
+     group.add(mesh);
+     if(isSelected)group.add(new THREE.BoxHelper(mesh,0xffbe66));
+    }else{
+     const edges=new THREE.EdgesGeometry(capGeo);
+     const lineMat=new THREE.LineBasicMaterial({color:isSelected?0xffbe66:0x64748b,linewidth:2});
+     const capWire=new THREE.LineSegments(edges,lineMat);
+     capWire.position.copy(c).add(new THREE.Vector3(0,-f.depth/2,0));
+     capWire.userData={kind:'foundations',id:f.id};
+     group.add(capWire);
+    }
+   }
+   if(pCount>0){
+    const pileR=0.125;
+    const dx=Math.min((f.bx||1.4)*0.28,0.45),dz=Math.min((f.bz||1.4)*0.28,0.45);
+    let pileOffsets=[[0,0]];
+    if(pCount===1)pileOffsets=[[0,0]];
+    else if(pCount===2)pileOffsets=[[-dx,0],[dx,0]];
+    else if(pCount===3)pileOffsets=[[-dx,-dz*0.7],[dx,-dz*0.7],[0,dz*0.7]];
+    else if(pCount===4)pileOffsets=[[-dx,-dz],[dx,-dz],[-dx,dz],[dx,dz]];
+    else if(pCount===5)pileOffsets=[[-dx,-dz],[dx,-dz],[-dx,dz],[dx,dz],[0,0]];
+    else if(pCount===6)pileOffsets=[[-dx,-dz],[0,-dz],[dx,-dz],[-dx,dz],[0,dz],[dx,dz]];
+    else pileOffsets=[[-dx,-dz],[dx,-dz],[-dx,dz],[dx,dz]];
+    const pileY=c.y-(f.depth||0.5)-pLen/2;
+    if(showSolid3D){
+     const cylGeo=new THREE.CylinderGeometry(pileR,pileR,pLen,16);
+     const edgeGeo=new THREE.EdgesGeometry(cylGeo,30);
+     const pileMat=new THREE.MeshStandardMaterial({color:isSelected?0xffd59e:0x94a3b8,roughness:.6,metalness:.1,transparent:true,opacity:.85});
+     const edgeMat=new THREE.LineBasicMaterial({color:0x334155});
+     for(const [ox,oz] of pileOffsets){
+      const pMesh=new THREE.Mesh(cylGeo,pileMat);
+      pMesh.position.set(c.x+ox,pileY,c.z+oz);
+      pMesh.userData={kind:'foundations',id:f.id};
+      group.add(pMesh);
+      const edgeLine=new THREE.LineSegments(edgeGeo,edgeMat);
+      edgeLine.position.copy(pMesh.position);
+      group.add(edgeLine);
+     }
+    }else{
+     const pileMat=new THREE.LineBasicMaterial({color:isSelected?0xffd59e:0x0284c7,linewidth:2});
+     for(const [ox,oz] of pileOffsets){
+      const pTop=new THREE.Vector3(c.x+ox,c.y-(f.depth||0.5),c.z+oz);
+      const pBot=new THREE.Vector3(c.x+ox,c.y-(f.depth||0.5)-pLen,c.z+oz);
+      const pLine=new THREE.Line(new THREE.BufferGeometry().setFromPoints([pTop,pBot]),pileMat);
+      pLine.userData={kind:'foundations',id:f.id};
+      group.add(pLine);
+     }
+    }
+   }
+   const fmark=getFoundationMark(f);
+   const pileText=pCount>0?` · ${pCount} เข็ม`:'';
+   const label=labelSprite(`${fmark} (${f.id})${pileText}`);
+   label.position.copy(c).add(new THREE.Vector3(.3,-f.depth-0.2,.3));
+   group.add(label);
+  }
  // 3D Solid Staircase (Landing Slab + Flight Waist Slabs + Steps)
  if(viewMode!=='plan'&&model.stairs&&model.stairs.length){
   const stairMat=new THREE.MeshStandardMaterial({color:0x94a3b8,roughness:0.6,metalness:0.1,transparent:true,opacity:0.85});
@@ -1148,7 +1816,7 @@ const specs={
  combinations:[['name','ชื่อชุด','text'],['D','D ×','number'],['L','L ×','number'],['W','W ×','number']]
 };
 const notes={nodes:'✓ = ยึดการเลื่อน/หมุน · แกน Y ขึ้น · หน่วยพิกัด m',beams:'คสล. ใช้ b/h; เหล็กใช้ A/Iy/Iz/J ของหน้าตัดจริง · ไม่ใช้ b/h แทนเหล็ก',columns:'เสาต่อ rigid joint · ยังไม่ตรวจ P–M หรือความชะลูด',roof:'รูปแบบหลังคาเป็นการจัดกลุ่ม · วิเคราะห์เฉพาะ frame · truss ยังไม่รองรับ · หน้าตัดเหล็กต้องกรอก A/Iy/Iz/J',slabs:'กรอกได้ทุกชนิดในรายการ + กำหนดเอง · วิเคราะห์นน.ได้เฉพาะพื้นทางเดียวสี่เหลี่ยมลงคานสองด้าน · หนา/นน./โหนด/คานต้องครบ',foundations:'ข้อมูลดิน/เข็มเก็บไว้เท่านั้น · ยังไม่ใช้คำนวณกำลัง/การทรุดตัว · ฐานใช้จุดรองรับที่ผู้ใช้กำหนดไว้ ไม่เปลี่ยน restraints อัตโนมัติ',nodalLoads:'แกน GLOBAL · FY ลบ = ลง · แสดงหน่วยเป็น kg (แรงกระทำ)',memberLoads:'แรงกระจายสม่ำเสมอ · เลือกระบบแกน Local (แกนเฉพาะตัวชิ้นส่วน) หรือ Global (แกนรวม) · qy ลบ = กดลง',combinations:'ชุดน้ำหนักกำหนดเอง ยังไม่ได้สร้างตามมาตรฐาน'};
-function classification(collection,row){if(collection==='slabs')return row.mode==='one_way_load'&&['one_way','precast','steel_deck','custom'].includes(row.type)?'ตั้งให้ถ่ายนน.ทางเดียว':'รอวิเคราะห์';if(collection==='foundations')return row.mode==='ideal_support'?'จุดรองรับ / ไม่ตรวจฐาน':'รอยืนยันรองรับ';if(collection==='members')return (row.behavior==='truss'||row.kind==='roof'&&['truss','spaceframe'].includes(row.roofType))?'รอระบบ truss':row.sectionType==='steel_custom'&&['A','Iy','Iz','J'].some(k=>!Number.isFinite(row[k])||row[k]<=0)?'รอคุณสมบัติหน้าตัด':'วิเคราะห์ frame';return '';}
+function classification(collection,row){if(collection==='nodes')return (row.y>0.05&&row.restraints?.some(Boolean))?'⚠️ Support ลอยฟ้า!':row.restraints?.some(Boolean)?'จุดรองรับ (Support)':'อิสระ';if(collection==='slabs')return row.mode==='one_way_load'&&['one_way','precast','steel_deck','custom'].includes(row.type)?'ตั้งให้ถ่ายนน.ทางเดียว':'รอวิเคราะห์';if(collection==='foundations')return row.mode==='ideal_support'?'จุดรองรับ / ไม่ตรวจฐาน':'รอยืนยันรองรับ';if(collection==='members')return (row.behavior==='truss'||row.kind==='roof'&&['truss','spaceframe'].includes(row.roofType))?'รอระบบ truss':row.sectionType==='steel_custom'&&['A','Iy','Iz','J'].some(k=>!Number.isFinite(row[k])||row[k]<=0)?'รอคุณสมบัติหน้าตัด':'วิเคราะห์ frame';return '';}
 function getMemberLoadBreakdown(item){
  if(!item||!['beams','columns','roof'].includes(memberTab(item)))return null;
  const act=result?.combinations?.[$('resultCombo')?.value];
@@ -1162,31 +1830,53 @@ function getMemberLoadBreakdown(item){
  if(item.kind==='column'){
   const isTopB=b.y>=a.y;
   const topNode=isTopB?b:a,baseNode=isTopB?a:b;
-  const framingBeams=model.members.filter(m=>m.id!==item.id&&(m.i===topNode.id||m.j===topNode.id)&&m.kind==='beam');
+  const framingMembers=model.members.filter(m=>m.id!==item.id&&(m.i===topNode.id||m.j===topNode.id));
   const beamTransfers=[];let totalBeamReactionKN=0;
-  for(const bm of framingBeams){
-   const bmRes=act?.members?.[bm.id];
+  const roofTransfers=[];let totalRoofReactionKN=0;
+  for(const mFraming of framingMembers){
+   const memRes=act?.members?.[mFraming.id];
    let vEnd=0;
-   if(bmRes&&bmRes.samples?.length){
-    vEnd=(bm.i===topNode.id)?Math.abs(bmRes.samples[0].Vy):Math.abs(bmRes.samples[bmRes.samples.length-1].Vy);
+   if(memRes&&memRes.samples?.length){
+    const atStart=(mFraming.i===topNode.id);
+    const pt=atStart?memRes.samples[0]:memRes.samples[memRes.samples.length-1];
+    if(mFraming.kind==='roof'){
+     const otherNid=atStart?mFraming.j:mFraming.i;
+     const otherNode=model.nodes.find(n=>n.id===otherNid);
+     if(otherNode){
+      const dy=otherNode.y-topNode.y;
+      const len=Math.hypot(otherNode.x-topNode.x,dy,otherNode.z-topNode.z);
+      const sinY=len>1e-5?Math.abs(dy)/len:0;
+      vEnd=Math.abs(pt.N*sinY)+Math.abs(pt.Vy);
+     }else{
+      vEnd=Math.abs(pt.Vy);
+     }
+    }else{
+     vEnd=Math.abs(pt.Vy);
+    }
    }else{
-    const bmA=(bm.b||0.25)*(bm.h||0.45);
-    vEnd=(bmA*density*4)/2;
+    const mA=(mFraming.sectionType==='steel_custom'?(mFraming.A||0.0016):(mFraming.b||0.25)*(mFraming.h||0.45));
+    const mDens=(mFraming.sectionType==='steel_custom'?model.steel.density:model.material.density)||24;
+    vEnd=(mA*mDens*4)/2;
    }
-   beamTransfers.push({id:bm.id,shearKN:vEnd});
-   totalBeamReactionKN+=vEnd;
+   if(mFraming.kind==='roof'){
+    roofTransfers.push({id:mFraming.id,forceKN:vEnd});
+    totalRoofReactionKN+=vEnd;
+   }else{
+    beamTransfers.push({id:mFraming.id,shearKN:vEnd});
+    totalBeamReactionKN+=vEnd;
+   }
   }
   const topNodalLoads=model.nodalLoads.filter(l=>l.node===topNode.id);
   let topNodeFyKN=0;
   for(const nl of topNodalLoads)topNodeFyKN+=(nl.fy||0);
-  const framingIds=new Set(framingBeams.map(x=>x.id));
+  const framingIds=new Set(framingMembers.filter(m=>m.kind==='beam').map(x=>x.id));
   const floorTransfers=result?.coverage?.floorLoadTransfers?.filter(p=>framingIds.has(p.member))||[];
   let totalSlabAreaM2=0;
   for(const ft of floorTransfers)totalSlabAreaM2+=(ft.areaM2/2);
   const baseReaction=act?.nodes?.[baseNode.id]?.reaction;
   const baseRyKN=baseReaction?baseReaction[1]:null;
-  const axialMaxKN=memRes?.samples?Math.max(...memRes.samples.map(s=>Math.abs(s.N))):(totalBeamReactionKN+swKN);
-  return{type:'column',topNode:topNode.id,baseNode:baseNode.id,framingBeams:beamTransfers,totalBeamReactionKN,topNodeFyKN:Math.abs(topNodeFyKN),selfWeightKN:swKN,axialMaxKN,baseRyKN,slabAreaM2:totalSlabAreaM2,L,secA};
+  const axialMaxKN=memRes?.samples?Math.max(...memRes.samples.map(s=>Math.abs(s.N))):(totalBeamReactionKN+totalRoofReactionKN+swKN);
+  return{type:'column',topNode:topNode.id,baseNode:baseNode.id,framingBeams:beamTransfers,framingRoof:roofTransfers,totalBeamReactionKN,totalRoofReactionKN,topNodeFyKN:Math.abs(topNodeFyKN),selfWeightKN:swKN,axialMaxKN,baseRyKN,slabAreaM2:totalSlabAreaM2,L,secA};
  }else if(item.kind==='beam'){
   const memberLoads=model.memberLoads.filter(l=>l.member===item.id);
   let userQy=0;for(const l of memberLoads)userQy+=(l.qy||0);
@@ -1215,7 +1905,18 @@ function renderSelection(){
  const mark=selected.kind==='members'?getMemberMark(item):selected.kind==='foundations'?getFoundationMark(item):'';
  const title=mark?`${mark} (${item.id})`:item.id;
  box.append(el('b',title),el('div',classification(selected.kind,item)));
- if(selected.kind==='nodes')box.append(el('div',`X ${item.x??'—'} · Y ${item.y??'—'} · Z ${item.z??'—'} m`));
+ if(selected.kind==='nodes'){
+  box.append(el('div',`X ${item.x??'—'} · Y ${item.y??'—'} · Z ${item.z??'—'} m`));
+  const nLoads=(model.nodalLoads||[]).filter(nl=>nl.node===item.id);
+  if(nLoads.length){
+   const isRoofNode=model.members.some(m=>m.kind==='roof'&&(m.i===item.id||m.j===item.id));
+   const card=el('div');card.className='load-breakdown';
+   const lines=nLoads.map(nl=>`<div class="load-item"><span class="lbl">เคส [${nl.case}]:</span><span class="val">Fy = ${fmt(quantity(Math.abs(nl.fy||0),'force'))} ${unitLabel('force')}</span></div>`).join('');
+   const note=isRoofNode?`<div style="font-size:10px;color:#94a3b8;margin-top:4px;border-top:1px dashed #334155;padding-top:4px;line-height:1.4"><b>ที่มาแรงบนโหนดโครงถัก (Roof Load Path):</b><br>1. แผ่นมุง (Metal Sheet + ฉนวน PU ~15 kg/m²)<br>2. ถ่ายลงแปตามระยะห่าง (q = w × s ≈ 22.5–25 kg/m)<br>3. แปพาดช่วง 5 m ถ่ายแรงปฏิกิริยาลงโหนดโครงถักหัวแป (P = q × L_bay)</div>`:'';
+   card.innerHTML=`<b>แรงกระทำบนโหนด (Nodal Loads)</b>${lines}${note}`;
+   box.append(card);
+  }
+ }
  else if(selected.kind==='members'){
   const a=model.nodes.find(n=>n.id===item.i),b=model.nodes.find(n=>n.id===item.j);
   box.append(el('div',`${item.i} → ${item.j}`));
@@ -1249,14 +1950,20 @@ function renderSelection(){
      const slabLine=bd.slabAreaM2>0?`<div class="load-item"><span class="lbl">พื้นที่รับน้ำหนักพื้น:</span><span class="val">~${fmt(bd.slabAreaM2,1)} m²</span></div>`:'';
      const ryLine=bd.baseRyKN!=null?`<div class="load-item" style="margin-top:4px"><span class="lbl">แรงปฏิกิริยาฐาน (${bd.baseNode}):</span><span class="val" style="color:#22C55E">Ry = ${fmt(quantity(bd.baseRyKN,'force'))} ${unitLabel('force')}</span></div>`:'';
      const tfVal=(quantity(bd.axialMaxKN,'force')/1000).toFixed(2);
-     card.innerHTML=`<b>การถ่ายน้ำหนักลงเสา (Column Load Path)</b><div class="load-item"><span class="lbl">แรงเฉือนจากคานบน:</span><span class="val">${fmt(quantity(bd.totalBeamReactionKN,'force'))} ${unitLabel('force')}</span></div>${bmLines}${topLoadLine}${slabLine}<div class="load-item"><span class="lbl">น้ำหนักตัวเสา:</span><span class="val">${fmt(quantity(bd.selfWeightKN,'force'))} ${unitLabel('force')}</span></div><div class="load-sum"><span>รวมน้ำหนักกดลงเสา (P):</span><span>${fmt(quantity(bd.axialMaxKN,'force'))} ${unitLabel('force')} (${tfVal} tf)</span></div>${ryLine}`;
+     const rfLines=(bd.framingRoof||[]).filter(x=>x.forceKN>0.01).map(x=>{
+      const rf=model.members.find(m=>m.id===x.id);
+      const rfMark=rf?getMemberMark(rf):x.id;
+      return `<div class="load-item" style="padding-left:10px;font-size:10px"><span class="lbl">└ โครงหลังคา ${rfMark} (${x.id}):</span><span class="val">${fmt(quantity(x.forceKN,'force'))} ${unitLabel('force')}</span></div>`;
+     }).join('');
+     const rfHeader=bd.totalRoofReactionKN>0.01?`<div class="load-item"><span class="lbl">แรงถ่ายจากโครงหลังคา/โครงถัก:</span><span class="val">${fmt(quantity(bd.totalRoofReactionKN,'force'))} ${unitLabel('force')}</span></div>${rfLines}`:'';
+     card.innerHTML=`<b>การถ่ายน้ำหนักลงเสา (Column Load Path)</b>${rfHeader}<div class="load-item"><span class="lbl">แรงเฉือนจากคานบน:</span><span class="val">${fmt(quantity(bd.totalBeamReactionKN,'force'))} ${unitLabel('force')}</span></div>${bmLines}${topLoadLine}${slabLine}<div class="load-item"><span class="lbl">น้ำหนักตัวเสา:</span><span class="val">${fmt(quantity(bd.selfWeightKN,'force'))} ${unitLabel('force')}</span></div><div class="load-sum"><span>รวมน้ำหนักกดลงเสา (P):</span><span>${fmt(quantity(bd.axialMaxKN,'force'))} ${unitLabel('force')} (${tfVal} tf)</span></div>${ryLine}`;
     }else if(bd.type==='beam'){
      const slabLine=bd.slabQyKNm>0?`<div class="load-item"><span class="lbl">น้ำหนักพื้น (${bd.slabSources.join(',')}):</span><span class="val">${fmt(quantity(bd.slabQyKNm,'line'))} ${unitLabel('line')}</span></div>`:'';
      const userLine=bd.userQyKNm>0?`<div class="load-item"><span class="lbl">โหลดกระจายเพิ่ม:</span><span class="val">${fmt(quantity(bd.userQyKNm,'line'))} ${unitLabel('line')}</span></div>`:'';
      card.innerHTML=`<b>น้ำหนักบรรทุกบนคาน (Beam Loads)</b><div class="load-item"><span class="lbl">น้ำหนักตัวคาน:</span><span class="val">${fmt(quantity(bd.swKNm,'line'))} ${unitLabel('line')}</span></div>${slabLine}${userLine}<div class="load-sum"><span>รวมโหลดกระจาย (q):</span><span>${fmt(quantity(bd.totalQyKNm,'line'))} ${unitLabel('line')} (รวม ${fmt(quantity(bd.totalWeightKN,'force'))} ${unitLabel('force')})</span></div><div class="load-item" style="margin-top:4px"><span class="lbl">ถ่ายลงเสาที่โหนด ${item.i}:</span><span class="val">${fmt(quantity(bd.vIKN,'force'))} ${unitLabel('force')}</span></div><div class="load-item"><span class="lbl">ถ่ายลงเสาที่โหนด ${item.j}:</span><span class="val">${fmt(quantity(bd.vJKN,'force'))} ${unitLabel('force')}</span></div>`;
     }else{
      const sign=bd.axialKN>=0?'แรงดึง Tension':'แรงอัด Compression';
-     card.innerHTML=`<b>แรงในชิ้นส่วนโครงหลังคา</b><div class="load-item"><span class="lbl">น้ำหนักตัวเอง:</span><span class="val">${fmt(quantity(bd.selfWeightKN,'force'))} ${unitLabel('force')}</span></div><div class="load-sum"><span>แรงตามแกน (N):</span><span>${fmt(quantity(Math.abs(bd.axialKN),'force'))} ${unitLabel('force')} (${sign})</span></div>`;
+     card.innerHTML=`<b>แรงในชิ้นส่วนโครงหลังคา</b><div class="load-item"><span class="lbl">น้ำหนักตัวเอง:</span><span class="val">${fmt(quantity(bd.selfWeightKN,'force'))} ${unitLabel('force')}</span></div><div class="load-sum"><span>แรงตามแกน (N):</span><span>${fmt(quantity(Math.abs(bd.axialKN),'force'))} ${unitLabel('force')} (${sign})</span></div><div style="font-size:10px;color:#94a3b8;margin-top:6px;border-top:1px dashed #334155;padding-top:4px;line-height:1.4"><b>กลไกการถ่ายแรงหลังคา (Roof Load Transfer):</b><br>แผ่นหลังคา (kg/m²) ➔ แป (kg/m) ➔ จุดต่อโครงถัก/จันทัน (Point Load) ➔ เสาและฐานราก</div>`;
     }
     box.append(card);
     const act=result?.combinations?.[$('resultCombo')?.value];
@@ -1305,8 +2012,8 @@ function renderSelection(){
 function addRow(){const collection=groupFor(tab);if(['beams','columns','roof'].includes(tab)){status('ใช้ช่องเชื่อมคาน / เสา / หลังคาด้านซ้าย เพื่อเลือกสองโหนด');return;}if((tab==='nodalLoads'&&!model.nodes.length)||(tab==='memberLoads'&&!model.members.length))return status('สร้างโหนดและสมาชิกก่อน','error');mutate(()=>{if(tab==='slabs')model.slabs.push(slabRecord(nextId('S',model.slabs)));if(tab==='foundations')model.foundations.push(foundationRecord(nextId('F',model.foundations)));if(tab==='nodalLoads')model.nodalLoads.push({node:model.nodes[0].id,case:'D',fx:0,fy:0,fz:0,mx:0,my:0,mz:0});if(tab==='memberLoads')model.memberLoads.push({member:model.members[0].id,case:'D',axes:'local',qx:0,qy:0,qz:0});if(tab==='combinations'){let i=1;while(model.combinations.some(c=>c.name==='Combo'+i))i++;model.combinations.push({name:'Combo'+i,D:1,L:1,W:0});}});}
 function deleteRow(collection,row){if(collection==='combinations'&&model.combinations.length===1)return status('ต้องมีชุดน้ำหนักอย่างน้อยหนึ่งชุด','error');if(['nodes','members','slabs','foundations'].includes(collection)&&!confirm(`ลบ ${row.id}? รายการที่อ้างอิงจะถูกปรับเป็นรอตรวจ`))return;mutate(()=>{let removed=[];if(collection==='nodes'){removed=model.members.filter(m=>m.i===row.id||m.j===row.id).map(m=>m.id);model.members=model.members.filter(m=>!removed.includes(m.id));model.nodalLoads=model.nodalLoads.filter(l=>l.node!==row.id);for(const e of [...model.slabs,...model.foundations])if(e.nodes.includes(row.id)){e.nodes=e.nodes.filter(n=>n!==row.id);e.mode='pending';}}if(collection==='members')removed=[row.id];if(removed.length){model.memberLoads=model.memberLoads.filter(l=>!removed.includes(l.member));for(const s of model.slabs)for(const key of ['support1','support2'])if(removed.includes(s[key])){s[key]='';s.mode='pending';}}model[collection].splice(model[collection].indexOf(row),1);});}
 function renderTable(){document.querySelectorAll('#tabs button').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));$('table').replaceChildren();$('tableActions').replaceChildren();if(tab==='results')return renderResultsTable();if(tab==='coverage')return renderCoverage();if(tab==='design')return renderDesignTable();const collection=groupFor(tab);$('tableActions').append(el('span',notes[tab]));if(collection==='members'&&selected?.kind==='members'&&rowsFor(tab).some(m=>m.id===selected.id&&m.kind==='beam')){const shortcut=el('button','📍 วางโหนดจากปลายคาน');shortcut.id='referenceQuickAction';shortcut.onclick=()=>{const tool=document.querySelector('#selection .reference-node-tool');tool?.scrollIntoView({block:'center',behavior:'auto'});tool?.querySelector('input')?.focus({preventScroll:true});};$('tableActions').prepend(shortcut);}if(['slabs','foundations','nodalLoads','memberLoads','combinations'].includes(tab)){const add=el('button','+ เพิ่มแถว');add.onclick=addRow;$('tableActions').prepend(add);}const table=el('table'),hr=el('tr'),head=el('thead');for(const [,label,,q]of specs[tab])hr.append(el('th',label+(q?' ('+unitLabel(q)+')':'')));hr.append(el('th','สถานะ / ลบ'));head.append(hr);table.append(head);const body=el('tbody');
- for(const [index,row]of rowsFor(tab).entries()){const tr=el('tr');if(selected?.kind===collection&&selected.id===row.id)tr.classList.add('selected');for(const [key,,type,q='none']of specs[tab]){const td=el('td');if(type==='id'){let displayId=row[key];if(collection==='members'){const m=model.members.find(x=>x.id===row[key]);if(m)displayId=`${getMemberMark(m)} (${m.id})`;}else if(collection==='foundations'){const f=model.foundations.find(x=>x.id===row[key]);if(f)displayId=`${getFoundationMark(f)} (${f.id})`;}const btn=el('button',displayId);btn.onclick=()=>{selected={kind:collection,id:row.id};renderSelection();drawModel();renderTable();};td.append(btn);}else{const isSelect=type.startsWith('enum:')||['node','member','beam','case'].includes(type);const input=el(isSelect?'select':'input');input.setAttribute('aria-label',`${row.id||index+1} ${key}`);if(isSelect){let choices={};if(type.startsWith('enum:'))choices=catalogs[type.slice(5)];else if(type==='case')choices={D:'D',L:'L',W:'W'};else{const items=type==='node'?model.nodes:model.members.filter(m=>type!=='beam'||m.kind==='beam');if(type==='beam')choices['']='เลือกคาน';for(const item of items)choices[item.id]=item.id;}for(const [value,label]of Object.entries(choices)){const o=el('option',label);o.value=value;input.append(o);}input.value=row[key];}else if(type==='bool'){input.type='checkbox';input.checked=row.restraints[Number(key.slice(1))];}else{input.type=type==='number'?'number':'text';input.value=type==='number'?editValue(row[key],q):type==='nodes'?row[key].join(','):row[key];if(type==='number')input.step='any';if(type==='text')input.maxLength=key==='note'?500:120;if(type==='nodes')input.style.minWidth='170px';}if(collection==='members'&&((row.sectionType==='rc_rect'&&['A','Iy','Iz','J'].includes(key))||(row.sectionType==='steel_custom'&&['b','h'].includes(key))))input.disabled=true;
- input.onchange=()=>{const value=input.value;const nodeValues=type==='nodes'?value.split(',').map(s=>s.trim()).filter(Boolean):null;if(nodeValues&&(new Set(nodeValues).size!==nodeValues.length||nodeValues.some(id=>!model.nodes.some(n=>n.id===id)))){status('ใช้โหนดที่มีอยู่และไม่ซ้ำ คั่นด้วยจุลภาค','error');renderTable();return;}mutate(()=>{if(type==='bool')row.restraints[Number(key.slice(1))]=input.checked;else if(type==='nodes')row[key]=nodeValues;else row[key]=type==='number'?canonical(num(value),q):value;});};td.append(input);}tr.append(td);}const td=el('td');td.append(el('span',classification(collection,row)));const del=el('button','ลบ');del.onclick=()=>deleteRow(collection,row);td.append(del);tr.append(td);body.append(tr);}table.append(body);$('table').append(table);}
+ for(const [index,row]of rowsFor(tab).entries()){const tr=el('tr');if(selected?.kind===collection&&selected.id===row.id)tr.classList.add('selected');if(collection==='nodes'&&row.y>0.05&&row.restraints?.some(Boolean))tr.style.background='rgba(239, 68, 68, 0.18)';for(const [key,,type,q='none']of specs[tab]){const td=el('td');if(type==='id'){let displayId=row[key];if(collection==='members'){const m=model.members.find(x=>x.id===row[key]);if(m)displayId=`${getMemberMark(m)} (${m.id})`;}else if(collection==='foundations'){const f=model.foundations.find(x=>x.id===row[key]);if(f)displayId=`${getFoundationMark(f)} (${f.id})`;}const btn=el('button',displayId);btn.onclick=()=>{selected={kind:collection,id:row.id};renderSelection();drawModel();renderTable();};td.append(btn);}else{const isSelect=type.startsWith('enum:')||['node','member','beam','case'].includes(type);const input=el(isSelect?'select':'input');input.setAttribute('aria-label',`${row.id||index+1} ${key}`);if(isSelect){let choices={};if(type.startsWith('enum:'))choices=catalogs[type.slice(5)];else if(type==='case')choices={D:'D',L:'L',W:'W'};else{const items=type==='node'?model.nodes:model.members.filter(m=>type!=='beam'||m.kind==='beam');if(type==='beam')choices['']='เลือกคาน';for(const item of items)choices[item.id]=item.id;}for(const [value,label]of Object.entries(choices)){const o=el('option',label);o.value=value;input.append(o);}input.value=row[key];}else if(type==='bool'){input.type='checkbox';input.checked=row.restraints[Number(key.slice(1))];}else{input.type=type==='number'?'number':'text';input.value=type==='number'?editValue(row[key],q):type==='nodes'?row[key].join(','):row[key];if(type==='number')input.step='any';if(type==='text')input.maxLength=key==='note'?500:120;if(type==='nodes')input.style.minWidth='170px';}if(collection==='members'&&((row.sectionType==='rc_rect'&&['A','Iy','Iz','J'].includes(key))||(row.sectionType==='steel_custom'&&['b','h'].includes(key))))input.disabled=true;
+  input.onchange=()=>{const value=input.value;const nodeValues=type==='nodes'?value.split(',').map(s=>s.trim()).filter(Boolean):null;if(nodeValues&&(new Set(nodeValues).size!==nodeValues.length||nodeValues.some(id=>!model.nodes.some(n=>n.id===id)))){status('ใช้โหนดที่มีอยู่และไม่ซ้ำ คั่นด้วยจุลภาค','error');renderTable();return;}mutate(()=>{if(type==='bool'){row.restraints[Number(key.slice(1))]=input.checked;if(input.checked&&row.y>0.05)status(`⚠️ คำเตือน: โหนด ${row.id} อยู่ที่ระดับ Y=${fmt(row.y)} m (ลอยฟ้า) หากล็อกจุดรองรับ แรงจะไม่ถ่ายลงเสา`,'error');}else if(type==='nodes')row[key]=nodeValues;else row[key]=type==='number'?canonical(num(value),q):value;});};td.append(input);}tr.append(td);}const td=el('td');td.append(el('span',classification(collection,row)));const del=el('button','ลบ');del.onclick=()=>deleteRow(collection,row);td.append(del);tr.append(td);body.append(tr);}table.append(body);$('table').append(table);}
 function renderResultsTable(){const active=result?.combinations[$('resultCombo').value];if(!active){$('table').append(el('p','ยังไม่มีผลของโมเดลปัจจุบัน'));return;}$('tableActions').textContent='การเคลื่อนที่และแรงปฏิกิริยาที่โหนด · GLOBAL';const table=el('table'),tr=el('tr');for(const h of ['โหนด','uX mm','uY mm','uZ mm','RX rad','RY rad','RZ rad',...['FX','FY','FZ'].map(x=>x+' '+unitLabel('force')),...['MX','MY','MZ'].map(x=>x+' '+unitLabel('moment'))])tr.append(el('th',h));table.append(tr);for(const [id,n]of Object.entries(active.nodes)){const r=el('tr');for(const v of [id,...n.translationMM,...n.displacement.slice(3),...n.reaction.map((v,i)=>quantity(v,i<3?'force':'moment'))])r.append(el('td',typeof v==='number'?fmt(v,6):v));table.append(r);}$('table').append(table);}
 function renderCoverage(){$('tableActions').textContent='แยกข้อมูลที่กรอก การนำไปวิเคราะห์ และงานออกแบบที่ยังไม่ทำ';const table=el('table');const head=el('tr');for(const h of ['ชิ้นส่วน','สถานะ','รายละเอียด'])head.append(el('th',h));table.append(head);for(const collection of ['members','slabs','foundations'])for(const item of model[collection]){const r=el('tr');r.append(el('td',item.id),el('td',classification(collection,item)),el('td',collection==='foundations'?'ไม่รวมดิน/เข็ม/กำลังฐาน/นน.ตัวฐานใน frame':collection==='slabs'?'ยังไม่มี plate stiffness / diaphragm / RC design':'ยังไม่ตรวจ capacity หรือเหล็กเสริม'));table.append(r);}for(const p of result?.coverage?.floorLoadTransfers||[]){const r=el('tr');r.append(el('td',p.source+' → '+p.member),el('td',p.case),el('td',`พื้นที่ ${fmt(p.areaM2)} m² × ${fmt(quantity(p.pressureKNm2,'pressure'))} ${unitLabel('pressure')} → qY ${fmt(quantity(p.qyKNm,'line'))} ${unitLabel('line')}`));table.append(r);}$('table').append(table);}
 function renderResults(){const previous=$('resultCombo').value;options($('resultCombo'),result?Object.keys(result.combinations):[],previous);options($('resultMember'),result?model.members.map(m=>m.id):[],$('resultMember').value);$('exportResults').disabled=!result;$('metrics').replaceChildren();const active=result?.combinations[$('resultCombo').value];if(!active){$('metrics').append(el('p','ผลจะปรากฏหลังวิเคราะห์'));drawDiagram();return;}let max=0;for(const n of Object.values(active.nodes))max=Math.max(max,Math.hypot(...n.translationMM));const eq=active.equilibrium;for(const [title,value,label]of [['การเคลื่อนที่โหนดสูงสุด',fmt(max,4),'mm'],['สมดุลแรง · residual สูงสุด',quantity(Math.max(...eq.forceResidualKN.map(Math.abs)),'force').toExponential(2),unitLabel('force')],['สมดุลโมเมนต์ · residual สูงสุด',quantity(Math.max(...eq.momentResidualKNm.map(Math.abs)),'moment').toExponential(2),unitLabel('moment')]]){const div=el('div');div.className='metric';div.append(el('span',title),el('b',value),el('small',' '+label));$('metrics').append(div);}drawDiagram();}
@@ -1316,7 +2023,7 @@ function render(){
  $('projectName').value=model.name;$('unitSystem').value=model.displayUnits.system;$('forceUnit').value=model.displayUnits.force;$('forceUnit').disabled=model.displayUnits.system==='si';$('unitSummary').textContent=`พิกัด m · หน้าตัด ${unitLabel('section')} · แรง ${unitLabel('force')} · โหลด ${unitLabel('line')} · ${unitLabel('stress')}`;
  for(const [id,material,key,q]of [['E','material','E','stress'],['nu','material','nu','none'],['density','material','density','density'],['steelE','steel','E','stress'],['steelNu','steel','nu','none'],['steelDensity','steel','density','density']])$(id).value=editValue(model[material][key],q);
  for(const [id,text,q]of [['ELabel','E คอนกรีต','stress'],['densityLabel','นน.คอนกรีต','density'],['steelELabel','E เหล็ก','stress'],['steelDensityLabel','นน.เหล็ก','density'],['memberBLabel','b ตาม local z','section'],['memberHLabel','h ตาม local y','section']])$(id).textContent=text+' ('+unitLabel(q)+')';
-  $('selfWeight').checked=model.selfWeight;for(const id of ['memberI','memberJ'])options($(id),model.nodes.map(n=>n.id),$(id).value);$('undo').disabled=!history.length;renderPlanControls();renderResults();drawModel();renderSelection();renderTable();
+  $('selfWeight').checked=model.selfWeight;for(const id of ['memberI','memberJ'])options($(id),model.nodes.map(n=>n.id),$(id).value);$('undo').disabled=!history.length;window.__rc_model=model;window.__rc_result=result;window.__rc_scene=scene;window.__rc_getRGB=getMemberStationRGB;renderPlanControls();renderResults();drawModel();renderSelection();renderTable();
 }
 async function api(path,data){const response=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});const body=await response.json();if(!response.ok)throw new Error(body.error||'คำขอไม่สำเร็จ');return body;}
 $('projectName').onchange=()=>mutate(()=>model.name=$('projectName').value);
@@ -1332,10 +2039,16 @@ $('addMember').onclick=()=>{const i=$('memberI').value,j=$('memberJ').value,kind
 $('addSlab').onclick=()=>{tab='slabs';addRow();};$('addFoundation').onclick=()=>{tab='foundations';addRow();};
 $('undo').onclick=()=>{cancelInteraction(false);if(!history.length)return;model=history.pop();revision++;result=null;selected=null;persist();render();status('ย้อนแล้ว · ต้องวิเคราะห์ใหม่');};
 $('tabs').onclick=e=>{if(e.target.dataset.tab){tab=e.target.dataset.tab;renderTable();}};
-$('fit').onclick=fit;for(const id of ['labels','deformed','localAxes','diagram3d'])$(id).onchange=drawModel;$('view3d').onclick=()=>setViewMode('3d');$('viewPlan').onclick=()=>setViewMode('plan');$('planLevel').onchange=()=>{const next=Number($('planLevel').value);if(!Number.isFinite(next))return;cancelInteraction(false);planLevelY=next;renderPlanControls();if(viewMode==='plan')fitPlan();drawModel();};$('setPlanElevation').onclick=()=>{const input=$('planElevation');if(input.value.trim()===''||!Number.isFinite(Number(input.value)))return status('กรอกระดับ Y เป็นตัวเลขเมตรก่อน','error');const y=Number(input.value);if(Math.abs(y)>10000)return status('ระดับ Y ต้องอยู่ในช่วง ±10000 m','error');cancelInteraction(false);planLevelY=Number(y.toFixed(3));renderPlanControls();if(viewMode==='plan')fitPlan();drawModel();status(`ตั้งระดับวางโหนด Y ${fmt(planLevelY)} m · คลิก วางโหนด แล้วคลิกบนผัง`);};$('planElevation').onkeydown=e=>{if(e.key==='Enter')$('setPlanElevation').click();};$('generatePlanGrid').onclick=createBuildingGrid;$('planSnap').onchange=()=>{renderPlanControls();drawModel();status($('planSnap').checked?`เปิดดูดกริด ${fmt(Number($('planGridStep').value),2)} m · Alt+คลิกวางอิสระ`:'ปิดดูดกริด · วางตามเมาส์');};$('planGridStep').onchange=()=>{const input=$('planGridStep'),step=Number(input.value);if(!validPlanGridStep(step)){input.setCustomValidity('กรอกตั้งแต่ 0.05 ถึง 1.00 m เพิ่มครั้งละ 0.05 m');input.reportValidity();return status('ระยะกริดต้องอยู่ระหว่าง 0.05–1.00 m เพิ่มครั้งละ 0.05 m','error');}input.setCustomValidity('');input.value=String(Number(step.toFixed(2)));$('beamHint').textContent=`ระยะดูดกริด ${fmt(step,2)} m`;drawModel();status(`ตั้งระยะดูดกริด ${fmt(step,2)} m · โหนดใหม่จะปัดตามช่วงนี้`);};$('planSelectTool').onclick=()=>setPlanTool('select');$('planNodeTool').onclick=()=>setPlanTool('node');$('planMemberNodeTool').onclick=()=>setPlanTool('memberNode');$('planBeamTool').onclick=()=>setPlanTool('beam');$('planBeamLockX').onclick=()=>setBeamAxisLock('x');$('planBeamLockZ').onclick=()=>setBeamAxisLock('z');document.addEventListener('keydown',event=>{if(event.key==='Escape'){cancelInteraction();return;}if(viewMode==='plan'&&activeTool==='beam'&&!['INPUT','SELECT','TEXTAREA'].includes(document.activeElement?.tagName)){const key=event.key.toLowerCase();if(key==='x'||key==='z'){event.preventDefault();setBeamAxisLock(key);}}});$('resultCombo').onchange=()=>{renderResults();drawModel();if(tab==='results')renderTable();};$('resultMember').onchange=()=>{drawDiagram();if($('diagram3d')?.checked)drawModel();};$('diagramType').onchange=()=>{drawDiagram();if($('diagram3d')?.checked)drawModel();};
+$('fit').onclick=fit;for(const id of ['labels','deformed','localAxes','diagram3d','diagramValues','showPointLoads','showUniformLoads','showSelfWeight','showRoofSheeting']){if($(id))$(id).onchange=drawModel;}
+if($('showSolid3D'))$('showSolid3D').addEventListener('change',()=>{if(!$('showSolid3D').checked&&!$('showWireframe')?.checked){$('showWireframe').checked=true;}drawModel();});
+if($('showWireframe'))$('showWireframe').addEventListener('change',()=>{if(!$('showWireframe').checked&&!$('showSolid3D')?.checked){$('showSolid3D').checked=true;}drawModel();});
+if($('diagram3d'))$('diagram3d').addEventListener('change',()=>{if($('diagramValuesToggle'))$('diagramValuesToggle').hidden=!$('diagram3d').checked;});$('view3d').onclick=()=>setViewMode('3d');$('viewPlan').onclick=()=>setViewMode('plan');$('planLevel').onchange=()=>{const next=Number($('planLevel').value);if(!Number.isFinite(next))return;cancelInteraction(false);planLevelY=next;renderPlanControls();if(viewMode==='plan')fitPlan();drawModel();};$('setPlanElevation').onclick=()=>{const input=$('planElevation');if(input.value.trim()===''||!Number.isFinite(Number(input.value)))return status('กรอกระดับ Y เป็นตัวเลขเมตรก่อน','error');const y=Number(input.value);if(Math.abs(y)>10000)return status('ระดับ Y ต้องอยู่ในช่วง ±10000 m','error');cancelInteraction(false);planLevelY=Number(y.toFixed(3));renderPlanControls();if(viewMode==='plan')fitPlan();drawModel();status(`ตั้งระดับวางโหนด Y ${fmt(planLevelY)} m · คลิก วางโหนด แล้วคลิกบนผัง`);};$('planElevation').onkeydown=e=>{if(e.key==='Enter')$('setPlanElevation').click();};$('generatePlanGrid').onclick=createBuildingGrid;$('openGridEditor').onclick=openGridEditor;$('closeGridEditor').onclick=()=> $('gridEditorDialog').close();$('closeGridEditorBottom').onclick=()=> $('gridEditorDialog').close();$('addGridX').onclick=()=>addGridEditorAxis('x');$('addGridZ').onclick=()=>addGridEditorAxis('z');$('buildGridFromEditor').onclick=buildGridFromEditor;
+if($('autoDetectGrids'))$('autoDetectGrids').onclick=()=>{const detected=autoDetectGridLines(model.nodes,{levelY:planLevelY});if(!detected.ok)return status(detected.reason,'error');renderGridEditorAxis('x',detected.lines.x);renderGridEditorAxis('z',detected.lines.z);status(`ตรวจจับแนวกริดจากเสาอาคารสำเร็จ: X ${detected.lines.x.length} แนว, Z ${detected.lines.z.length} แนว`);};
+if($('clearGridsBtn'))$('clearGridsBtn').onclick=()=>{if(!confirm('ต้องการล้างแนวกริดทั้งหมดในผังหรือไม่?'))return;mutate(()=>{model.gridLines={x:[],z:[]};});renderGridEditorAxis('x',[]);renderGridEditorAxis('z',[]);drawModel();status('ล้างแนวกริดในผังแล้ว');};
+if($('applyGridLinesOnly'))$('applyGridLinesOnly').onclick=()=>{const linesX=gridEditorRows('x'),linesZ=gridEditorRows('z');const validX=linesX.length>=2&&linesX.every(l=>l.label&&Number.isFinite(l.value)),validZ=linesZ.length>=2&&linesZ.every(l=>l.label&&Number.isFinite(l.value));if(!validX||!validZ)return status('ต้องมีแนวกริดที่ถูกต้องอย่างน้อยแกนละ 2 แนว','error');linesX.sort((a,b)=>a.value-b.value);linesZ.sort((a,b)=>a.value-b.value);mutate(()=>{model.gridLines={x:linesX,z:linesZ};});$('gridEditorDialog').close();if(viewMode==='plan')fitPlan();drawModel();status(`อัปเดตเฉพาะแนวกริดในผังแล้ว: X ${linesX.length} แนว, Z ${linesZ.length} แนว`);};$('planSnap').onchange=()=>{renderPlanControls();drawModel();status($('planSnap').checked?`เปิดดูดกริด ${fmt(Number($('planGridStep').value),2)} m · Alt+คลิกวางอิสระ`:'ปิดดูดกริด · วางตามเมาส์');};$('planGridStep').onchange=()=>{const input=$('planGridStep'),step=Number(input.value);if(!validPlanGridStep(step)){input.setCustomValidity('กรอกตั้งแต่ 0.05 ถึง 1.00 m เพิ่มครั้งละ 0.05 m');input.reportValidity();return status('ระยะกริดต้องอยู่ระหว่าง 0.05–1.00 m เพิ่มครั้งละ 0.05 m','error');}input.setCustomValidity('');input.value=String(Number(step.toFixed(2)));$('beamHint').textContent=`ระยะดูดกริด ${fmt(step,2)} m`;drawModel();status(`ตั้งระยะดูดกริด ${fmt(step,2)} m · โหนดใหม่จะปัดตามช่วงนี้`);};$('planSelectTool').onclick=()=>setPlanTool('select');$('planNodeTool').onclick=()=>setPlanTool('node');$('planMemberNodeTool').onclick=()=>setPlanTool('memberNode');$('planBeamTool').onclick=()=>setPlanTool('beam');$('planBeamLockX').onclick=()=>setBeamAxisLock('x');$('planBeamLockZ').onclick=()=>setBeamAxisLock('z');document.addEventListener('keydown',event=>{if(event.key==='Escape'){cancelInteraction();return;}if(viewMode==='plan'&&activeTool==='beam'&&!['INPUT','SELECT','TEXTAREA'].includes(document.activeElement?.tagName)){const key=event.key.toLowerCase();if(key==='x'||key==='z'){event.preventDefault();setBeamAxisLock(key);}}});$('resultCombo').onchange=()=>{renderResults();drawModel();if(tab==='results')renderTable();};$('resultMember').onchange=()=>{drawDiagram();if($('diagram3d')?.checked)drawModel();};$('diagramType').onchange=()=>{drawDiagram();if($('diagram3d')?.checked)drawModel();};
 $('save').onclick=async()=>{try{const data=await api('/api/save',clone(model));$('saveStatus').textContent='บันทึกไฟล์แล้ว: '+data.path;status('บันทึกไฟล์แล้ว: '+data.filename);}catch(err){status('บันทึกไม่ได้: '+err.message,'error');}};
 $('load').onclick=()=>{cancelInteraction();$('file').click();};$('file').onchange=async()=>{cancelInteraction();const file=$('file').files[0];if(!file)return;const rev=revision;try{if(file.size>1_000_000)throw new Error('ไฟล์ใหญ่กว่า 1 MB');const raw=JSON.parse(await file.text()),validated=await api('/api/validate',raw);if(rev!==revision)throw new Error('โมเดลเปลี่ยนระหว่างเปิดไฟล์');mutate(()=>{model=validated.model;selected=null;});fit();status('เปิดโมเดลแล้ว · ต้องวิเคราะห์ใหม่');}catch(err){status('เปิดไฟล์ไม่ได้: '+err.message,'error');}finally{$('file').value='';}};
-$('analyze').onclick=async()=>{if(busy)return;const rev=revision,snapshot=clone(model);busy=true;result=null;renderResults();drawModel();if(tab==='results'||tab==='coverage')renderTable();$('analyze').disabled=true;$('analyze').textContent='กำลังคำนวณ…';status('ตรวจโมเดล หน่วย และการถ่ายแรง');try{const data=await api('/api/analyze',snapshot);if(rev!==revision){status('โมเดลเปลี่ยนระหว่างคำนวณ · ไม่ใช้ผลเก่า');return;}result=data;tab='results';render();status('วิเคราะห์ตามขอบเขตสำเร็จ · ตรวจสมดุล 6 แกน · ดูสถานะ/ที่มาโหลด · ยังไม่ตรวจออกแบบ','ok');}catch(err){if(rev===revision)status(err.message,'error');}finally{busy=false;$('analyze').disabled=false;$('analyze').textContent='▶ วิเคราะห์';}};
+$('analyze').onclick=async()=>{if(busy)return;const rev=revision,snapshot=clone(model);busy=true;result=null;renderResults();drawModel();if(tab==='results'||tab==='coverage')renderTable();$('analyze').disabled=true;$('analyze').textContent='กำลังคำนวณ…';status('ตรวจโมเดล หน่วย และการถ่ายแรง');try{const data=await api('/api/analyze',snapshot);if(rev!==revision){status('โมเดลเปลี่ยนระหว่างคำนวณ · ไม่ใช้ผลเก่า');return;}result=data;tab='results';render();const elevatedWarning=result?.coverage?.components?.find(c=>c.status==='ELEVATED_SUPPORT_WARNING');if(elevatedWarning)status('⚠️ '+elevatedWarning.detail,'error');else status('วิเคราะห์ตามขอบเขตสำเร็จ · ตรวจสมดุล 6 แกน · ดูสถานะ/ที่มาโหลด · ยังไม่ตรวจออกแบบ','ok');}catch(err){if(rev===revision)status(err.message,'error');}finally{busy=false;$('analyze').disabled=false;$('analyze').textContent='▶ วิเคราะห์';}};
 $('exportResults').onclick=async()=>{if(!result)return;const rev=revision;try{const data=await api('/api/export',clone(model));$('saveStatus').textContent='ส่งออกแล้ว: '+data.path;if(rev===revision)status('ส่งออกผลและที่มาโหลดแล้ว: '+data.filename);}catch(err){status('ส่งออกไม่ได้: '+err.message,'error');}};
 document.querySelectorAll('button,input,select').forEach(e=>e.disabled=true);
 model=empty();try{const saved=localStorage.getItem(KEY);if(saved){const data=JSON.parse(saved);const validated=await api('/api/validate',data);if(data.schemaVersion===1)localStorage.setItem(KEY+'-v1-backup',saved);model=validated.model;status('เปิดงานเดิมแล้ว · หน่วยหน้าจอเป็นเมตริกไทย · ค่าจริงยังเดิม');}else{model=grid(4,4,1,1,3,1,true);status('ตัวอย่างศึกษา · เปิดตัวอย่างอาคารเพื่อดูพื้นและฐานราก');}}catch{status('กู้คืนไม่ได้ · ข้อมูลเดิมสำรองไว้ กรุณาเปิดไฟล์','error');try{const raw=localStorage.getItem(KEY);if(raw)localStorage.setItem(KEY+'-recovery-'+Date.now(),raw);}catch{}}
@@ -1566,7 +2279,8 @@ if ($('generateWarehouse')) $('generateWarehouse').onclick = () => {
   const th = num($('tTrussH').value) || 1.8;
   const pan = parseInt($('tPanels').value) || 4;
   const cc = $('tCenterCol').checked;
-  model = warehouse(sx, bz, nz, ch, th, pan, cc);
+  const gb = $('tGroundBeams') ? $('tGroundBeams').checked : true;
+  model = warehouse(sx, bz, nz, ch, th, pan, cc, gb);
   selected = null;
  });
  fit();
@@ -1654,3 +2368,10 @@ async function exportCalculationPdf(){
 }
 if($('exportPdf'))$('exportPdf').onclick=exportCalculationPdf;
 if($('btnReportPdf'))$('btnReportPdf').onclick=exportCalculationPdf;
+window.app = {
+ getModel: () => model,
+ setSelected: (s) => { selected = s; renderSelection(); drawModel(); },
+ selectItem: (kind, id) => { selected = { kind, id }; renderSelection(); drawModel(); },
+ analyze: () => $('analyze').click(),
+ drawModel: () => drawModel()
+};

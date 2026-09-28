@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {groupLevels,nearestPlanNode,validateMemberEndpoints,planNodeDraft,snapPlanPoint,splitBeamAtDistance,nearestBeamOnPlan,validPlanGridStep,buildGridLayout,planGridModel,constrainPlanPoint} from '../static/plan.js';
+import {groupLevels,nearestPlanNode,validateMemberEndpoints,planNodeDraft,snapPlanPoint,splitBeamAtDistance,nearestBeamOnPlan,validPlanGridStep,buildGridLayout,buildGridLayoutFromLines,planGridModel,constrainPlanPoint,autoDetectGridLines,planContinuousBeamSegments} from '../static/plan.js';
 
 const nodes=[
   {id:'N1',x:0,y:0,z:0},
@@ -56,6 +56,11 @@ assert.deepEqual(grid.lines.x.map(g=>g.value),[0,4.5,9,13.5,18]);
 assert.deepEqual(grid.lines.z.map(g=>g.value),[0,4,8,12,16]);
 assert.equal(grid.nodes.length,25);assert.equal(grid.edgesX.length,20);assert.equal(grid.edgesZ.length,20);
 assert.deepEqual(grid.nodes[12],{x:9,y:3,z:8});
+const customGrid=buildGridLayoutFromLines({linesX:[{label:'1',value:0},{label:'2',value:3.25},{label:'3',value:9}],linesZ:[{label:'A',value:-2},{label:'B',value:1},{label:'C',value:5}],y:4.5});
+assert.equal(customGrid.ok,true);assert.deepEqual(customGrid.lines.x.map(g=>g.value),[0,3.25,9]);assert.deepEqual(customGrid.lines.z.map(g=>g.label),['A','B','C']);assert.equal(customGrid.nodes.length,9);assert.equal(customGrid.edgesX.length,6);assert.equal(customGrid.edgesZ.length,6);assert.equal(customGrid.nodes[0].y,4.5);
+assert.equal(buildGridLayoutFromLines({linesX:[{label:'1',value:0},{label:'1',value:4}],linesZ:[{label:'A',value:0},{label:'B',value:4}],y:0}).ok,false,'duplicate labels must be rejected');
+assert.equal(buildGridLayoutFromLines({linesX:[{label:'1',value:4},{label:'2',value:0}],linesZ:[{label:'A',value:0},{label:'B',value:4}],y:0}).ok,false,'axis positions must increase');
+assert.equal(buildGridLayoutFromLines({linesX:[{label:'1',value:0}],linesZ:[{label:'A',value:0},{label:'B',value:4}],y:0}).ok,false,'minimum two grid axes per direction');
 const smallGrid=buildGridLayout({countX:3,countZ:2,spacingX:4.5,spacingZ:4,startX:0,startZ:0,y:3});
 const gridModel={nodes:[{id:'N1',x:0,y:3,z:0,restraints:[false,false,false,false,false,false]},{id:'N2',x:4.5,y:3,z:0,restraints:[false,false,false,false,false,false]}],members:[{id:'M1',i:'N1',j:'N2',kind:'beam',behavior:'frame',b:.25,h:.45}],slabs:[]};
 const generated=planGridModel(gridModel,smallGrid,{beamsX:true,beamsZ:true,b:.3,h:.5});
@@ -110,4 +115,87 @@ for(const [i,j,options] of [
   ['N1','N1',{levelY:0,disallowIntervening:true}]
 ]) assert.equal(validateMemberEndpoints(nodes,[],i,j,options).ok,false);
 assert.equal(JSON.stringify({nodes,members:[]}),before,'rejected validation must not mutate model inputs');
-console.log('PASS: level grouping, level-specific snapping, same-level/zero/duplicate/intervening checks, manual cross-level endpoints, rejection purity.');
+
+// Test autoDetectGridLines
+const buildingNodes=[
+  {id:'N1',x:0,y:0,z:0},{id:'N2',x:4.5,y:0,z:0},{id:'N3',x:9,y:0,z:0},
+  {id:'N4',x:0,y:0,z:4},{id:'N5',x:4.5,y:0,z:4},{id:'N6',x:9,y:0,z:4},
+  {id:'N7',x:0,y:3,z:0},{id:'N8',x:4.5,y:3,z:0},{id:'N9',x:9,y:3,z:0}
+];
+const detected=autoDetectGridLines(buildingNodes,{levelY:0});
+assert.equal(detected.ok,true);
+assert.deepEqual(detected.lines.x.map(g=>g.value),[0,4.5,9]);
+assert.deepEqual(detected.lines.x.map(g=>g.label),['1','2','3']);
+assert.deepEqual(detected.lines.z.map(g=>g.value),[0,4]);
+assert.deepEqual(detected.lines.z.map(g=>g.label),['A','B']);
+
+// Test planContinuousBeamSegments across intermediate node N3(2,0,0) between N1(0,0,0) and N2(4,0,0)
+const cont1=planContinuousBeamSegments(nodes,[],'N1','N2',{levelY:0,memberProps:{kind:'beam',b:.25,h:.45}});
+assert.equal(cont1.ok,true);
+assert.equal(cont1.intermediateCount,1);
+assert.deepEqual(cont1.nodeChain,['N1','N3','N2']);
+assert.equal(cont1.segments.length,2);
+assert.equal(cont1.segments[0].i,'N1');assert.equal(cont1.segments[0].j,'N3');
+assert.equal(cont1.segments[1].i,'N3');assert.equal(cont1.segments[1].j,'N2');
+
+// Test planContinuousBeamSegments with roof role (จันทัน RAF and อะเส AS)
+const contRoof=planContinuousBeamSegments(nodes,[],'N1','N2',{levelY:0,memberProps:{kind:'roof',roofRole:'AS',b:.1,h:.15}});
+assert.equal(contRoof.ok,true);
+assert.equal(contRoof.segments[0].roofRole,'AS');
+assert.equal(contRoof.segments[1].roofRole,'AS');
+
+// Test planContinuousBeamSegments drawing to a new point
+let memIdCount=1;
+const contNewPoint=planContinuousBeamSegments(nodes,[],'N1',{x:6,y:0,z:0},{levelY:0,allowNewEndNode:true,freshNodeId:'N99',nextMemberIdFn:()=>`M${memIdCount++}`});
+assert.equal(contNewPoint.ok,true);
+assert.deepEqual(contNewPoint.nodeChain,['N1','N3','N2','N99']);
+assert.equal(contNewPoint.segments.length,3);
+assert.equal(contNewPoint.nodesToAdd.length,1);
+assert.equal(contNewPoint.nodesToAdd[0].id,'N99');
+
+// Test warehouseModel tributary area load weighting and symmetric ground tie beams
+import {warehouseModel} from '../static/building.js';
+const wh=warehouseModel(12,5,3,4.5,1.8,4,false,true);
+assert.equal(wh.nodes.length>0,true);
+
+// Verify tributary scaling: end frames (z=0, z=15) have trib=0.5, interior frames (z=5, z=10) have trib=1.0
+const endNodesZ0=new Set(wh.nodes.filter(n=>n.z===0).map(n=>n.id));
+const endNodesZ15=new Set(wh.nodes.filter(n=>n.z===15).map(n=>n.id));
+const intNodesZ5=new Set(wh.nodes.filter(n=>n.z===5).map(n=>n.id));
+
+const endLoadsZ0=wh.nodalLoads.filter(l=>endNodesZ0.has(l.node)&&l.case==='D');
+const intLoadsZ5=wh.nodalLoads.filter(l=>intNodesZ5.has(l.node)&&l.case==='D');
+assert.equal(endLoadsZ0.length>0,true);
+assert.equal(intLoadsZ5.length>0,true);
+// End frame loads should be exactly half of interior frame loads
+assert.equal(endLoadsZ0[0].fy,-1.25);
+assert.equal(intLoadsZ5[0].fy,-2.5);
+
+// Verify ground tie beams: symmetric on left (x=0) and right (x=12)
+const groundBeams=wh.members.filter(m=>m.kind==='beam'&&m.h===0.40);
+const gbLeft=groundBeams.filter(m=>{
+  const ni=wh.nodes.find(n=>n.id===m.i),nj=wh.nodes.find(n=>n.id===m.j);
+  return ni.x===0&&nj.x===0&&ni.y===0&&nj.y===0;
+});
+const gbRight=groundBeams.filter(m=>{
+  const ni=wh.nodes.find(n=>n.id===m.i),nj=wh.nodes.find(n=>n.id===m.j);
+  return ni.x===12&&nj.x===12&&ni.y===0&&nj.y===0;
+});
+assert.equal(gbLeft.length,3,'3 left ground tie beams along Z');
+assert.equal(gbRight.length,3,'3 right ground tie beams along Z');
+
+// Verify cross tie beams across X
+const gbCross=groundBeams.filter(m=>{
+  const ni=wh.nodes.find(n=>n.id===m.i),nj=wh.nodes.find(n=>n.id===m.j);
+  return ni.y===0&&nj.y===0&&Math.abs(nj.x-ni.x)===12;
+});
+assert.equal(gbCross.length,4,'4 cross ground tie beams at column lines');
+
+// Verify grid lines generated
+assert.deepEqual(wh.gridLines.x,[{label:'1',value:0},{label:'2',value:12}]);
+assert.equal(wh.gridLines.z.length,4);
+assert.equal(wh.gridLines.z[0].label,'A');
+assert.equal(wh.gridLines.z[3].label,'D');
+
+console.log('PASS: level grouping, level-specific snapping, same-level/zero/duplicate/intervening checks, manual cross-level endpoints, rejection purity, auto-detect grids, continuous beams, warehouse tributary loading & ground beams.');
+

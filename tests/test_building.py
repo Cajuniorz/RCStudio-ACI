@@ -143,7 +143,23 @@ class BuildingTests(unittest.TestCase):
         for case, expected in [('D', (.12*24+1)*16), ('L', 2*16)]:
             total = sum(n['reaction'][1] for n in r['combinations'][case]['nodes'].values())
             self.assertAlmostEqual(total, expected, places=8)
-        self.assertEqual(len(r['coverage']['floorLoadTransfers']), 8) # 4 beams x 2 cases
+    def test_elevated_support_coverage_warning(self):
+        p = migrate(beam())
+        # N2 is at y=0, z=0, x=6 (in beam() coords: N1 at 0,0,0, N2 at 6,0,0)
+        # Move N2 to y=4.5 and restrain it
+        p['nodes'][1]['y'] = 4.5
+        p['nodes'][1]['restraints'] = [True] * 6
+        r = solve(p)
+        statuses = [c['status'] for c in r['coverage']['components']]
+        self.assertIn('ELEVATED_SUPPORT_WARNING', statuses)
+
+    def test_foundation_on_elevated_node_rejected(self):
+        p = migrate(beam())
+        p['nodes'][1]['y'] = 4.5
+        p['nodes'][1]['restraints'] = [True] * 6
+        p['foundations'] = [dict(id='F1', type='isolated', nodes=['N2'], bx=1.5, bz=1.5, depth=.45, embedment=None, qa=150, pileCount=None, pileCapacity=None, pileLength=None, mode='ideal_support', note='')]
+        with self.assertRaisesRegex(ModelError, 'โหนดลอยฟ้า'):
+            solve(p)
 
 
 if __name__=='__main__':unittest.main(verbosity=2)

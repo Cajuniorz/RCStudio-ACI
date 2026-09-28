@@ -52,6 +52,8 @@ def validate_project(p, draft=True):
         allowed_roots.add('stairs')
     if 'gridLines' in p:
         allowed_roots.add('gridLines')
+    if 'roofSheeting' in p:
+        allowed_roots.add('roofSheeting')
     if set(p.keys()) != allowed_roots:
         fail(f'Project v2: required fields: {ROOT_FIELDS}; unknown fields are not supported')
     if 'gridLines' in p:
@@ -279,10 +281,20 @@ def prepare(p):
         for n in f['nodes']:
             if n in linked:fail(f'{fid}: node {n} already belongs to another foundation')
             if not any(node_map[n]['restraints'][:3]):fail(f'{fid}: node {n} needs an explicit translational restraint')
+            if coords[n][1] > 0.1:
+                fail(f'{fid}: ฐานรากไม่สามารถอยู่บนโหนดลอยฟ้า {n} (Y={coords[n][1]:.3f}m) ได้ กรุณาผูกฐานรากกับโหนดฐานเสาที่ระดับดิน (Y=0)')
             linked.add(n)
         for key in ('bx','bz','depth'):number(f[key],f'{fid}.{key} (m)',.01,10000)
         for key in ('qa','pileCapacity','pileLength','embedment'):
             if f[key] is not None:number(f[key],f'{fid}.{key}',0,1e8)
         if f['pileCount'] is not None and (type(f['pileCount']) is not int or f['pileCount']<0):fail(f'{fid}: pileCount must be a nonnegative integer')
         coverage.append({'id':fid,'kind':'foundation','status':'IDEAL_SUPPORT_ONLY','detail':'Uses explicit node restraints. Geometry, soil and pile inputs are records, not soil/pile stiffness or capacity; foundation self weight excluded from superstructure model.'})
+    elevated_supports = [n['id'] for n in p['nodes'] if n['y'] > 0.05 and any(n['restraints'])]
+    if elevated_supports:
+        coverage.append({
+            'id': ','.join(elevated_supports),
+            'kind': 'support',
+            'status': 'ELEVATED_SUPPORT_WARNING',
+            'detail': f'พบจุดรองรับลอยฟ้า (Elevated Support) ที่โหนด {", ".join(elevated_supports)} (Y > 0.05m): จุดรองรับนี้จะดูดซับแรงและโมเมนต์โดยตรง ทำให้น้ำหนักไม่ถ่ายลงเสาและฐานรากตามความเป็นจริง'
+        })
     return core,overrides,{'components':coverage,'floorLoadTransfers':provenance,'foundationDefinitions':copy.deepcopy(p['foundations'])}

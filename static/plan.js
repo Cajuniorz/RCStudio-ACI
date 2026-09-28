@@ -1,15 +1,59 @@
 function alphaLabel(index){let n=index+1,label='';while(n>0){n--;label=String.fromCharCode(65+n%26)+label;n=Math.floor(n/26);}return label;}
+export function buildGridLayoutFromLines({linesX,linesZ,y=0}={}){
+  const reject=reason=>({ok:false,reason});
+  const round=v=>Number(v.toFixed(3));
+  if(!Array.isArray(linesX)||!Array.isArray(linesZ)||linesX.length<2||linesZ.length<2||linesX.length>20||linesZ.length>20||linesX.length*linesZ.length>400)return reject('กริดต้องมี 2–20 แนวต่อแกน และไม่เกิน 400 จุดตัด');
+  if(!Number.isFinite(y)||Math.abs(y)>10000)return reject('ระดับ Y ต้องเป็นตัวเลขในช่วง ±10000 m');
+  const normalize=(rows,axis)=>{
+    const labels=new Set(),out=[];
+    for(const row of rows){
+      if(!row||typeof row.label!=='string'||!/[A-Za-z0-9_-]{1,12}/.test(row.label)||!Number.isFinite(row.value)||Math.abs(row.value)>10000)return null;
+      const label=row.label.trim();if(!/^[A-Za-z0-9_-]{1,12}$/.test(label)||labels.has(label.toLowerCase()))return null;
+      labels.add(label.toLowerCase());out.push({label,value:round(row.value)});
+    }
+    if(out.some((line,index)=>index>0&&line.value-out[index-1].value<.001))return null;
+    return out;
+  };
+  const x=normalize(linesX,'X'),z=normalize(linesZ,'Z');
+  if(!x||!z)return reject('ชื่อแนวต้องไม่ซ้ำ และพิกัดแต่ละแกนต้องเรียงเพิ่มอย่างน้อย 0.001 m');
+  const levelY=round(y),nodes=x.flatMap(gx=>z.map(gz=>({x:gx.value,y:levelY,z:gz.value})));
+  const edgesX=z.flatMap(gz=>x.slice(0,-1).map((gx,i)=>({start:{x:gx.value,y:levelY,z:gz.value},end:{x:x[i+1].value,y:levelY,z:gz.value}})));
+  const edgesZ=x.flatMap(gx=>z.slice(0,-1).map((gz,i)=>({start:{x:gx.value,y:levelY,z:gz.value},end:{x:gx.value,y:levelY,z:z[i+1].value}})));
+  return {ok:true,lines:{x,z},nodes,edgesX,edgesZ};
+}
 export function buildGridLayout({countX,countZ,spacingX,spacingZ,startX=0,startZ=0,y=0}={}){
   const reject=reason=>({ok:false,reason});
   if(!Number.isInteger(countX)||!Number.isInteger(countZ)||countX<2||countZ<2||countX>20||countZ>20||countX*countZ>400)return reject('กริดต้องมี 2–20 แนวต่อแกน และไม่เกิน 400 จุดตัด');
   if(![spacingX,spacingZ,startX,startZ,y].every(Number.isFinite)||spacingX<.05||spacingZ<.05||spacingX>1000||spacingZ>1000||Math.abs(startX)>10000||Math.abs(startZ)>10000||Math.abs(y)>10000)return reject('ระยะกริดต้อง ≥0.05 m และพิกัดต้องอยู่ในช่วง ±10000 m');
-  const round=v=>Number(v.toFixed(3));
-  const lines={x:Array.from({length:countX},(_,i)=>({label:String(i+1),value:round(startX+i*spacingX)})),z:Array.from({length:countZ},(_,i)=>({label:alphaLabel(i),value:round(startZ+i*spacingZ)}))};
-  if(new Set(lines.x.map(g=>g.value)).size!==countX||new Set(lines.z.map(g=>g.value)).size!==countZ)return reject('ระยะกริดเล็กกว่าความละเอียดพิกัด 1 mm');
-  const nodes=lines.x.flatMap(x=>lines.z.map(z=>({x:x.value,y:round(y),z:z.value})));
-  const edgesX=lines.z.flatMap(z=>lines.x.slice(0,-1).map((x,i)=>({start:{x:x.value,y:round(y),z:z.value},end:{x:lines.x[i+1].value,y:round(y),z:z.value}})));
-  const edgesZ=lines.x.flatMap(x=>lines.z.slice(0,-1).map((z,i)=>({start:{x:x.value,y:round(y),z:z.value},end:{x:x.value,y:round(y),z:lines.z[i+1].value}})));
-  return {ok:true,lines,nodes,edgesX,edgesZ};
+  const linesX=Array.from({length:countX},(_,i)=>({label:String(i+1),value:startX+i*spacingX}));
+  const linesZ=Array.from({length:countZ},(_,i)=>({label:alphaLabel(i),value:startZ+i*spacingZ}));
+  return buildGridLayoutFromLines({linesX,linesZ,y});
+}
+
+export function autoDetectGridLines(nodes, {levelY, tolerance = 0.08} = {}) {
+  const pts = (nodes || []).filter(finitePoint).filter(n => levelY === undefined || Math.abs(n.y - levelY) <= 0.05);
+  if (!pts.length) return { ok: false, reason: 'ไม่พบโหนดในระดับนี้' };
+  const clusterCoords = (coords) => {
+    const sorted = [...coords].sort((a,b) => a - b);
+    const groups = [];
+    for (const v of sorted) {
+      const last = groups.at(-1);
+      if (!last || Math.abs(v - last.center) > tolerance) {
+        groups.push({ sum: v, count: 1, center: v });
+      } else {
+        last.sum += v;
+        last.count++;
+        last.center = last.sum / last.count;
+      }
+    }
+    return groups.map(g => Number(g.center.toFixed(3)));
+  };
+  const xs = clusterCoords(pts.map(n => n.x));
+  const zs = clusterCoords(pts.map(n => n.z));
+  if (xs.length < 2 || zs.length < 2) return { ok: false, reason: 'ต้องการอย่างน้อย 2 แนวต่อแกนเพื่อสร้างกริด' };
+  const linesX = xs.map((val, i) => ({ label: String(i + 1), value: val }));
+  const linesZ = zs.map((val, i) => ({ label: alphaLabel(i), value: val }));
+  return { ok: true, lines: { x: linesX, z: linesZ } };
 }
 
 const finitePoint = node => node && [node.x,node.y,node.z].every(Number.isFinite);
@@ -187,4 +231,110 @@ export function validateMemberEndpoints(nodes, members, i, j, {levelY,levelToler
     }
   }
   return {ok:true,a,b,length};
+}
+
+export function planContinuousBeamSegments(nodes, members, startId, endTarget, {
+  levelY,
+  levelTolerance = 1e-5,
+  lineTolerance = 1e-4,
+  memberProps = {},
+  allowNewEndNode = false,
+  freshNodeId = null,
+  nextMemberIdFn = null
+} = {}) {
+  const reject = reason => ({ ok: false, reason });
+  if (!startId) return reject('ต้องระบุโหนดเริ่มต้น');
+  const startNode = nodes.find(n => n.id === startId);
+  if (!startNode || !finitePoint(startNode)) return reject('ไม่พบโหนดเริ่มต้น');
+  if (levelY !== undefined && Math.abs(startNode.y - levelY) > levelTolerance) return reject('โหนดเริ่มต้นไม่อยู่ในระดับที่เลือก');
+
+  let endNode = null;
+  let endPoint = null;
+  if (typeof endTarget === 'string') {
+    if (endTarget === startId) return reject('โหนดต้นและปลายต้องไม่เป็นโหนดเดียวกัน');
+    endNode = nodes.find(n => n.id === endTarget);
+    if (!endNode || !finitePoint(endNode)) return reject('ไม่พบโหนดปลายทาง');
+    if (levelY !== undefined && Math.abs(endNode.y - levelY) > levelTolerance) return reject('โหนดปลายทางไม่อยู่ในระดับที่เลือก');
+    endPoint = { x: endNode.x, y: endNode.y, z: endNode.z };
+  } else if (endTarget && typeof endTarget === 'object' && [endTarget.x, endTarget.y, endTarget.z].every(Number.isFinite)) {
+    endPoint = { x: Number(endTarget.x.toFixed(3)), y: Number((levelY ?? endTarget.y).toFixed(3)), z: Number(endTarget.z.toFixed(3)) };
+    const match = nodes.find(n => finitePoint(n) && Math.hypot(n.x - endPoint.x, n.y - endPoint.y, n.z - endPoint.z) < 1e-4);
+    if (match) {
+      if (match.id === startId) return reject('จุดปลายตรงกับโหนดเริ่มต้น');
+      endNode = match;
+    }
+  } else {
+    return reject('พิกัดปลายคานไม่ถูกต้อง');
+  }
+
+  const dx = endPoint.x - startNode.x;
+  const dz = endPoint.z - startNode.z;
+  const length2 = dx * dx + dz * dz;
+  if (length2 <= lineTolerance * lineTolerance) return reject('ระยะระหว่างจุดเริ่มต้นและปลายต้องมากกว่าศูนย์');
+  const totalLength = Math.sqrt(length2);
+
+  const collinear = [];
+  const startIdSet = new Set([startId, endNode?.id].filter(Boolean));
+  for (const node of nodes) {
+    if (!finitePoint(node) || startIdSet.has(node.id)) continue;
+    if (levelY !== undefined && Math.abs(node.y - levelY) > levelTolerance) continue;
+    const t = ((node.x - startNode.x) * dx + (node.z - startNode.z) * dz) / length2;
+    if (t <= 1e-4 || t >= 1 - 1e-4) continue;
+    const perpDist = Math.abs((node.x - startNode.x) * dz - (node.z - startNode.z) * dx) / totalLength;
+    if (perpDist <= Math.max(lineTolerance, 0.05)) {
+      collinear.push({ node, t });
+    }
+  }
+  collinear.sort((a, b) => a.t - b.t);
+
+  const nodeChain = [startNode, ...collinear.map(c => c.node)];
+  const nodesToAdd = [];
+  if (!endNode) {
+    if (!allowNewEndNode) return reject('ไม่พบโหนดปลายทาง');
+    const newEndId = freshNodeId;
+    if (!newEndId || nodes.some(n => n.id === newEndId)) return reject('รหัสโหนดปลายซ้ำ');
+    endNode = { id: newEndId, x: endPoint.x, y: endPoint.y, z: endPoint.z, restraints: [false, false, false, false, false, false] };
+    nodesToAdd.push(endNode);
+  }
+  nodeChain.push(endNode);
+
+  const segments = [];
+  const existingMembers = members.slice();
+  const allNodes = nodes.concat(nodesToAdd);
+
+  for (let idx = 0; idx < nodeChain.length - 1; idx++) {
+    const u = nodeChain[idx];
+    const v = nodeChain[idx + 1];
+    const exists = existingMembers.some(m => (m.i === u.id && m.j === v.id) || (m.i === v.id && m.j === u.id));
+    if (exists) continue;
+
+    const validation = validateMemberEndpoints(allNodes, existingMembers, u.id, v.id, {
+      levelY: u.y,
+      levelTolerance,
+      disallowIntervening: true
+    });
+    if (!validation.ok) {
+      return reject(`ช่วง ${u.id}–${v.id}: ${validation.reason}`);
+    }
+
+    const memberId = nextMemberIdFn ? nextMemberIdFn(existingMembers.concat(segments)) : `M_TEMP_${idx}`;
+    const newMem = {
+      id: memberId,
+      i: u.id,
+      j: v.id,
+      ...memberProps
+    };
+    segments.push(newMem);
+    existingMembers.push(newMem);
+  }
+
+  if (segments.length === 0) return reject('มีสมาชิกทุกช่วงเชื่อมต่ออยู่แล้ว');
+
+  return {
+    ok: true,
+    nodeChain: nodeChain.map(n => n.id),
+    intermediateCount: collinear.length,
+    segments,
+    nodesToAdd
+  };
 }
