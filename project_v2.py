@@ -150,6 +150,8 @@ def overlap(a,b):
 
 def prepare(p):
     core=validate_project(p)
+    if p.get('stairs'):
+        fail('บันได/stairs: ยังไม่ถ่ายน้ำหนักพื้นทางลาดและชานพักเข้าสู่โมเดลวิเคราะห์; หยุดวิเคราะห์เพื่อไม่ให้ผลโหลดและการออกแบบผิด กรุณาแยกโมเดลที่ไม่มีบันไดหรือรอวิธีถ่ายแรงที่ตรวจสอบแล้ว')
     overrides={}
     for m in p['members']:
         if m['behavior']!='frame' or (m['kind']=='roof' and m['roofType'] in ('truss','spaceframe')):

@@ -19,6 +19,12 @@ def slab_frame():
 
 
 class BuildingTests(unittest.TestCase):
+    def test_stairs_cannot_be_silently_omitted_from_analysis(self):
+        p=migrate(beam())
+        p['stairs']=[{'id':'ST1','live':3.0}]
+        with self.assertRaisesRegex(ModelError, 'บันได|stair'):
+            solve(p)
+
     def test_generator_steel_design_basis_is_accepted(self):
         p=migrate(beam())
         p['designBasis']={'fc_mpa':23.5,'fy_mpa':392,'fyt_mpa':235,'cover_mm':40,'agg_mm':20,'stirrup_mm':9,'fy_steel_mpa':245}

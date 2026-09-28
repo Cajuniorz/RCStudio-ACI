@@ -8,6 +8,7 @@ Baseline: `main` at `0dc2d73aeef9cfb6e149cd958a09312dea645eea`; this preview is 
 - Node sphere radius reduced from 0.095 m to 0.05 m in the 3D rendering (no change to analytical geometry).
 - Gable, hip and lean-to generators place steel eaves centerlines at `RC roof beam center Y + RC depth/2 + steel eaves depth/2`, with current generator section inputs (0.45 m, 0.125 m). Rendered seat does not penetrate the RC roof beam; this is still an idealized rigid connection, not a connection design.
 - Generator's `fy_steel_mpa` design basis is now recognized and validated by the backend instead of causing the generated model to fail at `/api/analyze`.
+- **Fail-closed stair gate:** generated or imported models with `stairs` can still be edited and rendered, but `/api/analyze`, `/api/design-all` and PDF design paths stop with a specific error until their flight/landing loads are transferred. To analyze the non-stair example, turn off the stair option and regenerate; this does not constitute a valid design for a real building with stairs.
 
 ## Next modeling interactions (not implemented)
 1. **Nodes/members:** select two arbitrary 3D nodes, inspect coordinates and restraints, explicit split-at-intersection (no automatic connectivity), beams with end offsets or eccentricity represented in the solver rather than only displaced visually. Classify dropped, secondary and cantilever beams by topology/load path, not by label. Validate stability and release conditions.
@@ -17,5 +18,5 @@ Baseline: `main` at `0dc2d73aeef9cfb6e149cd958a09312dea645eea`; this preview is 
 
 ## Safety and acceptance
 - An unattached node is a modeling draft, not a stable structure. Newly drawn cantilevers or floor edges must not be marked designed merely because they appear in 3D.
-- Existing `stairs` records are not incorporated into the analytical member loads. Changing stair live load does not change support reactions (reproduced before this preview). **NO-GO for relying on structural output for models with stairs until this is fixed and independently checked.**
+- Existing `stairs` records are not incorporated into the analytical member loads. Changing stair live load does not change support reactions (reproduced before this preview). The backend now rejects analysis/design of any model with `stairs`; **NO-GO for structural output for buildings with stairs until load transfer is implemented and independently checked.**
 - Engineering checks before claiming a complete modeler: generated and edited-model round-trip; topology/coordinates/units; load provenance; global force/moment balance; member force and reaction symmetry only where topology and loading warrant symmetry; code-design benchmark; human review of structural assumptions.
