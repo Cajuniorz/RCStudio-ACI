@@ -10,6 +10,7 @@ const KEY='rcstudio-v1', dofs=['DX','DY','DZ','RX','RY','RZ'];
 let model, result=null, designResult=null, revision=0, tab='nodes', selected=null, history=[], busy=false;
 let viewMode='3d',planLevelY=null,activeTool='select',beamDrag=null,beamAxisLock=null,lineSnapHover=null,pointerStart=null;
 let structMode='solid';  // solid | wire - one state, switched by a single click
+let viewScales={deformScale:100,diagramScale:1,lastPeakH:0};
 const PLAN_LEVEL_TOLERANCE=1e-5;
 const memberDraft={b:.25,h:.45};
 const empty=blankProject;
@@ -1193,7 +1194,13 @@ function drawModel(){
  };
  const showSolid3D=structMode!=='wire';
  const showWireframe=structMode==='wire';
+ const deformScale=Math.max(0,Number($('deformScale')?.value)||100);
+ const diagramScale=Math.max(.05,Number($('diagramScale')?.value)||1);
+ // diagnostic hook, same style as window.__rc_model/__rc_scene, used by the render tests
+ viewScales={deformScale,diagramScale,lastPeakH:0};
+ window.__rc_viewScales=viewScales;
  updateDisplayToggles();
+ updateScaleControls();
  const showPointLoads=!$('showPointLoads')||$('showPointLoads').checked;
  const showUniformLoads=!$('showUniformLoads')||$('showUniformLoads').checked;
  const showSelfWeight=!$('showSelfWeight')||$('showSelfWeight').checked;
@@ -1268,7 +1275,8 @@ function drawModel(){
     const diagKey=(cm==='Vy'||$('diagramType')?.value==='Vy')?'Vy':'Mz';
     const diagMax=Math.max(...memRes.samples.map(s=>Math.abs(s[diagKey])),0);
     if(diagMax>1e-4){
-     const peakH=Math.min(0.65,Math.max(0.18,axes.L*0.22));
+     const peakH=Math.min(0.65,Math.max(0.18,axes.L*0.22))*diagramScale;
+     viewScales.lastPeakH=Math.max(viewScales.lastPeakH||0,peakH);
      const dScale=peakH/diagMax;
      const dirY=new THREE.Vector3(...axes.y);
      const ribbonVerts=[],ribbonColors=[],linePts=[];
@@ -1352,7 +1360,7 @@ function drawModel(){
     group.add(label);
    }
   }
-  if(active&&$('deformed').checked){const da=active.nodes[m.i].displacement,db=active.nodes[m.j].displacement;line([a.clone().add(new THREE.Vector3(...da.slice(0,3)).multiplyScalar(100)),b.clone().add(new THREE.Vector3(...db.slice(0,3)).multiplyScalar(100))],0xffb861);}
+  if(active&&$('deformed').checked&&deformScale>0){const da=active.nodes[m.i].displacement,db=active.nodes[m.j].displacement;line([a.clone().add(new THREE.Vector3(...da.slice(0,3)).multiplyScalar(deformScale)),b.clone().add(new THREE.Vector3(...db.slice(0,3)).multiplyScalar(deformScale))],0xffb861);}
  }
  for(const n of model.nodes){if(visibleNodeIds&&!visibleNodeIds.has(n.id))continue;const p=pos.get(n.id);if(!p)continue;
   const isWireOnly=showWireframe&&!showSolid3D;
@@ -2032,6 +2040,13 @@ $('addSlab').onclick=()=>{tab='slabs';addRow();};$('addFoundation').onclick=()=>
 $('undo').onclick=()=>{cancelInteraction(false);if(!history.length)return;model=history.pop();revision++;result=null;selected=null;persist();render();status('ย้อนแล้ว · ต้องวิเคราะห์ใหม่');};
 $('tabs').onclick=e=>{if(e.target.dataset.tab){tab=e.target.dataset.tab;renderTable();}};
 $('fit').onclick=fit;for(const id of ['labels','deformed','diagram3d','diagramValues','showPointLoads','showUniformLoads','showSelfWeight','showRoofSheeting']){if($(id))$(id).onchange=drawModel;}
+function updateScaleControls(){
+ const d=$('deformScale'),dp=$('deformScalePill');
+ if(d&&dp){dp.hidden=!$('deformed')?.checked;const v=$('deformScaleValue');if(v)v.textContent=fmt(Number(d.value)||0,0);}
+ const g=$('diagramScale'),gp=$('diagramScalePill');
+ if(g&&gp){gp.hidden=!$('diagram3d')?.checked;const v=$('diagramScaleValue');if(v)v.textContent=fmt(Number(g.value)||1,1);}
+}
+for(const id of ['deformScale','diagramScale']){const input=$(id);if(input)input.addEventListener('input',()=>{updateScaleControls();drawModel();});}
 const STRUCT_MODES=[['solid','โครงสร้าง 3D (Solid)'],['wire','เส้นแกน & โหนด']];
 function renderStructButton(){
  const button=$('structModeButton');

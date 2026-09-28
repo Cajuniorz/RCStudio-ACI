@@ -39,6 +39,12 @@
 .viewbottom label.on{background:#31414f;border-color:#7aa7c7;color:#eaf4ff;font-weight:600}
 .viewbottom label.on::before{content:'✓';color:#7dd3fc;font-weight:700}
 .viewbottom label[hidden]{display:none!important}
+/* sliders that size the 3D diagrams and the deformed shape */
+.slider-pill{pointer-events:auto;display:inline-flex;align-items:center;gap:5px;padding:3px 8px;border-radius:4px;background:rgba(30,35,42,0.85);border:1px solid #4a637d;font-size:10px;color:#c2d3e4}
+.slider-pill span{white-space:nowrap}
+.slider-pill input[type=range]{width:92px;min-width:0;padding:0;margin:0;background:transparent;border:0;accent-color:#38bdf8}
+.slider-pill b{min-width:32px;text-align:right;font:10px Consolas,monospace;color:#eaf4ff}
+.slider-pill[hidden]{display:none!important}
 #pointLoadsToggle,#uniformLoadsToggle,#selfWeightToggle{border-color:#f59e0b;color:#fde68a}
 
 
