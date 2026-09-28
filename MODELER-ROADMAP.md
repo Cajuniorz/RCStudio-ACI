@@ -1,0 +1,21 @@
+# RCStudio 0.4-preview — modeler roadmap and engineering gates
+
+Baseline: `main` at `0dc2d73aeef9cfb6e149cd958a09312dea645eea`; this preview is developed on `feat/modeling-tool-v04`. Existing project files are not migrated or overwritten.
+
+## Shipped in this preview
+- Plan view: choose an existing level or enter an arbitrary Y elevation (m), then click to place an unrestrained node at the clicked X/Z; reject duplicate coordinates after 0.001 m rounding. Undo is available. Nodes are not automatically connected; disconnected nodes cannot certify a solve.
+- Plan view: existing member draw remains endpoint-to-endpoint on one level. Manual member entry remains available for cross-level geometry. This is **not** yet a beam-on-beam / cantilever design wizard.
+- Node sphere radius reduced from 0.095 m to 0.05 m in the 3D rendering (no change to analytical geometry).
+- Gable, hip and lean-to generators place steel eaves centerlines at `RC roof beam center Y + RC depth/2 + steel eaves depth/2`, with current generator section inputs (0.45 m, 0.125 m). Rendered seat does not penetrate the RC roof beam; this is still an idealized rigid connection, not a connection design.
+- Generator's `fy_steel_mpa` design basis is now recognized and validated by the backend instead of causing the generated model to fail at `/api/analyze`.
+
+## Next modeling interactions (not implemented)
+1. **Nodes/members:** select two arbitrary 3D nodes, inspect coordinates and restraints, explicit split-at-intersection (no automatic connectivity), beams with end offsets or eccentricity represented in the solver rather than only displaced visually. Classify dropped, secondary and cantilever beams by topology/load path, not by label. Validate stability and release conditions.
+2. **Slabs/stairs:** click polygon corners, show support-edge assignments and load path before accepting; validate coplanarity, self-intersection, overlap, edge-to-member mapping, thickness and openings. A sloped stair flight and landing need a supported analysis transfer model; do not silently omit their loads.
+3. **Drag wall load:** choose load case, actual wall line, height/thickness/material unit weight, openings and start/end station along a member; show live `q(x)` preview in project units before commit. Canonical stored quantity is kN/m and load coordinates/axes are explicit. For a uniform masonry wall, derive `q = thickness × effective wall height × verified unit weight`, minus only geometrically established openings. Missing weight/height is UNKNOWN, not zero. Drag-to-member snapping and segment endpoints must reject off-member or overlapping ambiguities.
+4. **Analysis contract:** support partial-span member distributed loads `[xStart, xEnd]` in m and provenance (wall ID, version, geometry, material, source); update solver application, equilibrium check and report together. Existing `memberLoads` is full-span only, so do **not** bolt a drag UI onto the present schema and claim partial loads work. Regression: force and moment equilibrium, reversed member orientation, local/global axes, multiple wall segments, undo/reload, and fail-closed invalid payloads.
+
+## Safety and acceptance
+- An unattached node is a modeling draft, not a stable structure. Newly drawn cantilevers or floor edges must not be marked designed merely because they appear in 3D.
+- Existing `stairs` records are not incorporated into the analytical member loads. Changing stair live load does not change support reactions (reproduced before this preview). **NO-GO for relying on structural output for models with stairs until this is fixed and independently checked.**
+- Engineering checks before claiming a complete modeler: generated and edited-model round-trip; topology/coordinates/units; load provenance; global force/moment balance; member force and reaction symmetry only where topology and loading warrant symmetry; code-design benchmark; human review of structural assumptions.

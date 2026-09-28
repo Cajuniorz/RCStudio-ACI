@@ -31,6 +31,15 @@ export function nearestPlanNode(nodes, x, z, levelY, tolerance, maxDistance) {
   return nearest ? {node:nearest,distance:nearestDistance} : null;
 }
 
+export function planNodeDraft(nodes, point, id) {
+  if (!point || ![point.x,point.y,point.z].every(Number.isFinite)) return {ok:false,reason:'พิกัดโหนดต้องเป็นตัวเลขที่มีค่าจำกัด'};
+  if (!id || nodes.some(node => node.id===id)) return {ok:false,reason:'รหัสโหนดซ้ำหรือว่าง'};
+  const coordinates={x:Number(point.x.toFixed(3)),y:Number(point.y.toFixed(3)),z:Number(point.z.toFixed(3))};
+  if (nodes.some(node => finitePoint(node) && Math.hypot(node.x-coordinates.x,node.y-coordinates.y,node.z-coordinates.z)<1e-5))
+    return {ok:false,reason:'มีโหนดที่พิกัดนี้แล้ว กรุณาเลือกโหนดเดิม'};
+  return {ok:true,node:{id,...coordinates,restraints:[false,false,false,false,false,false]}};
+}
+
 export function validateMemberEndpoints(nodes, members, i, j, {levelY,levelTolerance=1e-5,lineTolerance=1e-6,disallowIntervening=false} = {}) {
   const reject = reason => ({ok:false,reason});
   if (!i || !j || i===j) return reject('เลือกโหนดต้นและปลายคนละโหนด');

@@ -39,7 +39,7 @@ class Handler(SimpleHTTPRequestHandler):
         if not self.allowed():
             return self.reply(403, {'error': 'Local origin required'})
         if self.path == '/api/health':
-            return self.reply(200, {'app': 'RCStudio', 'version': '0.2'})
+            return self.reply(200, {'app': 'RCStudio', 'version': '0.4-preview'})
         super().do_GET()
 
     def do_POST(self):

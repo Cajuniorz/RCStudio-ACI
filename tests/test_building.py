@@ -19,6 +19,14 @@ def slab_frame():
 
 
 class BuildingTests(unittest.TestCase):
+    def test_generator_steel_design_basis_is_accepted(self):
+        p=migrate(beam())
+        p['designBasis']={'fc_mpa':23.5,'fy_mpa':392,'fyt_mpa':235,'cover_mm':40,'agg_mm':20,'stirrup_mm':9,'fy_steel_mpa':245}
+        core,_,_=prepare(p)
+        self.assertEqual(core['schemaVersion'],1)
+        p['designBasis']['fy_steel_mpa']=-1
+        with self.assertRaises(ModelError):prepare(p)
+
     def test_v1_migration_preserves_analysis(self):
         p=beam();p['nodalLoads']=[load(fy=-10)]
         r1=solve(p);v2=migrate(p);r2=solve(v2)

@@ -10,6 +10,12 @@ export const catalogs={
  foundationMode:{pending:'รอยืนยันจุดรองรับ',ideal_support:'ใช้จุดรองรับที่กำหนด — ยังไม่ออกแบบฐาน'},
  weightMode:{volume:'หนา × หน่วยนน.คอนกรีต',manual:'กรอกนน.ตัวพื้นต่อพื้นที่'}
 };
+export function roofSeatElevation(roofBeamCenterY, rcBeamDepth, steelEavesDepth) {
+  if (![roofBeamCenterY,rcBeamDepth,steelEavesDepth].every(Number.isFinite) || rcBeamDepth<=0 || steelEavesDepth<=0)
+    throw new RangeError('Roof seat depth and elevation must be finite, positive dimensions');
+  return roofBeamCenterY+(rcBeamDepth+steelEavesDepth)/2;
+}
+
 export const memberRecord=(id,i,j,kind='beam')=>({id,i,j,b:kind==='roof'?null:.25,h:kind==='roof'?null:.45,rotation:0,kind,sectionType:kind==='roof'?'steel_custom':'rc_rect',A:null,Iy:null,Iz:null,J:null,roofType:'custom',behavior:'frame'});
 export const slabRecord=(id,nodes=[])=>({id,type:'one_way',nodes,thickness:null,weightMode:'volume',selfLoad:null,dead:null,live:null,mode:'pending',support1:'',support2:'',support3:'',support4:'',note:''});
 export const foundationRecord=id=>({id,type:'isolated',nodes:[],bx:null,bz:null,depth:null,embedment:null,qa:null,pileCount:null,pileCapacity:null,pileLength:null,mode:'pending',note:''});

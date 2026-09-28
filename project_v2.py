@@ -52,10 +52,13 @@ def validate_project(p, draft=True):
     if set(p.keys()) != allowed_roots:
         fail(f'Project v2: required fields: {ROOT_FIELDS}; unknown fields are not supported')
     if 'designBasis' in p and p['designBasis'] is not None:
-        shape(p['designBasis'], 'fc_mpa fy_mpa fyt_mpa cover_mm agg_mm stirrup_mm', 'Design basis')
-        for k, v in p['designBasis'].items():
+        basis = p['designBasis']
+        required = set('fc_mpa fy_mpa fyt_mpa cover_mm agg_mm stirrup_mm'.split())
+        if not isinstance(basis, dict) or not required.issubset(basis) or set(basis)-required-{'fy_steel_mpa'}:
+            fail('Design basis: required RC fields; only optional fy_steel_mpa is supported')
+        for k, v in basis.items():
             if v is not None:
-                number(v, f'Design basis {k}')
+                number(v, f'Design basis {k}', 0.001 if k == 'fy_steel_mpa' else None)
     if type(p['schemaVersion']) is not int or p['schemaVersion'] != 2 or p['canonicalUnits'] != 'm-kN-MPa':
         fail('Unsupported schema or canonical units')
     shape(p['displayUnits'],'system force','Display units')
