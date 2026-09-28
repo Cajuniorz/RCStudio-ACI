@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {groupLevels,nearestPlanNode,validateMemberEndpoints,planNodeDraft,snapPlanPoint} from '../static/plan.js';
+import {groupLevels,nearestPlanNode,validateMemberEndpoints,planNodeDraft,snapPlanPoint,splitBeamAtDistance} from '../static/plan.js';
 
 const nodes=[
   {id:'N1',x:0,y:0,z:0},
@@ -40,6 +40,21 @@ assert.deepEqual(snapPlanPoint({x:1.014,y:1.5,z:2.198},structuralAxes,1.5,1,.12)
 assert.deepEqual(snapPlanPoint({x:4.49,y:1.5,z:3.98},structuralAxes,1.5,1,.12),{x:4.5,y:1.5,z:4},'existing structural axes take precedence over 1m visual grid');
 assert.deepEqual(snapPlanPoint({x:-1.4,y:1.5,z:-2.6},[],1.5,1,.12),{x:-1,y:1.5,z:-3},'negative coordinates snap symmetrically');
 assert.equal(snapPlanPoint({x:NaN,y:0,z:1},[],0,1,.12),null);
+
+const splitSource={nodes:[{id:'N1',x:0,y:3,z:0},{id:'N2',x:4.5,y:3,z:0},{id:'N3',x:0,y:0,z:0}],members:[{id:'M1',i:'N1',j:'N2',kind:'beam',behavior:'frame',b:.25,h:.45},{id:'M2',i:'N3',j:'N1',kind:'column',behavior:'frame'}],memberLoads:[{member:'M1',case:'D',qx:0,qy:-5,qz:0,axes:'global'}],slabs:[]};
+const snapshot=JSON.stringify(splitSource);
+const split=splitBeamAtDistance(splitSource,'M1','N1',1.5,'N4','M3');
+assert.equal(split.ok,true);
+assert.deepEqual(split.node,{id:'N4',x:1.5,y:3,z:0,restraints:[false,false,false,false,false,false]});
+assert.deepEqual(split.members.map(m=>[m.id,m.i,m.j]),[['M1','N1','N4'],['M3','N4','N2']]);
+assert.deepEqual(split.memberLoads.map(l=>[l.member,l.qy,l.axes]),[['M1',-5,'global'],['M3',-5,'global']]);
+assert.equal(JSON.stringify(splitSource),snapshot,'split preview must not mutate existing model');
+assert.equal(splitBeamAtDistance(splitSource,'M1','N2',1.5,'N4','M3').node.x,3,'distance from opposite end');
+for(const distance of [0,4.5,-1,NaN])assert.equal(splitBeamAtDistance(splitSource,'M1','N1',distance,'N4','M3').ok,false);
+assert.equal(splitBeamAtDistance(splitSource,'M1','N1',1.5,'N1','M3').ok,false,'duplicate node ID');
+assert.equal(splitBeamAtDistance(splitSource,'M1','N1',1.5,'N4','M1').ok,false,'duplicate member ID');
+assert.equal(splitBeamAtDistance({...splitSource,slabs:[{id:'S1',support1:'M1'}]},'M1','N1',1.5,'N4','M3').ok,false,'slab edge cannot be silently broken');
+assert.equal(splitBeamAtDistance({...splitSource,nodes:[...splitSource.nodes,{id:'N8',x:1.5,y:3,z:0}]},'M1','N1',1.5,'N4','M3').ok,false,'existing coincident node');
 
 const before=JSON.stringify({nodes,members:[]});
 for(const [i,j,options] of [

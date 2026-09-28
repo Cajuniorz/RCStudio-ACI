@@ -54,6 +54,28 @@ export function planNodeDraft(nodes, point, id) {
   return {ok:true,node:{id,...coordinates,restraints:[false,false,false,false,false,false]}};
 }
 
+export function splitBeamAtDistance(model, memberId, fromNodeId, distance, newNodeId, newMemberId) {
+  const reject=reason=>({ok:false,reason});
+  const member=model?.members?.find(m=>m.id===memberId);
+  if (!member || member.kind!=='beam' || member.behavior!=='frame') return reject('เลือกคานโครงข้อแข็งก่อนแบ่งช่วง');
+  if (fromNodeId!==member.i && fromNodeId!==member.j) return reject('จุดอ้างอิงต้องเป็นปลายคานที่เลือก');
+  if (!newNodeId || !newMemberId || model.nodes.some(n=>n.id===newNodeId) || model.members.some(m=>m.id===newMemberId)) return reject('รหัสโหนดหรือคานใหม่ซ้ำ');
+  if (model.slabs?.some(s=>['support1','support2','support3','support4'].some(key=>s[key]===memberId))) return reject('คานนี้รองรับพื้นอยู่ การแบ่งคานจะทำให้การถ่ายโหลดพื้นผิด กรุณาจัดการขอบพื้นก่อน');
+  const i=model.nodes.find(n=>n.id===member.i),j=model.nodes.find(n=>n.id===member.j);
+  if (!finitePoint(i)||!finitePoint(j)) return reject('ไม่พบพิกัดปลายคาน');
+  const length=Math.hypot(j.x-i.x,j.y-i.y,j.z-i.z);
+  if (!Number.isFinite(distance)||!Number.isFinite(length)||distance<=.001||distance>=length-.001) return reject(`ระยะต้องอยู่ภายในช่วงคาน (ยาว ${Number(length.toFixed(3))} m) และห่างปลายอย่างน้อย 0.001 m`);
+  const t=fromNodeId===member.i?distance/length:1-distance/length;
+  const coordinates=Object.fromEntries(['x','y','z'].map(axis=>[axis,Number((i[axis]+(j[axis]-i[axis])*t).toFixed(3))]));
+  if (Math.hypot(...['x','y','z'].map(axis=>coordinates[axis]-i[axis]))<=.001 || Math.hypot(...['x','y','z'].map(axis=>coordinates[axis]-j[axis]))<=.001) return reject('ระยะหลังปัดพิกัดใกล้ปลายคานเกินไป');
+  if (model.nodes.some(n=>finitePoint(n)&&Math.hypot(n.x-coordinates.x,n.y-coordinates.y,n.z-coordinates.z)<1e-5)) return reject('มีโหนดบนตำแหน่งที่ต้องการแล้ว');
+  const loads=(model.memberLoads||[]).filter(load=>load.member===memberId);
+  if (loads.some(load=>Object.keys(load).some(k=>['xStart','xEnd','start','end'].includes(k)))) return reject('คานมีโหลดบางช่วงที่ยังแบ่งอัตโนมัติไม่ได้');
+  return {ok:true,node:{id:newNodeId,...coordinates,restraints:[false,false,false,false,false,false]},
+    members:[{...member,j:newNodeId},{...member,id:newMemberId,i:newNodeId}],
+    memberLoads:loads.flatMap(load=>[{...load},{...load,member:newMemberId}]),length};
+}
+
 export function validateMemberEndpoints(nodes, members, i, j, {levelY,levelTolerance=1e-5,lineTolerance=1e-6,disallowIntervening=false} = {}) {
   const reject = reason => ({ok:false,reason});
   if (!i || !j || i===j) return reject('เลือกโหนดต้นและปลายคนละโหนด');
