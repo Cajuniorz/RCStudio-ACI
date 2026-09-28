@@ -54,6 +54,27 @@ export function planNodeDraft(nodes, point, id) {
   return {ok:true,node:{id,...coordinates,restraints:[false,false,false,false,false,false]}};
 }
 
+export function nearestBeamOnPlan(model, point, levelY, maxDistance, levelTolerance=1e-5) {
+  if (!point || ![point.x,point.z,levelY,maxDistance].every(Number.isFinite) || maxDistance<0) return null;
+  const nodes=new Map((model?.nodes||[]).map(n=>[n.id,n]));
+  let nearest=null;
+  for (const member of model?.members||[]) {
+    if (member.kind!=='beam'||member.behavior!=='frame') continue;
+    const a=nodes.get(member.i),b=nodes.get(member.j);
+    if (!finitePoint(a)||!finitePoint(b)||Math.abs(a.y-levelY)>levelTolerance||Math.abs(b.y-levelY)>levelTolerance) continue;
+    const dx=b.x-a.x,dz=b.z-a.z,L2=dx*dx+dz*dz;
+    if (L2<=1e-12) continue;
+    const t=((point.x-a.x)*dx+(point.z-a.z)*dz)/L2;
+    if(t<=0||t>=1)continue;
+    const px=a.x+t*dx,pz=a.z+t*dz,distance=Math.hypot(point.x-px,point.z-pz);
+    if(distance>maxDistance)continue;
+    const candidate={member,fromId:member.i,distanceFromI:Number((t*Math.sqrt(L2)).toFixed(3)),point:{x:Number(px.toFixed(3)),y:levelY,z:Number(pz.toFixed(3))},distance};
+    if(nearest&&Math.abs(distance-nearest.distance)<1e-5)nearest={ambiguous:true,distance};
+    else if(!nearest||distance<nearest.distance-1e-5)nearest=candidate;
+  }
+  return nearest;
+}
+
 export function splitBeamAtDistance(model, memberId, fromNodeId, distance, newNodeId, newMemberId) {
   const reject=reason=>({ok:false,reason});
   const member=model?.members?.find(m=>m.id===memberId);

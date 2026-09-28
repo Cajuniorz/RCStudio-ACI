@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {groupLevels,nearestPlanNode,validateMemberEndpoints,planNodeDraft,snapPlanPoint,splitBeamAtDistance} from '../static/plan.js';
+import {groupLevels,nearestPlanNode,validateMemberEndpoints,planNodeDraft,snapPlanPoint,splitBeamAtDistance,nearestBeamOnPlan} from '../static/plan.js';
 
 const nodes=[
   {id:'N1',x:0,y:0,z:0},
@@ -55,6 +55,17 @@ assert.equal(splitBeamAtDistance(splitSource,'M1','N1',1.5,'N1','M3').ok,false,'
 assert.equal(splitBeamAtDistance(splitSource,'M1','N1',1.5,'N4','M1').ok,false,'duplicate member ID');
 assert.equal(splitBeamAtDistance({...splitSource,slabs:[{id:'S1',support1:'M1'}]},'M1','N1',1.5,'N4','M3').ok,false,'slab edge cannot be silently broken');
 assert.equal(splitBeamAtDistance({...splitSource,nodes:[...splitSource.nodes,{id:'N8',x:1.5,y:3,z:0}]},'M1','N1',1.5,'N4','M3').ok,false,'existing coincident node');
+
+const lineHit=nearestBeamOnPlan(splitSource,{x:1.52,z:.08},3,.15);
+assert.equal(lineHit?.member.id,'M1');
+assert.equal(lineHit?.fromId,'N1');
+assert.equal(lineHit?.distanceFromI,1.52);
+assert.deepEqual(lineHit?.point,{x:1.52,y:3,z:0});
+assert.equal(nearestBeamOnPlan(splitSource,{x:1.52,z:.3},3,.15),null,'outside pick tolerance');
+assert.equal(nearestBeamOnPlan(splitSource,{x:1.52,z:.08},0,.15),null,'wrong level');
+assert.equal(nearestBeamOnPlan(splitSource,{x:5,z:0},3,.15),null,'outside member endpoints');
+const tieSource={...splitSource,members:[...splitSource.members,{...splitSource.members[0],id:'M9'}]};
+assert.equal(nearestBeamOnPlan(tieSource,{x:1.5,z:0},3,.15)?.ambiguous,true,'overlapping beams must not be selected arbitrarily');
 
 const before=JSON.stringify({nodes,members:[]});
 for(const [i,j,options] of [
