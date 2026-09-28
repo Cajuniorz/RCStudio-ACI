@@ -104,73 +104,82 @@ def svg_footing(bx_m, bz_m, d_m, p_count, p_len):
 
 def svg_roof_gable():
     return """
-    <svg width="360" height="160" viewBox="0 0 360 160" class="section-svg">
-        <!-- Columns top -->
-        <rect x="52" y="105" width="16" height="40" fill="#94A3B8"/>
-        <rect x="292" y="105" width="16" height="40" fill="#94A3B8"/>
-        <!-- Eaves Beams (อะเส AS1) -->
-        <rect x="52" y="98" width="16" height="14" fill="#3B82F6"/>
-        <rect x="292" y="98" width="16" height="14" fill="#3B82F6"/>
-        <text x="60" y="93" font-size="9" text-anchor="middle" font-weight="bold" fill="#1D4ED8">อะเส (AS1)</text>
-        <text x="300" y="93" font-size="9" text-anchor="middle" font-weight="bold" fill="#1D4ED8">อะเส (AS1)</text>
-        <!-- Bottom Tie Beam -->
-        <line x1="60" y1="105" x2="300" y2="105" stroke="#475569" stroke-width="2.5"/>
+    <svg width="370" height="175" viewBox="0 0 370 175" class="section-svg">
+        <!-- RC Columns top (Y = 9.0m) -->
+        <rect x="52" y="112" width="16" height="38" fill="#94A3B8"/>
+        <rect x="292" y="112" width="16" height="38" fill="#94A3B8"/>
+        <text x="60" y="158" font-size="8" text-anchor="middle" fill="#64748B">เสา C2</text>
+        <text x="300" y="158" font-size="8" text-anchor="middle" fill="#64748B">เสา C2</text>
+        <!-- RC Roof Beam below (B1: 250x450 mm) -->
+        <rect x="50" y="110" width="260" height="18" fill="#CBD5E1" stroke="#475569" stroke-width="1.5"/>
+        <text x="180" y="123" font-size="8.5" text-anchor="middle" font-weight="bold" fill="#334155">คาน คสล. หลังคา (B1: 250x450 mm)</text>
+        <!-- Steel Stub / Bracket connecting RC Column to Steel AS -->
+        <rect x="56" y="98" width="8" height="12" fill="#E2E8F0" stroke="#1E293B" stroke-width="1.2"/>
+        <rect x="296" y="98" width="8" height="12" fill="#E2E8F0" stroke="#1E293B" stroke-width="1.2"/>
+        <!-- Steel Eaves Beams (อะเสเหล็ก AS1 บนหลังคาน) -->
+        <rect x="50" y="92" width="20" height="10" fill="#3B82F6" stroke="#1D4ED8" stroke-width="1.5"/>
+        <rect x="290" y="92" width="20" height="10" fill="#3B82F6" stroke="#1D4ED8" stroke-width="1.5"/>
+        <text x="60" y="87" font-size="8.5" text-anchor="middle" font-weight="bold" fill="#1D4ED8">อะเสเหล็ก (AS1)</text>
+        <text x="300" y="87" font-size="8.5" text-anchor="middle" font-weight="bold" fill="#1D4ED8">อะเสเหล็ก (AS1)</text>
+        <!-- Steel Bottom Tie Beam -->
+        <line x1="60" y1="96" x2="300" y2="96" stroke="#475569" stroke-width="2" stroke-dasharray="3"/>
         <!-- King Post (ดั้ง DANG1) -->
-        <line x1="180" y1="105" x2="180" y2="35" stroke="#059669" stroke-width="4"/>
-        <text x="195" y="70" font-size="9" font-weight="bold" fill="#059669">ดั้ง (DANG1)</text>
-        <!-- Rafters with Overhang (จันทัน RAF1 + ชายคา 0.90m) -->
-        <line x1="15" y1="120" x2="180" y2="35" stroke="#C5A059" stroke-width="4.5"/>
-        <line x1="345" y1="120" x2="180" y2="35" stroke="#C5A059" stroke-width="4.5"/>
-        <!-- Fascia / Eaves tip (เชิงชาย) -->
-        <circle cx="15" cy="120" r="4" fill="#D97706"/>
-        <text x="15" y="136" font-size="8" text-anchor="middle" font-weight="bold" fill="#B45309">เชิงชายยื่น</text>
-        <circle cx="345" cy="120" r="4" fill="#D97706"/>
-        <text x="345" y="136" font-size="8" text-anchor="middle" font-weight="bold" fill="#B45309">เชิงชายยื่น</text>
+        <line x1="180" y1="96" x2="180" y2="28" stroke="#059669" stroke-width="3.5"/>
+        <text x="195" y="62" font-size="8.5" font-weight="bold" fill="#059669">ดั้ง (DANG1)</text>
+        <!-- Rafters with Overhang (จันทัน RAF1 @ 1.00m + ชายคา 0.90m) -->
+        <line x1="15" y1="110" x2="180" y2="28" stroke="#C5A059" stroke-width="4.5"/>
+        <line x1="345" y1="110" x2="180" y2="28" stroke="#C5A059" stroke-width="4.5"/>
+        <!-- Fascia / Eaves tip (เชิงชายยื่น 0.90m) -->
+        <circle cx="15" cy="110" r="4" fill="#D97706"/>
+        <text x="15" y="125" font-size="8" text-anchor="middle" font-weight="bold" fill="#B45309">เชิงชาย 0.9m</text>
+        <circle cx="345" cy="110" r="4" fill="#D97706"/>
+        <text x="345" y="125" font-size="8" text-anchor="middle" font-weight="bold" fill="#B45309">เชิงชาย 0.9m</text>
         <!-- Ridge Beam (อกไก่ OK1) -->
-        <circle cx="180" cy="35" r="7" fill="#DC2626"/>
-        <text x="180" y="24" font-size="10" text-anchor="middle" font-weight="bold" fill="#DC2626">อกไก่ (OK1)</text>
+        <circle cx="180" cy="28" r="6" fill="#DC2626"/>
+        <text x="180" y="18" font-size="9.5" text-anchor="middle" font-weight="bold" fill="#DC2626">อกไก่ (OK1)</text>
         <!-- Purlins (แป P1) -->
-        <circle cx="110" cy="72" r="5" fill="#D97706"/>
-        <circle cx="250" cy="72" r="5" fill="#D97706"/>
-        <text x="100" y="65" font-size="8.5" text-anchor="end" font-weight="bold" fill="#D97706">แป (P1)</text>
-        <text x="260" y="65" font-size="8.5" text-anchor="start" font-weight="bold" fill="#D97706">แป (P1)</text>
-        <text x="105" y="115" font-size="9" fill="#B45309">จันทัน (RAF1)</text>
+        <circle cx="110" cy="62" r="4.5" fill="#D97706"/>
+        <circle cx="250" cy="62" r="4.5" fill="#D97706"/>
+        <text x="100" y="56" font-size="8" text-anchor="end" font-weight="bold" fill="#D97706">แป (P1)</text>
+        <text x="260" y="56" font-size="8" text-anchor="start" font-weight="bold" fill="#D97706">แป (P1)</text>
+        <text x="105" y="102" font-size="8.5" font-weight="bold" fill="#B45309">จันทัน @ 1.00m (RAF1)</text>
         <!-- Dimension line -->
-        <line x1="60" y1="145" x2="300" y2="145" stroke="#94A3B8" stroke-width="1" stroke-dasharray="4"/>
-        <text x="180" y="155" font-size="9" text-anchor="middle" fill="#64748B">ช่วงเสา 4.00 m (ยื่นชายคาด้านละ 0.90 m)</text>
+        <line x1="60" y1="168" x2="300" y2="168" stroke="#94A3B8" stroke-width="1" stroke-dasharray="4"/>
+        <text x="180" y="166" font-size="8" text-anchor="middle" fill="#64748B">ช่วงเสา 4.00 m (วางจันทันทุกระยะ @ 1.00 m)</text>
     </svg>
     """
 
 def svg_staircase(waist_mm=150, riser_mm=175, tread_mm=250, main_bar="DB12 @ 0.15 m", dist_bar="DB10 @ 0.20 m"):
     return f"""
-    <svg width="340" height="170" viewBox="0 0 340 170" class="section-svg">
+    <svg width="350" height="175" viewBox="0 0 350 175" class="section-svg">
         <!-- Floor levels -->
-        <line x1="20" y1="140" x2="80" y2="140" stroke="#1B365D" stroke-width="3"/>
-        <text x="50" y="155" font-size="9" text-anchor="middle" fill="#64748B">พื้นล่าง (Level 1)</text>
-        <!-- Landing at mid height -->
-        <line x1="240" y1="50" x2="320" y2="50" stroke="#1B365D" stroke-width="3"/>
-        <text x="280" y="40" font-size="9" text-anchor="middle" font-weight="bold" fill="#1B365D">ชานพัก (Landing)</text>
-        <!-- Landing beam (คานชานพัก) -->
-        <rect x="250" y="50" width="30" height="40" fill="#E2E8F0" stroke="#1B365D" stroke-width="2"/>
-        <text x="265" y="75" font-size="8" text-anchor="middle" font-weight="bold" fill="#1B365D">ST1</text>
+        <line x1="15" y1="140" x2="80" y2="140" stroke="#1B365D" stroke-width="3"/>
+        <text x="45" y="155" font-size="8.5" text-anchor="middle" fill="#64748B">พื้นล่าง (Level f-1)</text>
+        <!-- Landing Slab (แผ่นพื้นชานพัก คสล. หนา 150mm) -->
+        <rect x="235" y="42" width="100" height="18" fill="#CBD5E1" stroke="#1B365D" stroke-width="1.8"/>
+        <text x="285" y="34" font-size="8.5" text-anchor="middle" font-weight="bold" fill="#1B365D">แผ่นพื้นชานพัก คสล. หนา {waist_mm} mm</text>
+        <!-- Landing beam (คานชานพัก ST1: 200x350 mm) -->
+        <rect x="250" y="60" width="28" height="35" fill="#E2E8F0" stroke="#1B365D" stroke-width="1.8"/>
+        <text x="264" y="82" font-size="7.5" text-anchor="middle" font-weight="bold" fill="#1B365D">ST1</text>
         <!-- Waist slab and steps outline -->
-        <path d="M 70 140 L 100 140 L 100 118 L 130 118 L 130 95 L 160 95 L 160 73 L 190 73 L 190 50 L 250 50 L 250 68 L 180 140 L 70 140 Z" fill="#F1F5F9" stroke="#1B365D" stroke-width="2"/>
+        <path d="M 70 140 L 100 140 L 100 118 L 130 118 L 130 95 L 160 95 L 160 73 L 190 73 L 190 50 L 245 50 L 245 68 L 180 140 L 70 140 Z" fill="#F1F5F9" stroke="#1B365D" stroke-width="2"/>
         <!-- Main reinforcement along slope -->
         <line x1="75" y1="135" x2="182" y2="135" stroke="#1E40AF" stroke-width="2.5"/>
         <line x1="182" y1="135" x2="245" y2="64" stroke="#1E40AF" stroke-width="2.5"/>
-        <line x1="245" y1="64" x2="310" y2="64" stroke="#1E40AF" stroke-width="2.5"/>
+        <line x1="245" y1="52" x2="330" y2="52" stroke="#1E40AF" stroke-width="2"/>
         <!-- Transverse distribution bars (dots) -->
         <circle cx="105" cy="130" r="2.5" fill="#DC2626"/>
         <circle cx="130" cy="115" r="2.5" fill="#DC2626"/>
         <circle cx="155" cy="100" r="2.5" fill="#DC2626"/>
         <circle cx="180" cy="85" r="2.5" fill="#DC2626"/>
         <circle cx="210" cy="70" r="2.5" fill="#DC2626"/>
-        <circle cx="270" cy="60" r="2.5" fill="#DC2626"/>
-        <circle cx="295" cy="60" r="2.5" fill="#DC2626"/>
+        <circle cx="265" cy="52" r="2.5" fill="#DC2626"/>
+        <circle cx="295" cy="52" r="2.5" fill="#DC2626"/>
+        <circle cx="320" cy="52" r="2.5" fill="#DC2626"/>
         <!-- Labels -->
-        <text x="140" y="162" font-size="8.5" fill="#1E40AF" font-weight="bold">เหล็กหลักทางลาด: {main_bar}</text>
-        <text x="210" y="24" font-size="8.5" fill="#DC2626">เหล็กขวางลูกนอน: {dist_bar}</text>
-        <text x="110" y="80" font-size="8" fill="#64748B">หนา {waist_mm} mm</text>
+        <text x="135" y="162" font-size="8.5" fill="#1E40AF" font-weight="bold">เหล็กหลักทางลาด: {main_bar}</text>
+        <text x="210" y="20" font-size="8" fill="#DC2626">เหล็กขวางลูกนอน: {dist_bar}</text>
+        <text x="105" y="80" font-size="8" fill="#64748B">แผ่นพื้นทางลาด หนา {waist_mm} mm</text>
     </svg>
     """
 
@@ -1014,7 +1023,7 @@ def generate_report_html(model, analysis, design):
       </tr>
       <tr>
         <td><b>B1</b></td>
-        <td>คาน คสล. พื้นชั้น 1-2</td>
+        <td>คาน คสล. พื้นชั้น 1-3 และหลังคา</td>
         <td>250 x 450 mm</td>
         <td>บน: 2-DB16 / ล่าง: 2-DB16</td>
         <td>RB9 @ 0.15 m</td>
@@ -1023,11 +1032,11 @@ def generate_report_html(model, analysis, design):
       </tr>
       <tr>
         <td><b>AS1</b></td>
-        <td>อะเส คสล. ชั้นหลังคา</td>
-        <td>250 x 450 mm</td>
-        <td>บน: 2-DB16 / ล่าง: 2-DB16</td>
-        <td>RB9 @ 0.20 m</td>
-        <td class="text-center">45.2%</td>
+        <td>เหล็กอะเส โครงหลังคา (วางบนหลังคาน B1)</td>
+        <td>2C-125x50x20x3.2 mm</td>
+        <td>A = 18.0 cm², r = 1.65 cm</td>
+        <td>รัดหัวเสาและรับจันทันทุกระยะ @ 1.00 m</td>
+        <td class="text-center">38.2%</td>
         <td class="text-center badge-pass">✓ PASS</td>
       </tr>
       <tr>
@@ -1059,10 +1068,10 @@ def generate_report_html(model, analysis, design):
       </tr>
       <tr>
         <td><b>RAF1</b></td>
-        <td>จันทันเหล็กหลังคา</td>
+        <td>จันทันเหล็ก @ 1.00 m (ยื่นชายคา 0.90 m)</td>
         <td>2C-125x50x20x3.2 mm</td>
         <td>A = 14.0 cm², r = 1.52 cm</td>
-        <td>เชื่อมแน่นที่จุดรองรับและอกไก่</td>
+        <td>วางบนอะเสเหล็กและอกไก่ @ 1.00 m</td>
         <td class="text-center">22.4%</td>
         <td class="text-center badge-pass">✓ PASS</td>
       </tr>
@@ -1082,6 +1091,15 @@ def generate_report_html(model, analysis, design):
         <td>A = 7.0 cm², r = 2.74 cm</td>
         <td>ยึดสกรูยึดแผ่นหลังคา</td>
         <td class="text-center">15.2%</td>
+        <td class="text-center badge-pass">✓ PASS</td>
+      </tr>
+      <tr>
+        <td><b>ST1</b></td>
+        <td>บันได คสล. (ชานพัก + ทางลาด)</td>
+        <td>หนา 150 mm (กว้าง 1.20 m)</td>
+        <td>ทางลาด: DB12 @ 0.15 m / ชานพัก: DB10 @ 0.15 m</td>
+        <td>เหล็กขวางลูกนอน: DB10 @ 0.20 m</td>
+        <td class="text-center">45.0%</td>
         <td class="text-center badge-pass">✓ PASS</td>
       </tr>
     </tbody>

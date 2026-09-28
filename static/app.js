@@ -34,87 +34,119 @@ function grid(sx=4,sz=4,nx=1,nz=1,height=3,floors=1,withLoads=false){
  return p;
 }
 
-function addRoofGable(p, ids, nx, nz, sx, sz, height, floors, roof_h, overhang, addSteel, addRC) {
- const zMid = (nz * sz) / 2.0;
+function addRoofGable(p, ids, nx, nz, sx, sz, height, floors, roof_h, overhang, addSteel) {
+ const totalX = nx * sx;
+ const totalZ = nz * sz;
+ const zMid = totalZ / 2.0;
  const yRoof = floors * height;
- const yRidge = yRoof + roof_h;
+ const yAs = yRoof + 0.15;
  const slope = roof_h / (zMid > 0 ? zMid : 2.0);
- const yTip = yRoof - overhang * slope;
+ const yTip = yAs - overhang * slope;
+ const yRidge = yAs + roof_h;
 
- const ridgeNodes = [], purlinLNodes = [], purlinRNodes = [];
- const tipLNodes = [], tipRNodes = [];
-
- for (let ix = 0; ix <= nx; ix++) {
-  const x = Math.round(ix * sx * 1000) / 1000;
-  const eaveL = ids.get(`${ix},0,${floors}`);
-  const eaveR = ids.get(`${ix},${nz},${floors}`);
-
-  // Left Overhang Tip (เชิงชายซ้าย)
-  const tipLId = 'N' + (p.nodes.length + 1);
-  p.nodes.push({ id: tipLId, x, y: Math.round(yTip * 1000) / 1000, z: Math.round(-overhang * 1000) / 1000, restraints: Array(6).fill(false) });
-  tipLNodes.push(tipLId);
-
-  // Left Mid Purlin Node
-  const plId = 'N' + (p.nodes.length + 1);
-  p.nodes.push({ id: plId, x, y: Math.round((yRoof + 0.5 * roof_h) * 1000) / 1000, z: Math.round((0.5 * zMid) * 1000) / 1000, restraints: Array(6).fill(false) });
-  purlinLNodes.push(plId);
-
-  // Ridge Node (อกไก่)
-  const rgId = 'N' + (p.nodes.length + 1);
-  p.nodes.push({ id: rgId, x, y: Math.round(yRidge * 1000) / 1000, z: Math.round(zMid * 1000) / 1000, restraints: Array(6).fill(false) });
-  ridgeNodes.push(rgId);
-
-  // Right Mid Purlin Node
-  const prId = 'N' + (p.nodes.length + 1);
-  p.nodes.push({ id: prId, x, y: Math.round((yRoof + 0.5 * roof_h) * 1000) / 1000, z: Math.round((nz * sz - 0.5 * zMid) * 1000) / 1000, restraints: Array(6).fill(false) });
-  purlinRNodes.push(prId);
-
-  // Right Overhang Tip (เชิงชายขวา)
-  const tipRId = 'N' + (p.nodes.length + 1);
-  p.nodes.push({ id: tipRId, x, y: Math.round(yTip * 1000) / 1000, z: Math.round((nz * sz + overhang) * 1000) / 1000, restraints: Array(6).fill(false) });
-  tipRNodes.push(tipRId);
-
-  // King Post (ดั้ง - DANG) & Split Transverse Beam (คานขื่อ / อะเสขวาง)
-  const dangBaseId = 'N' + (p.nodes.length + 1);
-  p.nodes.push({ id: dangBaseId, x, y: Math.round(yRoof * 1000) / 1000, z: Math.round(zMid * 1000) / 1000, restraints: Array(6).fill(false) });
-  if (addRC) {
-   const bL = addRC(eaveL, dangBaseId, 'beam', 0.25, 0.45, 'AS');
-   const bR = addRC(dangBaseId, eaveR, 'beam', 0.25, 0.45, 'AS');
-   p.memberLoads.push({ member: bL, case: 'D', axes: 'local', qx: 0, qy: -1.0, qz: 0 });
-   p.memberLoads.push({ member: bL, case: 'L', axes: 'local', qx: 0, qy: -0.6, qz: 0 });
-   p.memberLoads.push({ member: bR, case: 'D', axes: 'local', qx: 0, qy: -1.0, qz: 0 });
-   p.memberLoads.push({ member: bR, case: 'L', axes: 'local', qx: 0, qy: -0.6, qz: 0 });
+ const asColNodes = new Map();
+ for (let iz = 0; iz <= nz; iz++) {
+  for (let ix = 0; ix <= nx; ix++) {
+   const topCol = ids.get(`${ix},${iz},${floors}`);
+   const asNid = 'N' + (p.nodes.length + 1);
+   asColNodes.set(`${ix},${iz}`, asNid);
+   p.nodes.push({ id: asNid, x: Math.round(ix * sx * 1000) / 1000, y: Math.round(yAs * 1000) / 1000, z: Math.round(iz * sz * 1000) / 1000, restraints: Array(6).fill(false) });
+   addSteel(topCol, asNid, 0.125, 0.125, 2.5e-3, 5e-6, 5e-6, 1e-7, 'AS');
   }
-  addSteel(dangBaseId, rgId, 0.08, 0.08, 1.4e-3, 1.2e-6, 1.2e-6, 4e-8, 'kingpost');
-
-  // Left Rafter (จันทันซ้าย + เชิงชายยื่น)
-  addSteel(tipLId, eaveL, 0.08, 0.125, 1.4e-3, 1.2e-6, 3.5e-6, 4e-8, 'rafter');
-  addSteel(eaveL, plId, 0.08, 0.125, 1.4e-3, 1.2e-6, 3.5e-6, 4e-8, 'rafter');
-  addSteel(plId, rgId, 0.08, 0.125, 1.4e-3, 1.2e-6, 3.5e-6, 4e-8, 'rafter');
-
-  // Right Rafter (จันทันขวา + เชิงชายยื่น)
-  addSteel(tipRId, eaveR, 0.08, 0.125, 1.4e-3, 1.2e-6, 3.5e-6, 4e-8, 'rafter');
-  addSteel(eaveR, prId, 0.08, 0.125, 1.4e-3, 1.2e-6, 3.5e-6, 4e-8, 'rafter');
-  addSteel(prId, rgId, 0.08, 0.125, 1.4e-3, 1.2e-6, 3.5e-6, 4e-8, 'rafter');
  }
 
- // Ridge Beam (อกไก่ - OK)
- for (let ix = 0; ix < nx; ix++) {
-  addSteel(ridgeNodes[ix], ridgeNodes[ix + 1], 0.10, 0.15, 1.6e-3, 1.5e-6, 5.0e-6, 6e-8, 'ridge');
+ const rafDivisions = 5;
+ const numRaf = nx * rafDivisions + 1;
+ const dxRaf = totalX / (numRaf - 1);
+
+ const asLeftNodes = [];
+ const asRightNodes = [];
+ const ridgeNodes = [];
+ const purlinLNodes = [];
+ const purlinRNodes = [];
+ const tipLNodes = [];
+ const tipRNodes = [];
+
+ for (let k = 0; k < numRaf; k++) {
+  const x = Math.round(k * dxRaf * 1000) / 1000;
+  const isCol = (k % rafDivisions === 0);
+  const ix = Math.floor(k / rafDivisions);
+
+  let asL;
+  if (isCol && asColNodes.has(`${ix},0`)) {
+   asL = asColNodes.get(`${ix},0`);
+  } else {
+   asL = 'N' + (p.nodes.length + 1);
+   p.nodes.push({ id: asL, x, y: Math.round(yAs * 1000) / 1000, z: 0, restraints: Array(6).fill(false) });
+  }
+  asLeftNodes.push(asL);
+
+  let asR;
+  if (isCol && asColNodes.has(`${ix},${nz}`)) {
+   asR = asColNodes.get(`${ix},${nz}`);
+  } else {
+   asR = 'N' + (p.nodes.length + 1);
+   p.nodes.push({ id: asR, x, y: Math.round(yAs * 1000) / 1000, z: Math.round(totalZ * 1000) / 1000, restraints: Array(6).fill(false) });
+  }
+  asRightNodes.push(asR);
+
+  const tipL = 'N' + (p.nodes.length + 1);
+  p.nodes.push({ id: tipL, x, y: Math.round(yTip * 1000) / 1000, z: Math.round(-overhang * 1000) / 1000, restraints: Array(6).fill(false) });
+  tipLNodes.push(tipL);
+
+  const tipR = 'N' + (p.nodes.length + 1);
+  p.nodes.push({ id: tipR, x, y: Math.round(yTip * 1000) / 1000, z: Math.round((totalZ + overhang) * 1000) / 1000, restraints: Array(6).fill(false) });
+  tipRNodes.push(tipR);
+
+  const pl = 'N' + (p.nodes.length + 1);
+  p.nodes.push({ id: pl, x, y: Math.round((yAs + 0.5 * roof_h) * 1000) / 1000, z: Math.round((0.5 * zMid) * 1000) / 1000, restraints: Array(6).fill(false) });
+  purlinLNodes.push(pl);
+
+  const pr = 'N' + (p.nodes.length + 1);
+  p.nodes.push({ id: pr, x, y: Math.round((yAs + 0.5 * roof_h) * 1000) / 1000, z: Math.round((totalZ - 0.5 * zMid) * 1000) / 1000, restraints: Array(6).fill(false) });
+  purlinRNodes.push(pr);
+
+  const rg = 'N' + (p.nodes.length + 1);
+  p.nodes.push({ id: rg, x, y: Math.round(yRidge * 1000) / 1000, z: Math.round(zMid * 1000) / 1000, restraints: Array(6).fill(false) });
+  ridgeNodes.push(rg);
+
+  addSteel(tipL, asL, 0.08, 0.125, 1.4e-3, 1.2e-6, 3.5e-6, 4e-8, 'rafter');
+  addSteel(asL, pl, 0.08, 0.125, 1.4e-3, 1.2e-6, 3.5e-6, 4e-8, 'rafter');
+  addSteel(pl, rg, 0.08, 0.125, 1.4e-3, 1.2e-6, 3.5e-6, 4e-8, 'rafter');
+
+  addSteel(rg, pr, 0.08, 0.125, 1.4e-3, 1.2e-6, 3.5e-6, 4e-8, 'rafter');
+  addSteel(pr, asR, 0.08, 0.125, 1.4e-3, 1.2e-6, 3.5e-6, 4e-8, 'rafter');
+  addSteel(asR, tipR, 0.08, 0.125, 1.4e-3, 1.2e-6, 3.5e-6, 4e-8, 'rafter');
+
+  if (isCol) {
+   const dMid = 'N' + (p.nodes.length + 1);
+   p.nodes.push({ id: dMid, x, y: Math.round(yAs * 1000) / 1000, z: Math.round(zMid * 1000) / 1000, restraints: Array(6).fill(false) });
+   addSteel(asL, dMid, 0.08, 0.10, 1.2e-3, 1.0e-6, 2.5e-6, 3e-8, 'AS');
+   addSteel(dMid, asR, 0.08, 0.10, 1.2e-3, 1.0e-6, 2.5e-6, 3e-8, 'AS');
+   addSteel(dMid, rg, 0.08, 0.08, 1.4e-3, 1.2e-6, 1.2e-6, 4e-8, 'kingpost');
+  }
  }
 
- // Purlins (แป - P) and Fascia lines
- for (let ix = 0; ix < nx; ix++) {
-  const pL = addSteel(purlinLNodes[ix], purlinLNodes[ix + 1], 0.05, 0.10, 7e-4, 6e-7, 1.8e-6, 4e-8, 'purlin');
+ for (let k = 0; k < numRaf - 1; k++) {
+  addSteel(asLeftNodes[k], asLeftNodes[k + 1], 0.10, 0.125, 1.8e-3, 1.8e-6, 4.0e-6, 5e-8, 'AS');
+  addSteel(asRightNodes[k], asRightNodes[k + 1], 0.10, 0.125, 1.8e-3, 1.8e-6, 4.0e-6, 5e-8, 'AS');
+ }
+
+ for (let k = 0; k < numRaf - 1; k++) {
+  addSteel(ridgeNodes[k], ridgeNodes[k + 1], 0.10, 0.15, 1.6e-3, 1.5e-6, 5.0e-6, 6e-8, 'ridge');
+ }
+
+ for (let k = 0; k < numRaf - 1; k++) {
+  const pL = addSteel(purlinLNodes[k], purlinLNodes[k + 1], 0.05, 0.10, 7e-4, 6e-7, 1.8e-6, 4e-8, 'purlin');
   p.memberLoads.push({ member: pL, case: 'D', axes: 'local', qx: 0, qy: -0.25, qz: 0 });
   p.memberLoads.push({ member: pL, case: 'L', axes: 'local', qx: 0, qy: -0.35, qz: 0 });
 
-  const pR = addSteel(purlinRNodes[ix], purlinRNodes[ix + 1], 0.05, 0.10, 7e-4, 6e-7, 1.8e-6, 4e-8, 'purlin');
+  const pR = addSteel(purlinRNodes[k], purlinRNodes[k + 1], 0.05, 0.10, 7e-4, 6e-7, 1.8e-6, 4e-8, 'purlin');
   p.memberLoads.push({ member: pR, case: 'D', axes: 'local', qx: 0, qy: -0.25, qz: 0 });
   p.memberLoads.push({ member: pR, case: 'L', axes: 'local', qx: 0, qy: -0.35, qz: 0 });
 
-  addSteel(tipLNodes[ix], tipLNodes[ix + 1], 0.03, 0.15, 6e-4, 4e-7, 1.2e-6, 3e-8, 'purlin');
-  addSteel(tipRNodes[ix], tipRNodes[ix + 1], 0.03, 0.15, 6e-4, 4e-7, 1.2e-6, 3e-8, 'purlin');
+  addSteel(tipLNodes[k], tipLNodes[k + 1], 0.03, 0.15, 6e-4, 4e-7, 1.2e-6, 3e-8, 'purlin');
+  addSteel(tipRNodes[k], tipRNodes[k + 1], 0.03, 0.15, 6e-4, 4e-7, 1.2e-6, 3e-8, 'purlin');
  }
 }
 
@@ -123,13 +155,14 @@ function addRoofHip(p, ids, nx, nz, sx, sz, height, floors, roof_h, overhang, ad
  const totalZ = nz * sz;
  const zMid = totalZ / 2.0;
  const yRoof = floors * height;
- const yRidge = yRoof + roof_h;
+ const yAs = yRoof + 0.15;
+ const yRidge = yAs + roof_h;
 
  const hipIndent = Math.min(zMid, totalX / 3.0);
  const xApex1 = Math.round(hipIndent * 1000) / 1000;
  const xApex2 = Math.round((totalX - hipIndent) * 1000) / 1000;
  const slope = roof_h / (zMid > 0 ? zMid : 2.0);
- const yTip = yRoof - overhang * slope;
+ const yTip = yAs - overhang * slope;
 
  const a1Id = 'N' + (p.nodes.length + 1);
  p.nodes.push({ id: a1Id, x: xApex1, y: Math.round(yRidge * 1000) / 1000, z: Math.round(zMid * 1000) / 1000, restraints: Array(6).fill(false) });
@@ -140,10 +173,16 @@ function addRoofHip(p, ids, nx, nz, sx, sz, height, floors, roof_h, overhang, ad
   addSteel(a1Id, a2Id, 0.10, 0.15, 1.6e-3, 1.5e-6, 5.0e-6, 6e-8, 'ridge');
  }
 
- const c0 = ids.get(`0,0,${floors}`);
- const c1 = ids.get(`0,${nz},${floors}`);
- const c2 = ids.get(`${nx},0,${floors}`);
- const c3 = ids.get(`${nx},${nz},${floors}`);
+ const asColNodes = new Map();
+ for (let iz = 0; iz <= nz; iz++) {
+  for (let ix = 0; ix <= nx; ix++) {
+   const topCol = ids.get(`${ix},${iz},${floors}`);
+   const asNid = 'N' + (p.nodes.length + 1);
+   asColNodes.set(`${ix},${iz}`, asNid);
+   p.nodes.push({ id: asNid, x: Math.round(ix * sx * 1000) / 1000, y: Math.round(yAs * 1000) / 1000, z: Math.round(iz * sz * 1000) / 1000, restraints: Array(6).fill(false) });
+   addSteel(topCol, asNid, 0.125, 0.125, 2.5e-3, 5e-6, 5e-6, 1e-7, 'AS');
+  }
+ }
 
  const tip0 = 'N' + (p.nodes.length + 1);
  p.nodes.push({ id: tip0, x: Math.round(-overhang * 1000) / 1000, y: Math.round(yTip * 1000) / 1000, z: Math.round(-overhang * 1000) / 1000, restraints: Array(6).fill(false) });
@@ -153,6 +192,11 @@ function addRoofHip(p, ids, nx, nz, sx, sz, height, floors, roof_h, overhang, ad
  p.nodes.push({ id: tip2, x: Math.round((totalX + overhang) * 1000) / 1000, y: Math.round(yTip * 1000) / 1000, z: Math.round(-overhang * 1000) / 1000, restraints: Array(6).fill(false) });
  const tip3 = 'N' + (p.nodes.length + 1);
  p.nodes.push({ id: tip3, x: Math.round((totalX + overhang) * 1000) / 1000, y: Math.round(yTip * 1000) / 1000, z: Math.round((totalZ + overhang) * 1000) / 1000, restraints: Array(6).fill(false) });
+
+ const c0 = asColNodes.get('0,0');
+ const c1 = asColNodes.get(`0,${nz}`);
+ const c2 = asColNodes.get(`${nx},0`);
+ const c3 = asColNodes.get(`${nx},${nz}`);
 
  addSteel(tip0, c0, 0.10, 0.15, 1.6e-3, 1.5e-6, 5.0e-6, 6e-8, 'hip');
  addSteel(c0, a1Id, 0.10, 0.15, 1.6e-3, 1.5e-6, 5.0e-6, 6e-8, 'hip');
@@ -166,20 +210,47 @@ function addRoofHip(p, ids, nx, nz, sx, sz, height, floors, roof_h, overhang, ad
  addSteel(tip3, c3, 0.10, 0.15, 1.6e-3, 1.5e-6, 5.0e-6, 6e-8, 'hip');
  addSteel(c3, a2Id, 0.10, 0.15, 1.6e-3, 1.5e-6, 5.0e-6, 6e-8, 'hip');
 
- for (let ix = 1; ix < nx; ix++) {
-  const x = Math.round(ix * sx * 1000) / 1000;
-  const eL = ids.get(`${ix},0,${floors}`);
-  const eR = ids.get(`${ix},${nz},${floors}`);
-  const tL = 'N' + (p.nodes.length + 1);
-  p.nodes.push({ id: tL, x, y: Math.round(yTip * 1000) / 1000, z: Math.round(-overhang * 1000) / 1000, restraints: Array(6).fill(false) });
-  const tR = 'N' + (p.nodes.length + 1);
-  p.nodes.push({ id: tR, x, y: Math.round(yTip * 1000) / 1000, z: Math.round((totalZ + overhang) * 1000) / 1000, restraints: Array(6).fill(false) });
+ const rafDivisions = 5;
+ const numRaf = nx * rafDivisions + 1;
+ const dxRaf = totalX / (numRaf - 1);
+ const asLNodes = [], asRNodes = [];
 
-  const targetApex = (x <= totalX / 2.0) ? a1Id : a2Id;
-  addSteel(tL, eL, 0.08, 0.125, 1.4e-3, 1.2e-6, 3.5e-6, 4e-8, 'rafter');
-  addSteel(eL, targetApex, 0.08, 0.125, 1.4e-3, 1.2e-6, 3.5e-6, 4e-8, 'rafter');
-  addSteel(tR, eR, 0.08, 0.125, 1.4e-3, 1.2e-6, 3.5e-6, 4e-8, 'rafter');
-  addSteel(eR, targetApex, 0.08, 0.125, 1.4e-3, 1.2e-6, 3.5e-6, 4e-8, 'rafter');
+ for (let k = 0; k < numRaf; k++) {
+  const x = Math.round(k * dxRaf * 1000) / 1000;
+  const isCol = (k % rafDivisions === 0);
+  const ix = Math.floor(k / rafDivisions);
+
+  let asL = (isCol && asColNodes.has(`${ix},0`)) ? asColNodes.get(`${ix},0`) : null;
+  if (!asL) {
+   asL = 'N' + (p.nodes.length + 1);
+   p.nodes.push({ id: asL, x, y: Math.round(yAs * 1000) / 1000, z: 0, restraints: Array(6).fill(false) });
+  }
+  asLNodes.push(asL);
+
+  let asR = (isCol && asColNodes.has(`${ix},${nz}`)) ? asColNodes.get(`${ix},${nz}`) : null;
+  if (!asR) {
+   asR = 'N' + (p.nodes.length + 1);
+   p.nodes.push({ id: asR, x, y: Math.round(yAs * 1000) / 1000, z: Math.round(totalZ * 1000) / 1000, restraints: Array(6).fill(false) });
+  }
+  asRNodes.push(asR);
+
+  if (k > 0 && k < numRaf - 1) {
+   const tL = 'N' + (p.nodes.length + 1);
+   p.nodes.push({ id: tL, x, y: Math.round(yTip * 1000) / 1000, z: Math.round(-overhang * 1000) / 1000, restraints: Array(6).fill(false) });
+   const tR = 'N' + (p.nodes.length + 1);
+   p.nodes.push({ id: tR, x, y: Math.round(yTip * 1000) / 1000, z: Math.round((totalZ + overhang) * 1000) / 1000, restraints: Array(6).fill(false) });
+
+   const targetApex = (x <= totalX / 2.0) ? a1Id : a2Id;
+   addSteel(tL, asL, 0.08, 0.125, 1.4e-3, 1.2e-6, 3.5e-6, 4e-8, 'rafter');
+   addSteel(asL, targetApex, 0.08, 0.125, 1.4e-3, 1.2e-6, 3.5e-6, 4e-8, 'rafter');
+   addSteel(tR, asR, 0.08, 0.125, 1.4e-3, 1.2e-6, 3.5e-6, 4e-8, 'rafter');
+   addSteel(asR, targetApex, 0.08, 0.125, 1.4e-3, 1.2e-6, 3.5e-6, 4e-8, 'rafter');
+  }
+ }
+
+ for (let k = 0; k < numRaf - 1; k++) {
+  addSteel(asLNodes[k], asLNodes[k + 1], 0.10, 0.125, 1.8e-3, 1.8e-6, 4.0e-6, 5e-8, 'AS');
+  addSteel(asRNodes[k], asRNodes[k + 1], 0.10, 0.125, 1.8e-3, 1.8e-6, 4.0e-6, 5e-8, 'AS');
  }
 
  addSteel(tip0, tip1, 0.03, 0.15, 6e-4, 4e-7, 1.2e-6, 3e-8, 'purlin');
@@ -192,58 +263,84 @@ function addRoofLeanTo(p, ids, nx, nz, sx, sz, height, floors, roof_h, overhang,
  const totalX = nx * sx;
  const totalZ = nz * sz;
  const yRoof = floors * height;
- const yHigh = yRoof + roof_h;
+ const yAsLow = yRoof + 0.15;
+ const yHigh = yAsLow + roof_h;
  const slope = roof_h / (totalZ > 0 ? totalZ : 4.0);
  const yTipHigh = yHigh + overhang * slope;
- const yTipLow = yRoof - overhang * slope;
+ const yTipLow = yAsLow - overhang * slope;
 
- const highRidgeNodes = [], midPurlinNodes = [];
+ const colHighNodes = new Map();
+ const colLowNodes = new Map();
+ for (let ix = 0; ix <= nx; ix++) {
+  const topColLow = ids.get(`${ix},${nz},${floors}`);
+  const asLowNid = 'N' + (p.nodes.length + 1);
+  colLowNodes.set(ix, asLowNid);
+  p.nodes.push({ id: asLowNid, x: Math.round(ix * sx * 1000) / 1000, y: Math.round(yAsLow * 1000) / 1000, z: Math.round(totalZ * 1000) / 1000, restraints: Array(6).fill(false) });
+  addSteel(topColLow, asLowNid, 0.125, 0.125, 2.5e-3, 5e-6, 5e-6, 1e-7, 'AS');
+
+  const topColHigh = ids.get(`${ix},0,${floors}`);
+  const asHighNid = 'N' + (p.nodes.length + 1);
+  colHighNodes.set(ix, asHighNid);
+  p.nodes.push({ id: asHighNid, x: Math.round(ix * sx * 1000) / 1000, y: Math.round(yHigh * 1000) / 1000, z: 0, restraints: Array(6).fill(false) });
+  addSteel(topColHigh, asHighNid, 0.08, 0.08, 1.4e-3, 1.2e-6, 1.2e-6, 4e-8, 'kingpost');
+ }
+
+ const rafDivisions = 5;
+ const numRaf = nx * rafDivisions + 1;
+ const dxRaf = totalX / (numRaf - 1);
+
+ const highRidgeNodes = [], midPurlinNodes = [], lowAsNodes = [];
  const tipHighNodes = [], tipLowNodes = [];
 
- for (let ix = 0; ix <= nx; ix++) {
-  const x = Math.round(ix * sx * 1000) / 1000;
-  const eaveLow = ids.get(`${ix},${nz},${floors}`);
-  const eaveHighBase = ids.get(`${ix},0,${floors}`);
+ for (let k = 0; k < numRaf; k++) {
+  const x = Math.round(k * dxRaf * 1000) / 1000;
+  const isCol = (k % rafDivisions === 0);
+  const ix = Math.floor(k / rafDivisions);
 
-  // High side King Post (ดั้ง - DANG)
-  const highRidgeId = 'N' + (p.nodes.length + 1);
-  p.nodes.push({ id: highRidgeId, x, y: Math.round(yHigh * 1000) / 1000, z: 0, restraints: Array(6).fill(false) });
-  highRidgeNodes.push(highRidgeId);
-  addSteel(eaveHighBase, highRidgeId, 0.08, 0.08, 1.4e-3, 1.2e-6, 1.2e-6, 4e-8, 'kingpost');
+  let highId = (isCol && colHighNodes.has(ix)) ? colHighNodes.get(ix) : null;
+  if (!highId) {
+   highId = 'N' + (p.nodes.length + 1);
+   p.nodes.push({ id: highId, x, y: Math.round(yHigh * 1000) / 1000, z: 0, restraints: Array(6).fill(false) });
+  }
+  highRidgeNodes.push(highId);
 
-  // High Overhang Tip (เชิงชายยื่นด้านสูง)
+  let lowId = (isCol && colLowNodes.has(ix)) ? colLowNodes.get(ix) : null;
+  if (!lowId) {
+   lowId = 'N' + (p.nodes.length + 1);
+   p.nodes.push({ id: lowId, x, y: Math.round(yAsLow * 1000) / 1000, z: Math.round(totalZ * 1000) / 1000, restraints: Array(6).fill(false) });
+  }
+  lowAsNodes.push(lowId);
+
   const tipHighId = 'N' + (p.nodes.length + 1);
   p.nodes.push({ id: tipHighId, x, y: Math.round(yTipHigh * 1000) / 1000, z: Math.round(-overhang * 1000) / 1000, restraints: Array(6).fill(false) });
   tipHighNodes.push(tipHighId);
 
-  // Mid Purlin Node
   const purlinMidId = 'N' + (p.nodes.length + 1);
-  p.nodes.push({ id: purlinMidId, x, y: Math.round((yRoof + 0.5 * roof_h) * 1000) / 1000, z: Math.round(0.5 * totalZ * 1000) / 1000, restraints: Array(6).fill(false) });
+  p.nodes.push({ id: purlinMidId, x, y: Math.round((yAsLow + 0.5 * roof_h) * 1000) / 1000, z: Math.round(0.5 * totalZ * 1000) / 1000, restraints: Array(6).fill(false) });
   midPurlinNodes.push(purlinMidId);
 
-  // Low Overhang Tip (เชิงชายยื่นด้านต่ำ)
   const tipLowId = 'N' + (p.nodes.length + 1);
   p.nodes.push({ id: tipLowId, x, y: Math.round(yTipLow * 1000) / 1000, z: Math.round((totalZ + overhang) * 1000) / 1000, restraints: Array(6).fill(false) });
   tipLowNodes.push(tipLowId);
 
-  // Continuous Sloping Rafter
-  addSteel(tipHighId, highRidgeId, 0.08, 0.125, 1.4e-3, 1.2e-6, 3.5e-6, 4e-8, 'rafter');
-  addSteel(highRidgeId, purlinMidId, 0.08, 0.125, 1.4e-3, 1.2e-6, 3.5e-6, 4e-8, 'rafter');
-  addSteel(purlinMidId, eaveLow, 0.08, 0.125, 1.4e-3, 1.2e-6, 3.5e-6, 4e-8, 'rafter');
-  addSteel(eaveLow, tipLowId, 0.08, 0.125, 1.4e-3, 1.2e-6, 3.5e-6, 4e-8, 'rafter');
+  addSteel(tipHighId, highId, 0.08, 0.125, 1.4e-3, 1.2e-6, 3.5e-6, 4e-8, 'rafter');
+  addSteel(highId, purlinMidId, 0.08, 0.125, 1.4e-3, 1.2e-6, 3.5e-6, 4e-8, 'rafter');
+  addSteel(purlinMidId, lowId, 0.08, 0.125, 1.4e-3, 1.2e-6, 3.5e-6, 4e-8, 'rafter');
+  addSteel(lowId, tipLowId, 0.08, 0.125, 1.4e-3, 1.2e-6, 3.5e-6, 4e-8, 'rafter');
  }
 
- for (let ix = 0; ix < nx; ix++) {
-  addSteel(highRidgeNodes[ix], highRidgeNodes[ix + 1], 0.10, 0.15, 1.6e-3, 1.5e-6, 5.0e-6, 6e-8, 'ridge');
+ for (let k = 0; k < numRaf - 1; k++) {
+  addSteel(highRidgeNodes[k], highRidgeNodes[k + 1], 0.10, 0.15, 1.6e-3, 1.5e-6, 5.0e-6, 6e-8, 'ridge');
+  addSteel(lowAsNodes[k], lowAsNodes[k + 1], 0.10, 0.125, 1.8e-3, 1.8e-6, 4.0e-6, 5e-8, 'AS');
  }
 
- for (let ix = 0; ix < nx; ix++) {
-  const pMid = addSteel(midPurlinNodes[ix], midPurlinNodes[ix + 1], 0.05, 0.10, 7e-4, 6e-7, 1.8e-6, 4e-8, 'purlin');
+ for (let k = 0; k < numRaf - 1; k++) {
+  const pMid = addSteel(midPurlinNodes[k], midPurlinNodes[k + 1], 0.05, 0.10, 7e-4, 6e-7, 1.8e-6, 4e-8, 'purlin');
   p.memberLoads.push({ member: pMid, case: 'D', axes: 'local', qx: 0, qy: -0.25, qz: 0 });
   p.memberLoads.push({ member: pMid, case: 'L', axes: 'local', qx: 0, qy: -0.35, qz: 0 });
 
-  addSteel(tipHighNodes[ix], tipHighNodes[ix + 1], 0.03, 0.15, 6e-4, 4e-7, 1.2e-6, 3e-8, 'purlin');
-  addSteel(tipLowNodes[ix], tipLowNodes[ix + 1], 0.03, 0.15, 6e-4, 4e-7, 1.2e-6, 3e-8, 'purlin');
+  addSteel(tipHighNodes[k], tipHighNodes[k + 1], 0.03, 0.15, 6e-4, 4e-7, 1.2e-6, 3e-8, 'purlin');
+  addSteel(tipLowNodes[k], tipLowNodes[k + 1], 0.03, 0.15, 6e-4, 4e-7, 1.2e-6, 3e-8, 'purlin');
  }
 }
 
@@ -325,23 +422,18 @@ function generateFullBuilding(opts = {}) {
 
   for (let iz = 0; iz <= nz; iz++) {
    for (let ix = 0; ix < nx; ix++) {
-    const isPerimeter = (iz === 0 || iz === nz);
-    const mid = addRC(ids.get(`${ix},${iz},${f}`), ids.get(`${ix + 1},${iz},${f}`), 'beam', beamB, beamH, (isRoof && isPerimeter) ? 'AS' : null);
+    const mid = addRC(ids.get(`${ix},${iz},${f}`), ids.get(`${ix + 1},${iz},${f}`), 'beam', beamB, beamH, null);
     beamsX.set(`${ix},${iz},${f}`, mid);
     if (isRoof) {
-     p.memberLoads.push({ member: mid, case: 'D', axes: 'local', qx: 0, qy: -1.2, qz: 0 });
-     p.memberLoads.push({ member: mid, case: 'L', axes: 'local', qx: 0, qy: -0.8, qz: 0 });
+     p.memberLoads.push({ member: mid, case: 'D', axes: 'local', qx: 0, qy: -1.0, qz: 0 });
+     p.memberLoads.push({ member: mid, case: 'L', axes: 'local', qx: 0, qy: -0.6, qz: 0 });
     }
    }
   }
 
   for (let ix = 0; ix <= nx; ix++) {
    for (let iz = 0; iz < nz; iz++) {
-    const isPerimeter = (ix === 0 || ix === nx);
-    if (isRoof && roofStyle === 'gable') {
-     continue; // Transverse tie beam with mid-point split for king post is handled in addRoofGable
-    }
-    const mid = addRC(ids.get(`${ix},${iz},${f}`), ids.get(`${ix},${iz + 1},${f}`), 'beam', beamB, beamH, (isRoof && isPerimeter) ? 'AS' : null);
+    const mid = addRC(ids.get(`${ix},${iz},${f}`), ids.get(`${ix},${iz + 1},${f}`), 'beam', beamB, beamH, null);
     beamsZ.set(`${ix},${iz},${f}`, mid);
     if (isRoof) {
      p.memberLoads.push({ member: mid, case: 'D', axes: 'local', qx: 0, qy: -1.0, qz: 0 });
@@ -441,7 +533,7 @@ function generateFullBuilding(opts = {}) {
  } else if (roofStyle === 'lean_to') {
   addRoofLeanTo(p, ids, nx, nz, sx, sz, height, floors, roof_h, overhang, addSteel);
  } else {
-  addRoofGable(p, ids, nx, nz, sx, sz, height, floors, roof_h, overhang, addSteel, addRC);
+  addRoofGable(p, ids, nx, nz, sx, sz, height, floors, roof_h, overhang, addSteel);
  }
 
  return p;
@@ -930,6 +1022,62 @@ function drawModel(){
   const label=labelSprite(`${fmark} (${f.id})${pileText}`);
   label.position.copy(c).add(new THREE.Vector3(.3,-f.depth-0.2,.3));
   group.add(label);
+ }
+ // 3D Solid Staircase (Landing Slab + Flight Waist Slabs + Steps)
+ if(model.stairs&&model.stairs.length){
+  const stairMat=new THREE.MeshStandardMaterial({color:0x94a3b8,roughness:0.6,metalness:0.1,transparent:true,opacity:0.85});
+  const stepMat=new THREE.MeshStandardMaterial({color:0x64748b,roughness:0.5,metalness:0.1});
+  for(const st of model.stairs){
+   const fNum=parseInt(st.id.replace(/\D/g,''))||1;
+   const height=3.0;
+   const yBot=(fNum-1)*height;
+   const yMid=yBot+height/2.0;
+   const spanZ=st.span||4.0;
+   const width=st.width||1.2;
+   const waistTh=st.thickness||0.15;
+   const riser=st.riser||0.175;
+   const landZ=spanZ/2.0;
+   const landingLz=1.2;
+
+   const landGeo=new THREE.BoxGeometry(width,waistTh,landingLz);
+   const landMesh=new THREE.Mesh(landGeo,stairMat);
+   landMesh.position.set(width/2.0,yMid-waistTh/2.0,landZ);
+   landMesh.userData={kind:'stairs',id:st.id};
+   group.add(landMesh);
+   group.add(new THREE.BoxHelper(landMesh,0x38bdf8));
+
+   const numSteps1=Math.max(4,Math.round((height/2.0)/riser));
+   const dz1=(landZ-landingLz/2.0)/numSteps1;
+   const dy1=(height/2.0)/numSteps1;
+   for(let s=0;s<numSteps1;s++){
+    const stepZ=s*dz1+dz1/2.0;
+    const stepY=yBot+(s+0.5)*dy1;
+    const sGeo=new THREE.BoxGeometry(width,dy1,dz1);
+    const sMesh=new THREE.Mesh(sGeo,stepMat);
+    sMesh.position.set(width/2.0,stepY,stepZ);
+    sMesh.userData={kind:'stairs',id:st.id};
+    group.add(sMesh);
+   }
+
+   const numSteps2=numSteps1;
+   const startZ2=landZ+landingLz/2.0;
+   const dz2=(spanZ-startZ2)/numSteps2;
+   const dy2=(height/2.0)/numSteps2;
+   for(let s=0;s<numSteps2;s++){
+    const stepZ=startZ2+s*dz2+dz2/2.0;
+    const stepY=yMid+(s+0.5)*dy2;
+    const sGeo=new THREE.BoxGeometry(width,dy2,dz2);
+    const sMesh=new THREE.Mesh(sGeo,stepMat);
+    sMesh.position.set(width/2.0,stepY,stepZ);
+    sMesh.userData={kind:'stairs',id:st.id};
+    group.add(sMesh);
+   }
+
+   const badge=labelSprite(`${st.label||st.id}: พื้นบันได-ชานพัก คสล. หนา ${Math.round(waistTh*100)} cm`,340,64,20);
+   badge.scale.set(0.85,0.22,1);
+   badge.position.set(width/2.0,yMid+0.45,landZ);
+   group.add(badge);
+  }
  }
  if(viewMode==='plan'&&beamDrag){const start=pos.get(beamDrag.startId);if(start&&beamDrag.world)line([start,beamDrag.world],0xff7a00);}
  $('stats').textContent=`${model.nodes.length} โหนด / ${model.members.length} สมาชิก / ${model.slabs.length} พื้น / ${model.foundations.length} ฐาน`;
