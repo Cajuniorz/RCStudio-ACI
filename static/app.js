@@ -1025,7 +1025,7 @@ function drawModel(){
   group.add(label);
  }
  // 3D Solid Staircase (Landing Slab + Flight Waist Slabs + Steps)
- if(model.stairs&&model.stairs.length){
+ if(viewMode!=='plan'&&model.stairs&&model.stairs.length){
   const stairMat=new THREE.MeshStandardMaterial({color:0x94a3b8,roughness:0.6,metalness:0.1,transparent:true,opacity:0.85});
   const stepMat=new THREE.MeshStandardMaterial({color:0x64748b,roughness:0.5,metalness:0.1});
   for(const st of model.stairs){
