@@ -34,92 +34,421 @@ function grid(sx=4,sz=4,nx=1,nz=1,height=3,floors=1,withLoads=false){
  return p;
 }
 
-function threeStoryBuilding(sx=4.5,sz=4.0,nx=2,nz=1,height=3.0){
- const p=empty();p.name='อาคาร คสล. 3 ชั้น + พื้น + ฐานรากเสาเข็ม + โครงหลังคาเหล็ก';p.selfWeight=true;
- p.designBasis={fc_mpa:23.5,fy_mpa:392,fyt_mpa:235,cover_mm:40,agg_mm:20,stirrup_mm:9,fy_steel_mpa:245};
- p.combinations=[{name:'U1',D:1.4,L:0,W:0},{name:'U2',D:1.2,L:1.6,W:0},{name:'Service',D:1.0,L:1.0,W:0}];
- const floors=3,roof_h=1.5,ids=new Map();
- for(let f=0;f<=floors;f++)for(let iz=0;iz<=nz;iz++)for(let ix=0;ix<=nx;ix++){
-  const id='N'+(p.nodes.length+1);ids.set(`${ix},${iz},${f}`,id);
-  p.nodes.push({id,x:Math.round(ix*sx*1000)/1000,y:Math.round(f*height*1000)/1000,z:Math.round(iz*sz*1000)/1000,restraints:Array(6).fill(f===0)});
- }
- for(let iz=0;iz<=nz;iz++)for(let ix=0;ix<=nx;ix++){
-  const baseNode=ids.get(`${ix},${iz},0`);
-  p.foundations.push({...foundationRecord('F'+(p.foundations.length+1)),type:'pile_cap',nodes:[baseNode],bx:1.4,bz:1.4,depth:0.5,embedment:1.2,qa:200,pileCount:4,pileCapacity:250,pileLength:12.0,mode:'ideal_support',note:'ฐานหัวเสาเข็ม 4 ต้น ∅0.25m ลึก 12m'});
- }
- const beamsX=new Map(),beamsZ=new Map();
- const addRC=(i,j,kind,b,h,roofRole=null)=>{const id='M'+(p.members.length+1);p.members.push({...memberRecord(id,i,j,kind),b,h,sectionType:'rc_rect',roofRole,behavior:'frame'});return id;};
- const addSteel=(i,j,b,h,A,Iy,Iz,J,roofRole='rafter')=>{const id='M'+(p.members.length+1);p.members.push({...memberRecord(id,i,j,'roof'),b,h,sectionType:'steel_custom',A,Iy,Iz,J,roofRole,roofType:'gable',behavior:'frame'});return id;};
+function addRoofGable(p, ids, nx, nz, sx, sz, height, floors, roof_h, overhang, addSteel, addRC) {
+ const zMid = (nz * sz) / 2.0;
+ const yRoof = floors * height;
+ const yRidge = yRoof + roof_h;
+ const slope = roof_h / (zMid > 0 ? zMid : 2.0);
+ const yTip = yRoof - overhang * slope;
 
- for(let f=1;f<=floors;f++){
-  const isRoof=(f===floors);
-  const colB=(f===1)?0.35:0.30,colH=(f===1)?0.35:0.30;
-  const beamB=0.25,beamH=0.45;
-  for(let iz=0;iz<=nz;iz++)for(let ix=0;ix<=nx;ix++)addRC(ids.get(`${ix},${iz},${f-1}`),ids.get(`${ix},${iz},${f}`),'column',colB,colH);
-  for(let iz=0;iz<=nz;iz++)for(let ix=0;ix<nx;ix++){
-   const mid=addRC(ids.get(`${ix},${iz},${f}`),ids.get(`${ix+1},${iz},${f}`),'beam',beamB,beamH,isRoof?'eave':null);
-   beamsX.set(`${ix},${iz},${f}`,mid);
-   if(isRoof){
-    p.memberLoads.push({member:mid,case:'D',axes:'local',qx:0,qy:-1.2,qz:0});
-    p.memberLoads.push({member:mid,case:'L',axes:'local',qx:0,qy:-0.8,qz:0});
-   }
-  }
-  for(let ix=0;ix<=nx;ix++)for(let iz=0;iz<nz;iz++){
-   const mid=addRC(ids.get(`${ix},${iz},${f}`),ids.get(`${ix},${iz+1},${f}`),'beam',beamB,beamH,isRoof?'eave':null);
-   beamsZ.set(`${ix},${iz},${f}`,mid);
-   if(isRoof){
-    p.memberLoads.push({member:mid,case:'D',axes:'local',qx:0,qy:-1.0,qz:0});
-    p.memberLoads.push({member:mid,case:'L',axes:'local',qx:0,qy:-0.6,qz:0});
-   }
-  }
- }
+ const ridgeNodes = [], purlinLNodes = [], purlinRNodes = [];
+ const tipLNodes = [], tipRNodes = [];
 
- // Floor slabs on Floor 1 and Floor 2 (Level Y=3m and Y=6m)
- for(const f of [1, 2]){
-  for(let ix=0;ix<nx;ix++)for(let iz=0;iz<nz;iz++){
-   const sid='S'+(p.slabs.length+1);
-   const c0=ids.get(`${ix},${iz},${f}`),c1=ids.get(`${ix+1},${iz},${f}`),c2=ids.get(`${ix+1},${iz+1},${f}`),c3=ids.get(`${ix},${iz+1},${f}`);
-   const sup1=beamsX.get(`${ix},${iz},${f}`),sup2=beamsX.get(`${ix},${iz+1},${f}`);
-   p.slabs.push({...slabRecord(sid),nodes:[c0,c1,c2,c3],type:'one_way',thickness:0.12,weightMode:'volume',dead:1.0,live:2.0,mode:'one_way_load',support1:sup1,support2:sup2,note:`พื้น คสล. ทางเดียว ชั้น ${f+1} หนา 12cm`});
-  }
- }
+ for (let ix = 0; ix <= nx; ix++) {
+  const x = Math.round(ix * sx * 1000) / 1000;
+  const eaveL = ids.get(`${ix},0,${floors}`);
+  const eaveR = ids.get(`${ix},${nz},${floors}`);
 
- // Steel Roof Structure (Gable roof: Rafters, Ridge, Purlins)
- const ridgeNodes=[],purlinLNodes=[],purlinRNodes=[];
- for(let ix=0;ix<=nx;ix++){
-  const x=Math.round(ix*sx*1000)/1000;
-  const eaveL=ids.get(`${ix},0,${floors}`),eaveR=ids.get(`${ix},${nz},${floors}`);
-  const plId='N'+(p.nodes.length+1);p.nodes.push({id:plId,x,y:Math.round((floors*height+0.5*roof_h)*1000)/1000,z:Math.round(0.5*(sz/2)*1000)/1000,restraints:Array(6).fill(false)});
+  // Left Overhang Tip (เชิงชายซ้าย)
+  const tipLId = 'N' + (p.nodes.length + 1);
+  p.nodes.push({ id: tipLId, x, y: Math.round(yTip * 1000) / 1000, z: Math.round(-overhang * 1000) / 1000, restraints: Array(6).fill(false) });
+  tipLNodes.push(tipLId);
+
+  // Left Mid Purlin Node
+  const plId = 'N' + (p.nodes.length + 1);
+  p.nodes.push({ id: plId, x, y: Math.round((yRoof + 0.5 * roof_h) * 1000) / 1000, z: Math.round((0.5 * zMid) * 1000) / 1000, restraints: Array(6).fill(false) });
   purlinLNodes.push(plId);
-  const rgId='N'+(p.nodes.length+1);p.nodes.push({id:rgId,x,y:Math.round((floors*height+roof_h)*1000)/1000,z:Math.round((sz/2)*1000)/1000,restraints:Array(6).fill(false)});
+
+  // Ridge Node (อกไก่)
+  const rgId = 'N' + (p.nodes.length + 1);
+  p.nodes.push({ id: rgId, x, y: Math.round(yRidge * 1000) / 1000, z: Math.round(zMid * 1000) / 1000, restraints: Array(6).fill(false) });
   ridgeNodes.push(rgId);
-  const prId='N'+(p.nodes.length+1);p.nodes.push({id:prId,x,y:Math.round((floors*height+0.5*roof_h)*1000)/1000,z:Math.round((sz-0.5*(sz/2))*1000)/1000,restraints:Array(6).fill(false)});
+
+  // Right Mid Purlin Node
+  const prId = 'N' + (p.nodes.length + 1);
+  p.nodes.push({ id: prId, x, y: Math.round((yRoof + 0.5 * roof_h) * 1000) / 1000, z: Math.round((nz * sz - 0.5 * zMid) * 1000) / 1000, restraints: Array(6).fill(false) });
   purlinRNodes.push(prId);
 
-  // Left rafter (2 segments)
-  addSteel(eaveL,plId,0.08,0.125,1.4e-3,1.2e-6,3.5e-6,4.0e-8,'rafter');
-  addSteel(plId,rgId,0.08,0.125,1.4e-3,1.2e-6,3.5e-6,4.0e-8,'rafter');
-  // Right rafter (2 segments)
-  addSteel(eaveR,prId,0.08,0.125,1.4e-3,1.2e-6,3.5e-6,4.0e-8,'rafter');
-  addSteel(prId,rgId,0.08,0.125,1.4e-3,1.2e-6,3.5e-6,4.0e-8,'rafter');
+  // Right Overhang Tip (เชิงชายขวา)
+  const tipRId = 'N' + (p.nodes.length + 1);
+  p.nodes.push({ id: tipRId, x, y: Math.round(yTip * 1000) / 1000, z: Math.round((nz * sz + overhang) * 1000) / 1000, restraints: Array(6).fill(false) });
+  tipRNodes.push(tipRId);
+
+  // King Post (ดั้ง - DANG) & Split Transverse Beam (คานขื่อ / อะเสขวาง)
+  const dangBaseId = 'N' + (p.nodes.length + 1);
+  p.nodes.push({ id: dangBaseId, x, y: Math.round(yRoof * 1000) / 1000, z: Math.round(zMid * 1000) / 1000, restraints: Array(6).fill(false) });
+  if (addRC) {
+   const bL = addRC(eaveL, dangBaseId, 'beam', 0.25, 0.45, 'AS');
+   const bR = addRC(dangBaseId, eaveR, 'beam', 0.25, 0.45, 'AS');
+   p.memberLoads.push({ member: bL, case: 'D', axes: 'local', qx: 0, qy: -1.0, qz: 0 });
+   p.memberLoads.push({ member: bL, case: 'L', axes: 'local', qx: 0, qy: -0.6, qz: 0 });
+   p.memberLoads.push({ member: bR, case: 'D', axes: 'local', qx: 0, qy: -1.0, qz: 0 });
+   p.memberLoads.push({ member: bR, case: 'L', axes: 'local', qx: 0, qy: -0.6, qz: 0 });
+  }
+  addSteel(dangBaseId, rgId, 0.08, 0.08, 1.4e-3, 1.2e-6, 1.2e-6, 4e-8, 'kingpost');
+
+  // Left Rafter (จันทันซ้าย + เชิงชายยื่น)
+  addSteel(tipLId, eaveL, 0.08, 0.125, 1.4e-3, 1.2e-6, 3.5e-6, 4e-8, 'rafter');
+  addSteel(eaveL, plId, 0.08, 0.125, 1.4e-3, 1.2e-6, 3.5e-6, 4e-8, 'rafter');
+  addSteel(plId, rgId, 0.08, 0.125, 1.4e-3, 1.2e-6, 3.5e-6, 4e-8, 'rafter');
+
+  // Right Rafter (จันทันขวา + เชิงชายยื่น)
+  addSteel(tipRId, eaveR, 0.08, 0.125, 1.4e-3, 1.2e-6, 3.5e-6, 4e-8, 'rafter');
+  addSteel(eaveR, prId, 0.08, 0.125, 1.4e-3, 1.2e-6, 3.5e-6, 4e-8, 'rafter');
+  addSteel(prId, rgId, 0.08, 0.125, 1.4e-3, 1.2e-6, 3.5e-6, 4e-8, 'rafter');
  }
 
- // Ridge beam (อกไก่ - 2C-150x50x20x3.2)
- for(let ix=0;ix<nx;ix++){
-  addSteel(ridgeNodes[ix],ridgeNodes[ix+1],0.10,0.15,1.6e-3,1.5e-6,5.0e-6,6.0e-8,'ridge');
+ // Ridge Beam (อกไก่ - OK)
+ for (let ix = 0; ix < nx; ix++) {
+  addSteel(ridgeNodes[ix], ridgeNodes[ix + 1], 0.10, 0.15, 1.6e-3, 1.5e-6, 5.0e-6, 6e-8, 'ridge');
  }
 
- // Purlins (แป - C-100x50x20x3.2) with roof dead & live loads
- for(let ix=0;ix<nx;ix++){
-  const pidL=addSteel(purlinLNodes[ix],purlinLNodes[ix+1],0.05,0.10,7.0e-4,6.0e-7,1.8e-6,4.0e-8,'purlin');
-  p.memberLoads.push({member:pidL,case:'D',axes:'local',qx:0,qy:-0.25,qz:0});
-  p.memberLoads.push({member:pidL,case:'L',axes:'local',qx:0,qy:-0.35,qz:0});
-  const pidR=addSteel(purlinRNodes[ix],purlinRNodes[ix+1],0.05,0.10,7.0e-4,6.0e-7,1.8e-6,4.0e-8,'purlin');
-  p.memberLoads.push({member:pidR,case:'D',axes:'local',qx:0,qy:-0.25,qz:0});
-  p.memberLoads.push({member:pidR,case:'L',axes:'local',qx:0,qy:-0.35,qz:0});
+ // Purlins (แป - P) and Fascia lines
+ for (let ix = 0; ix < nx; ix++) {
+  const pL = addSteel(purlinLNodes[ix], purlinLNodes[ix + 1], 0.05, 0.10, 7e-4, 6e-7, 1.8e-6, 4e-8, 'purlin');
+  p.memberLoads.push({ member: pL, case: 'D', axes: 'local', qx: 0, qy: -0.25, qz: 0 });
+  p.memberLoads.push({ member: pL, case: 'L', axes: 'local', qx: 0, qy: -0.35, qz: 0 });
+
+  const pR = addSteel(purlinRNodes[ix], purlinRNodes[ix + 1], 0.05, 0.10, 7e-4, 6e-7, 1.8e-6, 4e-8, 'purlin');
+  p.memberLoads.push({ member: pR, case: 'D', axes: 'local', qx: 0, qy: -0.25, qz: 0 });
+  p.memberLoads.push({ member: pR, case: 'L', axes: 'local', qx: 0, qy: -0.35, qz: 0 });
+
+  addSteel(tipLNodes[ix], tipLNodes[ix + 1], 0.03, 0.15, 6e-4, 4e-7, 1.2e-6, 3e-8, 'purlin');
+  addSteel(tipRNodes[ix], tipRNodes[ix + 1], 0.03, 0.15, 6e-4, 4e-7, 1.2e-6, 3e-8, 'purlin');
+ }
+}
+
+function addRoofHip(p, ids, nx, nz, sx, sz, height, floors, roof_h, overhang, addSteel) {
+ const totalX = nx * sx;
+ const totalZ = nz * sz;
+ const zMid = totalZ / 2.0;
+ const yRoof = floors * height;
+ const yRidge = yRoof + roof_h;
+
+ const hipIndent = Math.min(zMid, totalX / 3.0);
+ const xApex1 = Math.round(hipIndent * 1000) / 1000;
+ const xApex2 = Math.round((totalX - hipIndent) * 1000) / 1000;
+ const slope = roof_h / (zMid > 0 ? zMid : 2.0);
+ const yTip = yRoof - overhang * slope;
+
+ const a1Id = 'N' + (p.nodes.length + 1);
+ p.nodes.push({ id: a1Id, x: xApex1, y: Math.round(yRidge * 1000) / 1000, z: Math.round(zMid * 1000) / 1000, restraints: Array(6).fill(false) });
+ const a2Id = 'N' + (p.nodes.length + 1);
+ p.nodes.push({ id: a2Id, x: xApex2, y: Math.round(yRidge * 1000) / 1000, z: Math.round(zMid * 1000) / 1000, restraints: Array(6).fill(false) });
+
+ if (xApex1 !== xApex2) {
+  addSteel(a1Id, a2Id, 0.10, 0.15, 1.6e-3, 1.5e-6, 5.0e-6, 6e-8, 'ridge');
+ }
+
+ const c0 = ids.get(`0,0,${floors}`);
+ const c1 = ids.get(`0,${nz},${floors}`);
+ const c2 = ids.get(`${nx},0,${floors}`);
+ const c3 = ids.get(`${nx},${nz},${floors}`);
+
+ const tip0 = 'N' + (p.nodes.length + 1);
+ p.nodes.push({ id: tip0, x: Math.round(-overhang * 1000) / 1000, y: Math.round(yTip * 1000) / 1000, z: Math.round(-overhang * 1000) / 1000, restraints: Array(6).fill(false) });
+ const tip1 = 'N' + (p.nodes.length + 1);
+ p.nodes.push({ id: tip1, x: Math.round(-overhang * 1000) / 1000, y: Math.round(yTip * 1000) / 1000, z: Math.round((totalZ + overhang) * 1000) / 1000, restraints: Array(6).fill(false) });
+ const tip2 = 'N' + (p.nodes.length + 1);
+ p.nodes.push({ id: tip2, x: Math.round((totalX + overhang) * 1000) / 1000, y: Math.round(yTip * 1000) / 1000, z: Math.round(-overhang * 1000) / 1000, restraints: Array(6).fill(false) });
+ const tip3 = 'N' + (p.nodes.length + 1);
+ p.nodes.push({ id: tip3, x: Math.round((totalX + overhang) * 1000) / 1000, y: Math.round(yTip * 1000) / 1000, z: Math.round((totalZ + overhang) * 1000) / 1000, restraints: Array(6).fill(false) });
+
+ addSteel(tip0, c0, 0.10, 0.15, 1.6e-3, 1.5e-6, 5.0e-6, 6e-8, 'hip');
+ addSteel(c0, a1Id, 0.10, 0.15, 1.6e-3, 1.5e-6, 5.0e-6, 6e-8, 'hip');
+
+ addSteel(tip1, c1, 0.10, 0.15, 1.6e-3, 1.5e-6, 5.0e-6, 6e-8, 'hip');
+ addSteel(c1, a1Id, 0.10, 0.15, 1.6e-3, 1.5e-6, 5.0e-6, 6e-8, 'hip');
+
+ addSteel(tip2, c2, 0.10, 0.15, 1.6e-3, 1.5e-6, 5.0e-6, 6e-8, 'hip');
+ addSteel(c2, a2Id, 0.10, 0.15, 1.6e-3, 1.5e-6, 5.0e-6, 6e-8, 'hip');
+
+ addSteel(tip3, c3, 0.10, 0.15, 1.6e-3, 1.5e-6, 5.0e-6, 6e-8, 'hip');
+ addSteel(c3, a2Id, 0.10, 0.15, 1.6e-3, 1.5e-6, 5.0e-6, 6e-8, 'hip');
+
+ for (let ix = 1; ix < nx; ix++) {
+  const x = Math.round(ix * sx * 1000) / 1000;
+  const eL = ids.get(`${ix},0,${floors}`);
+  const eR = ids.get(`${ix},${nz},${floors}`);
+  const tL = 'N' + (p.nodes.length + 1);
+  p.nodes.push({ id: tL, x, y: Math.round(yTip * 1000) / 1000, z: Math.round(-overhang * 1000) / 1000, restraints: Array(6).fill(false) });
+  const tR = 'N' + (p.nodes.length + 1);
+  p.nodes.push({ id: tR, x, y: Math.round(yTip * 1000) / 1000, z: Math.round((totalZ + overhang) * 1000) / 1000, restraints: Array(6).fill(false) });
+
+  const targetApex = (x <= totalX / 2.0) ? a1Id : a2Id;
+  addSteel(tL, eL, 0.08, 0.125, 1.4e-3, 1.2e-6, 3.5e-6, 4e-8, 'rafter');
+  addSteel(eL, targetApex, 0.08, 0.125, 1.4e-3, 1.2e-6, 3.5e-6, 4e-8, 'rafter');
+  addSteel(tR, eR, 0.08, 0.125, 1.4e-3, 1.2e-6, 3.5e-6, 4e-8, 'rafter');
+  addSteel(eR, targetApex, 0.08, 0.125, 1.4e-3, 1.2e-6, 3.5e-6, 4e-8, 'rafter');
+ }
+
+ addSteel(tip0, tip1, 0.03, 0.15, 6e-4, 4e-7, 1.2e-6, 3e-8, 'purlin');
+ addSteel(tip1, tip3, 0.03, 0.15, 6e-4, 4e-7, 1.2e-6, 3e-8, 'purlin');
+ addSteel(tip3, tip2, 0.03, 0.15, 6e-4, 4e-7, 1.2e-6, 3e-8, 'purlin');
+ addSteel(tip2, tip0, 0.03, 0.15, 6e-4, 4e-7, 1.2e-6, 3e-8, 'purlin');
+}
+
+function addRoofLeanTo(p, ids, nx, nz, sx, sz, height, floors, roof_h, overhang, addSteel) {
+ const totalX = nx * sx;
+ const totalZ = nz * sz;
+ const yRoof = floors * height;
+ const yHigh = yRoof + roof_h;
+ const slope = roof_h / (totalZ > 0 ? totalZ : 4.0);
+ const yTipHigh = yHigh + overhang * slope;
+ const yTipLow = yRoof - overhang * slope;
+
+ const highRidgeNodes = [], midPurlinNodes = [];
+ const tipHighNodes = [], tipLowNodes = [];
+
+ for (let ix = 0; ix <= nx; ix++) {
+  const x = Math.round(ix * sx * 1000) / 1000;
+  const eaveLow = ids.get(`${ix},${nz},${floors}`);
+  const eaveHighBase = ids.get(`${ix},0,${floors}`);
+
+  // High side King Post (ดั้ง - DANG)
+  const highRidgeId = 'N' + (p.nodes.length + 1);
+  p.nodes.push({ id: highRidgeId, x, y: Math.round(yHigh * 1000) / 1000, z: 0, restraints: Array(6).fill(false) });
+  highRidgeNodes.push(highRidgeId);
+  addSteel(eaveHighBase, highRidgeId, 0.08, 0.08, 1.4e-3, 1.2e-6, 1.2e-6, 4e-8, 'kingpost');
+
+  // High Overhang Tip (เชิงชายยื่นด้านสูง)
+  const tipHighId = 'N' + (p.nodes.length + 1);
+  p.nodes.push({ id: tipHighId, x, y: Math.round(yTipHigh * 1000) / 1000, z: Math.round(-overhang * 1000) / 1000, restraints: Array(6).fill(false) });
+  tipHighNodes.push(tipHighId);
+
+  // Mid Purlin Node
+  const purlinMidId = 'N' + (p.nodes.length + 1);
+  p.nodes.push({ id: purlinMidId, x, y: Math.round((yRoof + 0.5 * roof_h) * 1000) / 1000, z: Math.round(0.5 * totalZ * 1000) / 1000, restraints: Array(6).fill(false) });
+  midPurlinNodes.push(purlinMidId);
+
+  // Low Overhang Tip (เชิงชายยื่นด้านต่ำ)
+  const tipLowId = 'N' + (p.nodes.length + 1);
+  p.nodes.push({ id: tipLowId, x, y: Math.round(yTipLow * 1000) / 1000, z: Math.round((totalZ + overhang) * 1000) / 1000, restraints: Array(6).fill(false) });
+  tipLowNodes.push(tipLowId);
+
+  // Continuous Sloping Rafter
+  addSteel(tipHighId, highRidgeId, 0.08, 0.125, 1.4e-3, 1.2e-6, 3.5e-6, 4e-8, 'rafter');
+  addSteel(highRidgeId, purlinMidId, 0.08, 0.125, 1.4e-3, 1.2e-6, 3.5e-6, 4e-8, 'rafter');
+  addSteel(purlinMidId, eaveLow, 0.08, 0.125, 1.4e-3, 1.2e-6, 3.5e-6, 4e-8, 'rafter');
+  addSteel(eaveLow, tipLowId, 0.08, 0.125, 1.4e-3, 1.2e-6, 3.5e-6, 4e-8, 'rafter');
+ }
+
+ for (let ix = 0; ix < nx; ix++) {
+  addSteel(highRidgeNodes[ix], highRidgeNodes[ix + 1], 0.10, 0.15, 1.6e-3, 1.5e-6, 5.0e-6, 6e-8, 'ridge');
+ }
+
+ for (let ix = 0; ix < nx; ix++) {
+  const pMid = addSteel(midPurlinNodes[ix], midPurlinNodes[ix + 1], 0.05, 0.10, 7e-4, 6e-7, 1.8e-6, 4e-8, 'purlin');
+  p.memberLoads.push({ member: pMid, case: 'D', axes: 'local', qx: 0, qy: -0.25, qz: 0 });
+  p.memberLoads.push({ member: pMid, case: 'L', axes: 'local', qx: 0, qy: -0.35, qz: 0 });
+
+  addSteel(tipHighNodes[ix], tipHighNodes[ix + 1], 0.03, 0.15, 6e-4, 4e-7, 1.2e-6, 3e-8, 'purlin');
+  addSteel(tipLowNodes[ix], tipLowNodes[ix + 1], 0.03, 0.15, 6e-4, 4e-7, 1.2e-6, 3e-8, 'purlin');
+ }
+}
+
+function generateFullBuilding(opts = {}) {
+ const sx = opts.sx ?? 4.5;
+ const sz = opts.sz ?? 4.0;
+ const nx = opts.nx ?? 2;
+ const nz = opts.nz ?? 1;
+ const height = opts.height ?? 3.0;
+ const floors = opts.floors ?? 3;
+ const roofStyle = opts.roofStyle ?? 'gable';
+ const overhang = opts.overhang ?? 0.90;
+ const slabType = opts.slabType ?? 'two_way';
+ const hasStaircase = opts.hasStaircase ?? true;
+ const footingType = opts.footingType ?? 'pile_cap';
+
+ const p = empty();
+ const roofStyleNames = { gable: 'ทรงจั่ว', hip: 'ทรงปั้นหยา', lean_to: 'ทรงโมเดิร์น' };
+ const slabTypeNames = { two_way: 'พื้นสองทาง', one_way: 'พื้นทางเดียว' };
+ p.name = `อาคาร คสล. ${floors} ชั้น (${roofStyleNames[roofStyle]||'จั่ว'} + ${slabTypeNames[slabType]||'พื้นสองทาง'} + บันได คสล. + เสาเข็ม)`;
+ p.selfWeight = true;
+ p.designBasis = { fc_mpa: 23.5, fy_mpa: 392, fyt_mpa: 235, cover_mm: 40, agg_mm: 20, stirrup_mm: 9, fy_steel_mpa: 245 };
+ p.combinations = [{ name: 'U1', D: 1.4, L: 0, W: 0 }, { name: 'U2', D: 1.2, L: 1.6, W: 0 }, { name: 'Service', D: 1.0, L: 1.0, W: 0 }];
+ p.stairs = [];
+
+ const ids = new Map();
+ for (let f = 0; f <= floors; f++) {
+  for (let iz = 0; iz <= nz; iz++) {
+   for (let ix = 0; ix <= nx; ix++) {
+    const id = 'N' + (p.nodes.length + 1);
+    ids.set(`${ix},${iz},${f}`, id);
+    p.nodes.push({ id, x: Math.round(ix * sx * 1000) / 1000, y: Math.round(f * height * 1000) / 1000, z: Math.round(iz * sz * 1000) / 1000, restraints: Array(6).fill(f === 0) });
+   }
+  }
+ }
+
+ for (let iz = 0; iz <= nz; iz++) {
+  for (let ix = 0; ix <= nx; ix++) {
+   const baseNode = ids.get(`${ix},${iz},0`);
+   if (footingType === 'pile_cap') {
+    p.foundations.push({
+     ...foundationRecord('F' + (p.foundations.length + 1)),
+     type: 'pile_cap', nodes: [baseNode], bx: 1.4, bz: 1.4, depth: 0.5, embedment: 1.2,
+     qa: 200, pileCount: 4, pileCapacity: 250, pileLength: 12.0, mode: 'ideal_support',
+     note: 'ฐานหัวเสาเข็ม 4 ต้น ∅0.25m ลึก 12m'
+    });
+   } else {
+    p.foundations.push({
+     ...foundationRecord('F' + (p.foundations.length + 1)),
+     type: 'isolated', nodes: [baseNode], bx: 1.5, bz: 1.5, depth: 0.45, embedment: 1.0,
+     qa: 150, pileCount: 0, mode: 'ideal_support', note: 'ฐานแผ่เดี่ยว คสล. 1.5×1.5 m'
+    });
+   }
+  }
+ }
+
+ const beamsX = new Map(), beamsZ = new Map();
+ const addRC = (i, j, kind, b, h, roofRole = null) => {
+  const id = 'M' + (p.members.length + 1);
+  p.members.push({ ...memberRecord(id, i, j, kind), b, h, sectionType: 'rc_rect', roofRole, behavior: 'frame' });
+  return id;
+ };
+ const addSteel = (i, j, b, h, A, Iy, Iz, J, roofRole = 'rafter') => {
+  const id = 'M' + (p.members.length + 1);
+  p.members.push({ ...memberRecord(id, i, j, 'roof'), b, h, sectionType: 'steel_custom', A, Iy, Iz, J, roofRole, roofType: roofStyle, behavior: 'frame' });
+  return id;
+ };
+
+ for (let f = 1; f <= floors; f++) {
+  const isRoof = (f === floors);
+  const colB = (f === 1) ? 0.35 : 0.30, colH = (f === 1) ? 0.35 : 0.30;
+  const beamB = 0.25, beamH = 0.45;
+
+  for (let iz = 0; iz <= nz; iz++) {
+   for (let ix = 0; ix <= nx; ix++) {
+    addRC(ids.get(`${ix},${iz},${f - 1}`), ids.get(`${ix},${iz},${f}`), 'column', colB, colH);
+   }
+  }
+
+  for (let iz = 0; iz <= nz; iz++) {
+   for (let ix = 0; ix < nx; ix++) {
+    const isPerimeter = (iz === 0 || iz === nz);
+    const mid = addRC(ids.get(`${ix},${iz},${f}`), ids.get(`${ix + 1},${iz},${f}`), 'beam', beamB, beamH, (isRoof && isPerimeter) ? 'AS' : null);
+    beamsX.set(`${ix},${iz},${f}`, mid);
+    if (isRoof) {
+     p.memberLoads.push({ member: mid, case: 'D', axes: 'local', qx: 0, qy: -1.2, qz: 0 });
+     p.memberLoads.push({ member: mid, case: 'L', axes: 'local', qx: 0, qy: -0.8, qz: 0 });
+    }
+   }
+  }
+
+  for (let ix = 0; ix <= nx; ix++) {
+   for (let iz = 0; iz < nz; iz++) {
+    const isPerimeter = (ix === 0 || ix === nx);
+    if (isRoof && roofStyle === 'gable') {
+     continue; // Transverse tie beam with mid-point split for king post is handled in addRoofGable
+    }
+    const mid = addRC(ids.get(`${ix},${iz},${f}`), ids.get(`${ix},${iz + 1},${f}`), 'beam', beamB, beamH, (isRoof && isPerimeter) ? 'AS' : null);
+    beamsZ.set(`${ix},${iz},${f}`, mid);
+    if (isRoof) {
+     p.memberLoads.push({ member: mid, case: 'D', axes: 'local', qx: 0, qy: -1.0, qz: 0 });
+     p.memberLoads.push({ member: mid, case: 'L', axes: 'local', qx: 0, qy: -0.6, qz: 0 });
+    }
+   }
+  }
+ }
+
+ // Intermediate Slabs
+ for (let f = 1; f < floors; f++) {
+  for (let ix = 0; ix < nx; ix++) {
+   for (let iz = 0; iz < nz; iz++) {
+    const sid = 'S' + (p.slabs.length + 1);
+    const c0 = ids.get(`${ix},${iz},${f}`);
+    const c1 = ids.get(`${ix + 1},${iz},${f}`);
+    const c2 = ids.get(`${ix + 1},${iz + 1},${f}`);
+    const c3 = ids.get(`${ix},${iz + 1},${f}`);
+
+    const sup1 = beamsX.get(`${ix},${iz},${f}`);
+    const sup2 = beamsX.get(`${ix},${iz + 1},${f}`);
+    const sup3 = beamsZ.get(`${ix},${iz},${f}`);
+    const sup4 = beamsZ.get(`${ix + 1},${iz},${f}`);
+
+    if (slabType === 'two_way') {
+     p.slabs.push({
+      ...slabRecord(sid),
+      nodes: [c0, c1, c2, c3],
+      type: 'two_way',
+      thickness: 0.12,
+      weightMode: 'volume',
+      dead: 1.0,
+      live: 2.0,
+      mode: 'two_way_load',
+      support1: sup1,
+      support2: sup2,
+      support3: sup3,
+      support4: sup4,
+      note: `พื้น คสล. สองทาง (Two-Way) ชั้น ${f + 1} หนา 12cm`
+     });
+    } else {
+     p.slabs.push({
+      ...slabRecord(sid),
+      nodes: [c0, c1, c2, c3],
+      type: 'one_way',
+      thickness: 0.12,
+      weightMode: 'volume',
+      dead: 1.0,
+      live: 2.0,
+      mode: 'one_way_load',
+      support1: sup1,
+      support2: sup2,
+      note: `พื้น คสล. ทางเดียว ชั้น ${f + 1} หนา 12cm`
+     });
+    }
+   }
+  }
+ }
+
+ // RC Staircase if selected
+ if (hasStaircase) {
+  for (let f = 1; f < floors; f++) {
+   const yBottom = (f - 1) * height;
+   const yMid = yBottom + height / 2.0;
+   const landZ = sz / 2.0;
+   const nL1 = 'N' + (p.nodes.length + 1);
+   p.nodes.push({ id: nL1, x: 0, y: Math.round(yMid * 1000) / 1000, z: Math.round(landZ * 1000) / 1000, restraints: Array(6).fill(false) });
+   const nL2 = 'N' + (p.nodes.length + 1);
+   p.nodes.push({ id: nL2, x: 1.2, y: Math.round(yMid * 1000) / 1000, z: Math.round(landZ * 1000) / 1000, restraints: Array(6).fill(false) });
+
+   // Landing beam (คานชานพัก - ST)
+   addRC(nL1, nL2, 'beam', 0.20, 0.40, 'ST');
+
+   // Flight stringers / inclined waist slab elements
+   const bottomNode = ids.get(`0,0,${f - 1}`);
+   const topNode = ids.get(`0,${nz},${f}`);
+   addRC(bottomNode, nL1, 'beam', 0.20, 0.35, 'ST');
+   addRC(nL2, topNode, 'beam', 0.20, 0.35, 'ST');
+
+   p.stairs.push({
+    id: 'ST' + (p.stairs.length + 1),
+    span: sz,
+    width: 1.2,
+    thickness: 0.15,
+    riser: 0.175,
+    tread: 0.25,
+    live: 3.0,
+    label: `ST${f}`
+   });
+  }
+ }
+
+ // Steel Roof Structure
+ const roof_h = 1.5;
+ if (roofStyle === 'hip') {
+  addRoofHip(p, ids, nx, nz, sx, sz, height, floors, roof_h, overhang, addSteel);
+ } else if (roofStyle === 'lean_to') {
+  addRoofLeanTo(p, ids, nx, nz, sx, sz, height, floors, roof_h, overhang, addSteel);
+ } else {
+  addRoofGable(p, ids, nx, nz, sx, sz, height, floors, roof_h, overhang, addSteel, addRC);
  }
 
  return p;
+}
+
+function threeStoryBuilding(sx=4.5,sz=4.0,nx=2,nz=1,height=3.0){
+ return generateFullBuilding({ sx, sz, nx, nz, height, floors: 3, roofStyle: 'gable', overhang: 0.90, slabType: 'two_way', hasStaircase: true, footingType: 'pile_cap' });
 }
 
 function warehouse(spanX=12,bayZ=5,numBaysZ=3,colH=4.5,trussH=1.8,panels=4,centerCol=false){
@@ -789,7 +1118,7 @@ for(const [id,material,key,q]of [['E','material','E','stress'],['nu','material',
 $('selfWeight').onchange=()=>mutate(()=>model.selfWeight=$('selfWeight').checked);
 for(const [id,key]of [['memberB','b'],['memberH','h']])$(id).onchange=()=>{memberDraft[key]=canonical(num($(id).value),'section');};
 for(const id of ['unitSystem','forceUnit'])$(id).onchange=()=>{model.displayUnits={system:$('unitSystem').value,force:$('forceUnit').value};persist();render();};
-$('generate').onclick=()=>{cancelInteraction();const values=['gx','gz','nx','nz','gh','nf'].map(id=>Number($(id).value)),[sx,sz,nx,nz,height,floors]=values;if(values.some(v=>!Number.isFinite(v)||v<=0)||![nx,nz,floors].every(Number.isInteger)||nx>4||nz>4||floors>3||(nx+1)*(nz+1)*(floors+1)>100)return status('สูงสุด 4×4 ช่วง, 3 ชั้น, 100 โหนด','error');if(model.nodes.length&&!confirm('แทนโมเดลปัจจุบันด้วยกริดใหม่? ย้อนกลับได้ด้วย Undo'))return;mutate(()=>{const units=model.displayUnits;model=grid(sx,sz,nx,nz,height,floors);model.displayUnits=units;selected=null;});fit();};
+if ($('generate')) $('generate').onclick=()=>{cancelInteraction();const values=['gx','gz','nx','nz','gh','nf'].map(id=>Number($(id).value)),[sx,sz,nx,nz,height,floors]=values;if(values.some(v=>!Number.isFinite(v)||v<=0)||![nx,nz,floors].every(Number.isInteger)||nx>4||nz>4||floors>3||(nx+1)*(nz+1)*(floors+1)>100)return status('สูงสุด 4×4 ช่วง, 3 ชั้น, 100 โหนด','error');if(model.nodes.length&&!confirm('แทนโมเดลปัจจุบันด้วยกริดใหม่? ย้อนกลับได้ด้วย Undo'))return;mutate(()=>{const units=model.displayUnits;model=grid(sx,sz,nx,nz,height,floors);model.displayUnits=units;selected=null;});fit();};
 $('example').onclick=async()=>{cancelInteraction();if(model.nodes.length&&!confirm('เปิดตัวอย่างครบอาคารแทนโมเดลปัจจุบัน? ย้อนกลับได้ด้วย Undo'))return;const rev=revision;try{const response=await fetch('demo-v02.json');const p=await response.json();await api('/api/validate',p);if(revision!==rev)return status('โมเดลเปลี่ยนระหว่างเปิดตัวอย่าง กรุณาเปิดอีกครั้ง');mutate(()=>{model=p;selected=null;});fit();status('ตัวอย่างเพื่อทดสอบ: พื้นทางเดียว + ฐานรองรับสมมติ + หลังคา frame เหล็ก ไม่ใช่แบบก่อสร้าง');}catch(e){status(e.message,'error');}};
 $('new').onclick=()=>{cancelInteraction();if(model.nodes.length&&!confirm('สร้างโมเดลว่าง? ย้อนกลับได้ด้วย Undo'))return;mutate(()=>{const units=model.displayUnits;model=empty();model.displayUnits=units;selected=null;});};
 $('addNode').onclick=()=>{const [x,y,z]=['nodeX','nodeY','nodeZ'].map(id=>num($(id).value));if([x,y,z].some(v=>v===null||!Number.isFinite(v)))return status('กรอกพิกัดครบ','error');if(model.nodes.some(n=>Math.hypot(n.x-x,n.y-y,n.z-z)<1e-6))return status('มีโหนดตำแหน่งนี้แล้ว','error');mutate(()=>{const id=nextId('N',model.nodes);model.nodes.push({id,x,y,z,restraints:Array(6).fill(false)});selected={kind:'nodes',id};tab='nodes';});};
@@ -826,12 +1155,26 @@ function renderDesignSummary(){const box=$('designSummary');if(!box)return;box.r
   const hd=el('div');hd.append(el('b',(d.label||sid)+' ('+sid+')'));
   const bg=el('span',d.status||'SKIP');bg.className=d.status==='DESIGNED'?'badge-pass':d.status==='FAIL'?'badge-fail':'badge-skip';
   hd.append(document.createTextNode(' '),bg);card.append(hd);
-  card.append(el('div',`พื้นทางเดียว หนา ${(d.thickness_mm/10).toFixed(0)} cm · เหล็ก: ${d.flexure?.label||'—'}`));
-  if(d.shrinkage?.label)card.append(el('div',`กันร้าว: ${d.shrinkage.label}`));
+  if(d.type==='two_way_slab'){
+   card.append(el('div',`พื้นสองทาง คสล. หนา ${(d.thickness_mm/10).toFixed(0)} cm · ช่วง ${d.span_short_m}×${d.span_long_m} m`));
+   card.append(el('div',`เหล็กเสริม: ${d.flexure_short?.label||'—'} (สั้น) / ${d.flexure_long?.label||'—'} (ยาว)`));
+  }else{
+   card.append(el('div',`พื้นทางเดียว หนา ${(d.thickness_mm/10).toFixed(0)} cm · เหล็ก: ${d.flexure?.label||'—'}`));
+   if(d.shrinkage?.label)card.append(el('div',`กันร้าว: ${d.shrinkage.label}`));
+  }
+  box.append(card);
+ }
+ for(const[stid,d]of Object.entries(designResult.stairs||{})){
+  const card=el('div');card.className='card';
+  const hd=el('div');hd.append(el('b',(d.label||stid)+' (บันได คสล.)'));
+  const bg=el('span',d.status||'SKIP');bg.className=d.status==='DESIGNED'?'badge-pass':d.status==='FAIL'?'badge-fail':'badge-skip';
+  hd.append(document.createTextNode(' '),bg);card.append(hd);
+  card.append(el('div',`แม่บันไดหนา ${(d.thickness_mm/10).toFixed(0)} cm · ลูกตั้ง ${d.riser_mm}mm / ลูกนอน ${d.tread_mm}mm`));
+  card.append(el('div',`เหล็กทางลาด: ${d.flexure_main?.label||'—'} · เหล็กขวาง: ${d.distribution?.label||'—'}`));
   box.append(card);
  }
 }
-function renderDesignTable(){$('table').replaceChildren();$('tableActions').replaceChildren();if(!designResult){$('table').append(el('p','ยังไม่มีผลออกแบบ — กดปุ่ม "ออกแบบ ACI"'));return;}$('tableActions').append(el('span',designResult.code+' · '+designResult.version));const table=el('table');table.className='design-table';const head=el('tr');for(const h of['สมาชิก','เบอร์','ประเภท','ขนาด','เหล็กหลัก','ปลอก','Utilization','สถานะ'])head.append(el('th',h));table.append(head);for(const m of model.members){const d=designResult.members[m.id];if(!d)continue;const tr=el('tr');tr.append(el('td',m.id),el('td',d.label||getMemberMark(m)),el('td',d.type||m.kind));tr.append(el('td',m.b&&m.h?((m.b*100).toFixed(0)+'×'+(m.h*100).toFixed(0)+' cm'):'—'));let rt='—';if(d.type==='beam'){const p=[];if(d.flexure?.bottom?.rebar)p.push('ล่าง:'+d.flexure.bottom.rebar.label);if(d.flexure?.top?.rebar)p.push('บน:'+d.flexure.top.rebar.label);rt=p.join(' / ')||'—';}else if(d.type==='column'&&d.longitudinal)rt=d.longitudinal.label;tr.append(el('td',rt));let st='—';if(d.type==='beam'&&d.shear?.stirrup)st=d.shear.stirrup.label;else if(d.type==='column'&&d.tie)st=d.tie.label;tr.append(el('td',st));let util=0;if(d.type==='beam')util=Math.max(d.flexure?.bottom?.rebar?.utilization||0,d.flexure?.top?.rebar?.utilization||0);else if(d.type==='column'&&d.longitudinal)util=d.longitudinal.utilization||0;const utd=el('td');const bar=el('div');bar.className='utilization-bar';const fill=el('div');fill.className='fill '+(util>0.9?'util-red':util>0.7?'util-yellow':'util-green');fill.style.width=Math.min(100,util*100)+'%';bar.append(fill);utd.append(el('span',fmt(util*100,1)+'%'),bar);tr.append(utd);const sTd=el('td');const bge=el('span',d.status);bge.className=d.status==='DESIGNED'?'badge-pass':d.status==='FAIL'?'badge-fail':'badge-skip';sTd.append(bge);tr.append(sTd);table.append(tr);}if(designResult.footings){for(const f of model.foundations){const d=designResult.footings[f.id];if(!d)continue;const tr=el('tr');tr.append(el('td',f.id),el('td',d.label||getFoundationMark(f)));const hasPile=(f.pileCount>0||f.type==='pile_cap'||d.pile);const fType=hasPile?`ฐานเข็ม (${d.pile?.count||f.pileCount||4} ต้น)`:'ฐานแผ่';tr.append(el('td',fType));const fDim=f.bx&&f.bz?(f.bx+'×'+f.bz+' m'+(hasPile?` (ยาว ${d.pile?.length_m||f.pileLength||12}m)`:'')):'—';tr.append(el('td',fDim));tr.append(el('td',d.flexure_x?.rebar?d.flexure_x.rebar.label:'—'));let stirrupText='—';if(d.pile){const pCapTon=(d.pile.capacity_kn/9.80665).toFixed(0);const pLoadTon=(d.pile.load_per_pile_kn/9.80665).toFixed(1);stirrupText=`เข็ม ${pLoadTon}/${pCapTon} tf/ต้น`;}tr.append(el('td',stirrupText));const util=Math.max(d.punching?.utilization||0,d.pile?.utilization||0,d.flexure_x?.utilization||0);const utd=el('td');const bar=el('div');bar.className='utilization-bar';const fill=el('div');fill.className='fill '+(util>0.9?'util-red':util>0.7?'util-yellow':'util-green');fill.style.width=Math.min(100,util*100)+'%';bar.append(fill);utd.append(el('span',fmt(util*100,1)+'%'),bar);tr.append(utd);const sTd=el('td');const bge=el('span',d.status||'SKIP');bge.className=(d.status==='DESIGNED')?'badge-pass':(d.status==='FAIL')?'badge-fail':'badge-skip';sTd.append(bge);tr.append(sTd);table.append(tr);}}if(designResult.slabs){for(const s of model.slabs){const d=designResult.slabs[s.id];if(!d)continue;const tr=el('tr');tr.append(el('td',s.id),el('td',d.label||getSlabMark(s)),el('td','พื้น คสล. ทางเดียว'));tr.append(el('td',`หนา ${(d.thickness_mm/10).toFixed(0)} cm (ช่วง ${d.span_m?.toFixed(1)}m)`));tr.append(el('td',d.flexure?.label||'—'));tr.append(el('td',d.shrinkage?.label?('กันร้าว: '+d.shrinkage.label):'—'));const util=d.flexure?.utilization||0;const utd=el('td');const bar=el('div');bar.className='utilization-bar';const fill=el('div');fill.className='fill '+(util>0.9?'util-red':util>0.7?'util-yellow':'util-green');fill.style.width=Math.min(100,util*100)+'%';bar.append(fill);utd.append(el('span',fmt(util*100,1)+'%'),bar);tr.append(utd);const sTd=el('td');const bge=el('span',d.status||'SKIP');bge.className=(d.status==='DESIGNED')?'badge-pass':(d.status==='FAIL')?'badge-fail':'badge-skip';sTd.append(bge);tr.append(sTd);table.append(tr);}}$('table').append(table);}
+function renderDesignTable(){$('table').replaceChildren();$('tableActions').replaceChildren();if(!designResult){$('table').append(el('p','ยังไม่มีผลออกแบบ — กดปุ่ม "ออกแบบ ACI"'));return;}$('tableActions').append(el('span',designResult.code+' · '+designResult.version));const table=el('table');table.className='design-table';const head=el('tr');for(const h of['สมาชิก','เบอร์','ประเภท','ขนาด','เหล็กหลัก','ปลอก','Utilization','สถานะ'])head.append(el('th',h));table.append(head);for(const m of model.members){const d=designResult.members[m.id];if(!d)continue;const tr=el('tr');tr.append(el('td',m.id),el('td',d.label||getMemberMark(m)),el('td',d.type||m.kind));tr.append(el('td',m.b&&m.h?((m.b*100).toFixed(0)+'×'+(m.h*100).toFixed(0)+' cm'):'—'));let rt='—';if(d.type==='beam'){const p=[];if(d.flexure?.bottom?.rebar)p.push('ล่าง:'+d.flexure.bottom.rebar.label);if(d.flexure?.top?.rebar)p.push('บน:'+d.flexure.top.rebar.label);rt=p.join(' / ')||'—';}else if(d.type==='column'&&d.longitudinal)rt=d.longitudinal.label;tr.append(el('td',rt));let st='—';if(d.type==='beam'&&d.shear?.stirrup)st=d.shear.stirrup.label;else if(d.type==='column'&&d.tie)st=d.tie.label;tr.append(el('td',st));let util=0;if(d.type==='beam')util=Math.max(d.flexure?.bottom?.rebar?.utilization||0,d.flexure?.top?.rebar?.utilization||0);else if(d.type==='column'&&d.longitudinal)util=d.longitudinal.utilization||0;const utd=el('td');const bar=el('div');bar.className='utilization-bar';const fill=el('div');fill.className='fill '+(util>0.9?'util-red':util>0.7?'util-yellow':'util-green');fill.style.width=Math.min(100,util*100)+'%';bar.append(fill);utd.append(el('span',fmt(util*100,1)+'%'),bar);tr.append(utd);const sTd=el('td');const bge=el('span',d.status);bge.className=d.status==='DESIGNED'?'badge-pass':d.status==='FAIL'?'badge-fail':'badge-skip';sTd.append(bge);tr.append(sTd);table.append(tr);}if(designResult.footings){for(const f of model.foundations){const d=designResult.footings[f.id];if(!d)continue;const tr=el('tr');tr.append(el('td',f.id),el('td',d.label||getFoundationMark(f)));const hasPile=(f.pileCount>0||f.type==='pile_cap'||d.pile);const fType=hasPile?`ฐานเข็ม (${d.pile?.count||f.pileCount||4} ต้น)`:'ฐานแผ่';tr.append(el('td',fType));const fDim=f.bx&&f.bz?(f.bx+'×'+f.bz+' m'+(hasPile?` (ยาว ${d.pile?.length_m||f.pileLength||12}m)`:'')):'—';tr.append(el('td',fDim));tr.append(el('td',d.flexure_x?.rebar?d.flexure_x.rebar.label:'—'));let stirrupText='—';if(d.pile){const pCapTon=(d.pile.capacity_kn/9.80665).toFixed(0);const pLoadTon=(d.pile.load_per_pile_kn/9.80665).toFixed(1);stirrupText=`เข็ม ${pLoadTon}/${pCapTon} tf/ต้น`;}tr.append(el('td',stirrupText));const util=Math.max(d.punching?.utilization||0,d.pile?.utilization||0,d.flexure_x?.utilization||0);const utd=el('td');const bar=el('div');bar.className='utilization-bar';const fill=el('div');fill.className='fill '+(util>0.9?'util-red':util>0.7?'util-yellow':'util-green');fill.style.width=Math.min(100,util*100)+'%';bar.append(fill);utd.append(el('span',fmt(util*100,1)+'%'),bar);tr.append(utd);const sTd=el('td');const bge=el('span',d.status||'SKIP');bge.className=(d.status==='DESIGNED')?'badge-pass':(d.status==='FAIL')?'badge-fail':'badge-skip';sTd.append(bge);tr.append(sTd);table.append(tr);}}if(designResult.slabs){for(const s of model.slabs){const d=designResult.slabs[s.id];if(!d)continue;const isTwoWay=(d.type==='two_way_slab');const tr=el('tr');tr.append(el('td',s.id),el('td',d.label||getSlabMark(s)),el('td',isTwoWay?'พื้น คสล. สองทาง':'พื้น คสล. ทางเดียว'));const dimText=isTwoWay?`หนา ${(d.thickness_mm/10).toFixed(0)} cm (${d.span_short_m}×${d.span_long_m}m)`:`หนา ${(d.thickness_mm/10).toFixed(0)} cm (ช่วง ${d.span_m?.toFixed(1)}m)`;tr.append(el('td',dimText));const rebarText=isTwoWay?`${d.flexure_short?.label||'—'} (สั้น) / ${d.flexure_long?.label||'—'} (ยาว)`:(d.flexure?.label||'—');tr.append(el('td',rebarText));tr.append(el('td',d.shrinkage?.label?('กันร้าว: '+d.shrinkage.label):'—'));const util=isTwoWay?Math.max(d.flexure_short?.utilization||0,d.flexure_long?.utilization||0):(d.flexure?.utilization||0);const utd=el('td');const bar=el('div');bar.className='utilization-bar';const fill=el('div');fill.className='fill '+(util>0.9?'util-red':util>0.7?'util-yellow':'util-green');fill.style.width=Math.min(100,util*100)+'%';bar.append(fill);utd.append(el('span',fmt(util*100,1)+'%'),bar);tr.append(utd);const sTd=el('td');const bge=el('span',d.status||'SKIP');bge.className=(d.status==='DESIGNED')?'badge-pass':(d.status==='FAIL')?'badge-fail':'badge-skip';sTd.append(bge);tr.append(sTd);table.append(tr);}}if(designResult.stairs){for(const[stid,d]of Object.entries(designResult.stairs)){const tr=el('tr');tr.append(el('td',stid),el('td',d.label||stid),el('td','บันได คสล. (Staircase)'));tr.append(el('td',`หนา ${(d.thickness_mm/10).toFixed(0)} cm (ช่วง ${d.span_m}m, กว้าง ${d.width_m}m)`));tr.append(el('td',d.flexure_main?.label?('ทางลาด: '+d.flexure_main.label):'—'));tr.append(el('td',d.distribution?.label?('ขวาง: '+d.distribution.label):'—'));const util=d.flexure_main?.utilization||0;const utd=el('td');const bar=el('div');bar.className='utilization-bar';const fill=el('div');fill.className='fill '+(util>0.9?'util-red':util>0.7?'util-yellow':'util-green');fill.style.width=Math.min(100,util*100)+'%';bar.append(fill);utd.append(el('span',fmt(util*100,1)+'%'),bar);tr.append(utd);const sTd=el('td');const bge=el('span',d.status||'SKIP');bge.className=(d.status==='DESIGNED')?'badge-pass':(d.status==='FAIL')?'badge-fail':'badge-skip';sTd.append(bge);tr.append(sTd);table.append(tr);}}$('table').append(table);}
 if($('designAll'))$('designAll').onclick=async()=>{if(busy)return;const rev=revision,snapshot=clone(model);busy=true;designResult=null;result=null;$('designAll').disabled=true;$('designAll').textContent='กำลังออกแบบ…';$('analyze').disabled=true;status('วิเคราะห์และออกแบบ ACI 318-25 ทุกชิ้นส่วน…');try{const payload={...snapshot,designBasis:model.designBasis};const data=await api('/api/design-all',payload);if(rev!==revision){status('โมเดลเปลี่ยนระหว่างออกแบบ');return;}result=data.analysis;designResult=data.design;tab='design';render();renderDesignSummary();renderDesignTable();document.querySelectorAll('#tabs button').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));const sm=designResult.summary;status('ออกแบบเสร็จ · '+sm.designed+' ผ่าน / '+sm.fail+' ไม่ผ่าน / '+sm.skip+' ข้าม',sm.fail>0?'error':'ok');if($('colorMode'))$('colorMode').value='utilization';drawModel();}catch(err){if(rev===revision)status('ออกแบบไม่สำเร็จ: '+err.message,'error');}finally{busy=false;$('designAll').disabled=false;$('designAll').textContent='▶ ออกแบบ ACI';$('analyze').disabled=false;}};
 $('tabs').onclick=e=>{if(e.target.dataset.tab){tab=e.target.dataset.tab;document.querySelectorAll('#tabs button').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));if(tab==='design')renderDesignTable();else renderTable();}};
 renderDesignBasis();
@@ -1024,15 +1367,46 @@ if ($('generateWarehouse')) $('generateWarehouse').onclick = () => {
  status('สร้างโมเดลโรงงาน + โครงถักเหล็กแล้ว · กด "วิเคราะห์" หรือ "ออกแบบ ACI" ได้ทันที');
 };
 
-if ($('btn3Story')) $('btn3Story').onclick = () => {
+if ($('btnGenerateFullBuilding')) $('btnGenerateFullBuilding').onclick = () => {
  mutate(() => {
   const units = model.displayUnits;
-  model = threeStoryBuilding();
+  const roofStyle = $('bldRoofStyle')?.value || 'gable';
+  const overhang = num($('bldOverhang')?.value) || 0.9;
+  const slabType = $('bldSlabType')?.value || 'two_way';
+  const footingType = $('bldFooting')?.value || 'pile_cap';
+  const hasStaircase = $('bldStairs')?.checked ?? true;
+  const sx = num($('gx')?.value) || 4.5;
+  const sz = num($('gz')?.value) || 4.0;
+  const nx = parseInt($('nx')?.value) || 2;
+  const nz = parseInt($('nz')?.value) || 1;
+  const height = num($('gh')?.value) || 3.0;
+  const floors = parseInt($('nf')?.value) || 3;
+
+  model = generateFullBuilding({
+   sx, sz, nx, nz, height, floors,
+   roofStyle, overhang, slabType, hasStaircase, footingType
+  });
   model.displayUnits = units;
   selected = null;
  });
  fit();
- status('สร้างตึก 3 ชั้น + ฐานรากเสาเข็มแล้ว · คลิกดูเสาเข็ม 3D หรือกด "ออกแบบ ACI" ได้ทันที');
+ const rLabel = $('bldRoofStyle')?.selectedOptions?.[0]?.text || 'หลังคา';
+ const sLabel = $('bldSlabType')?.selectedOptions?.[0]?.text || 'พื้น';
+ status(`สร้างอาคารครบองค์ (${rLabel} + ${sLabel} + บันได) สำเร็จ · พร้อมวิเคราะห์และออกแบบ ACI 318-25`);
+};
+
+if ($('btn3Story')) $('btn3Story').onclick = () => {
+ if ($('btnGenerateFullBuilding')) $('btnGenerateFullBuilding').click();
+ else {
+  mutate(() => {
+   const units = model.displayUnits;
+   model = threeStoryBuilding();
+   model.displayUnits = units;
+   selected = null;
+  });
+  fit();
+  status('สร้างตึก 3 ชั้น + ฐานรากเสาเข็มแล้ว · คลิกดูเสาเข็ม 3D หรือกด "ออกแบบ ACI" ได้ทันที');
+ }
 };
 
 if ($('colorMode')) $('colorMode').onchange = () => {

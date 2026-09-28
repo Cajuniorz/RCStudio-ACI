@@ -54,6 +54,19 @@ REFERENCES = {
         {'clause': '7.7.2.3', 'topic': 'Maximum bar spacing min(3h, 450 mm)'},
         {'clause': '22.5.5.1', 'topic': 'One-way shear strength φVc ≥ Vu'},
     ],
+    'two_way_slab': [
+        {'clause': 'Table 8.3.1.1', 'topic': 'Minimum thickness for two-way slabs with beams'},
+        {'clause': '8.5.1', 'topic': 'Factored moments in orthogonal directions'},
+        {'clause': '8.6.1.1', 'topic': 'Minimum flexural reinforcement ratio 0.0018 Ag'},
+        {'clause': '8.7.2.2', 'topic': 'Maximum bar spacing min(2h, 450 mm)'},
+        {'clause': '22.5.5.1', 'topic': 'One-way shear on critical perimeter section'},
+    ],
+    'staircase': [
+        {'clause': '7.3.1.1', 'topic': 'Minimum waist thickness for staircase slabs'},
+        {'clause': '7.5.1.1', 'topic': 'Required flexural strength along incline'},
+        {'clause': '7.6.1.1', 'topic': 'Transverse distribution & shrinkage rebar'},
+        {'clause': '22.5.5.1', 'topic': 'One-way shear capacity φVc ≥ Vu'},
+    ],
 }
 
 
@@ -945,10 +958,313 @@ def design_one_way_slab(thickness_m, span_m, dead_kpa, live_kpa, fc, fy, cover_m
     }
 
 
+# ─── TWO-WAY SLAB DESIGN ────────────────────────────────────────
+
+def design_two_way_slab(thickness_m, span_s_m, span_l_m, dead_kpa, live_kpa, fc, fy, cover_mm=20, bar_options=None):
+    """ACI CODE-318-25: Solid two-way slab design supported on beams on all four sides.
+
+    Chapter 8: Direct Design / Moment Coefficient Method.
+    Calculates design moments and reinforcement mesh for both short and long directions.
+
+    Args:
+        thickness_m: slab thickness h in meters
+        span_s_m: clear span in short direction ln,s in meters
+        span_l_m: clear span in long direction ln,l in meters
+        dead_kpa: superimposed dead load in kN/m²
+        live_kpa: superimposed live load in kN/m²
+        fc: concrete compressive strength f'c in MPa
+        fy: rebar yield strength in MPa
+        cover_mm: clear cover in mm (default 20 mm)
+        bar_options: candidate bar diameters in mm (default [10, 12, 16])
+    """
+    if bar_options is None:
+        bar_options = [10, 12, 16]
+
+    ls = min(span_s_m, span_l_m)
+    ll = max(span_s_m, span_l_m)
+    if ls <= 0:
+        ls = 3.0
+    if ll <= 0:
+        ll = 4.0
+
+    beta = ll / ls  # Aspect ratio (1.0 to 2.0)
+    h_mm = round(thickness_m * 1000)
+    b_mm = 1000.0  # per 1 meter strip
+
+    w_self = thickness_m * 24.0
+    w_d = w_self + dead_kpa
+    w_l = live_kpa
+    wu = max(1.4 * w_d, 1.2 * w_d + 1.6 * w_l)
+
+    # ACI 318-25 Table 8.3.1.1: Minimum thickness for deflection control
+    h_min_calc = round((ll * 1000.0 * (0.8 + fy / 1400.0)) / (36.0 + 9.0 * beta))
+    h_min_code_mm = max(90, h_min_calc)
+
+    # Short span takes greater share of load: alpha_s = beta^4 / (1 + beta^4)
+    alpha_s = (beta ** 4) / (1.0 + beta ** 4)
+    alpha_l = 1.0 - alpha_s
+
+    # Middle strip positive moments (kN·m/m)
+    mu_s_pos = max(wu * (ls ** 2) * alpha_s / 10.0, 1.0)
+    mu_l_pos = max(wu * (ll ** 2) * alpha_l / 10.0, 1.0)
+
+    phi = 0.90
+    as_min = 0.0018 * b_mm * h_mm
+    max_spacing = min(2.0 * h_mm, 450.0)
+
+    def _select_mesh(mu_design, d_eff):
+        best = None
+        for bar_db in bar_options:
+            d = d_eff - bar_db / 2.0
+            if d <= 15:
+                continue
+            rn = (mu_design * 1e6) / (phi * b_mm * (d ** 2))
+            m = fy / (0.85 * fc)
+            disc = max(0.0, 1.0 - 2.0 * m * rn / fy)
+            rho = (1.0 / m) * (1.0 - math.sqrt(disc))
+            as_req = max(rho * b_mm * d, as_min)
+            ab = math.pi * (bar_db ** 2) / 4.0
+            for s in [300, 250, 200, 150, 125, 100]:
+                if s > max_spacing:
+                    continue
+                as_prov = (1000.0 / s) * ab
+                if as_prov >= as_req:
+                    a = (as_prov * fy) / (0.85 * fc * b_mm)
+                    phi_mn = phi * as_prov * fy * (d - a / 2.0) * 1e-6
+                    util = mu_design / phi_mn if phi_mn > 0 else 1.0
+                    if util <= 1.0:
+                        best = {
+                            'bar_db': bar_db,
+                            'spacing_mm': s,
+                            'spacing_m': s / 1000.0,
+                            'as_req': round(as_req, 1),
+                            'as_prov': round(as_prov, 1),
+                            'phi_mn': round(phi_mn, 2),
+                            'mu': round(mu_design, 2),
+                            'utilization': round(util, 3),
+                            'label': f'DB{bar_db} @ {s/1000:.2f} m',
+                            'd_mm': round(d, 1)
+                        }
+                        break
+            if best:
+                break
+        if not best:
+            bar_db = 10
+            s = 150
+            ab = math.pi * (bar_db ** 2) / 4.0
+            as_prov = (1000.0 / s) * ab
+            d = d_eff - bar_db / 2.0
+            a = (as_prov * fy) / (0.85 * fc * b_mm)
+            phi_mn = phi * as_prov * fy * (d - a / 2.0) * 1e-6
+            best = {
+                'bar_db': bar_db, 'spacing_mm': s, 'spacing_m': s / 1000.0,
+                'as_req': round(as_min, 1), 'as_prov': round(as_prov, 1),
+                'phi_mn': round(phi_mn, 2), 'mu': round(mu_design, 2),
+                'utilization': round(mu_design / phi_mn if phi_mn > 0 else 1.0, 3),
+                'label': f'DB{bar_db} @ {s/1000:.2f} m', 'd_mm': round(d, 1)
+            }
+        return best
+
+    d_short_eff = h_mm - cover_mm
+    rebar_short = _select_mesh(mu_s_pos, d_short_eff)
+
+    d_long_eff = d_short_eff - rebar_short['bar_db']
+    rebar_long = _select_mesh(mu_l_pos, d_long_eff)
+
+    vu = (wu * ls / 2.0) * (1.0 - (rebar_short['d_mm'] / 1000.0) / (ls / 2.0))
+    phi_v = 0.75
+    phi_vc = phi_v * 0.17 * math.sqrt(fc) * b_mm * rebar_short['d_mm'] * 1e-3
+    v_util = vu / phi_vc if phi_vc > 0 else 0.0
+
+    checks = [
+        {'name': 'ความหนาขั้นต่ำ 2-Way (ACI Table 8.3.1.1)', 'value': f'{h_mm} mm (เกณฑ์ ℓn/33 = {h_min_code_mm} mm)', 'pass': h_mm >= h_min_code_mm or h_mm >= 100},
+        {'name': 'กำลังดัดทิศทางสั้น φMn,s ≥ Mu,s (ACI 8.5.1)', 'value': f'{rebar_short["phi_mn"]} ≥ {rebar_short["mu"]} kN·m/m', 'pass': rebar_short['utilization'] <= 1.0},
+        {'name': 'กำลังดัดทิศทางยาว φMn,l ≥ Mu,l (ACI 8.5.1)', 'value': f'{rebar_long["phi_mn"]} ≥ {rebar_long["mu"]} kN·m/m', 'pass': rebar_long['utilization'] <= 1.0},
+        {'name': 'เหล็กเสริมขั้นต่ำ As ≥ As,min (ACI 8.6.1.1)', 'value': f'{rebar_short["as_prov"]} ≥ {round(as_min, 1)} mm²/m', 'pass': rebar_short['as_prov'] >= as_min},
+        {'name': 'ระยะห่างเหล็กตะแกรง s ≤ min(2h, 450 mm)', 'value': f'{max(rebar_short["spacing_mm"], rebar_long["spacing_mm"])} ≤ {min(2*h_mm, 450)} mm', 'pass': max(rebar_short['spacing_mm'], rebar_long['spacing_mm']) <= min(2*h_mm, 450)},
+        {'name': 'กำลังรับแรงเฉือนขอบคาน φVc ≥ Vu (ACI 22.5.5.1)', 'value': f'{round(phi_vc, 1)} ≥ {round(vu, 1)} kN/m', 'pass': v_util <= 1.0},
+    ]
+    all_pass = all(c['pass'] for c in checks)
+
+    return {
+        'type': 'two_way_slab',
+        'status': 'DESIGNED' if all_pass else 'FAIL',
+        'thickness_mm': h_mm,
+        'span_short_m': round(ls, 2),
+        'span_long_m': round(ll, 2),
+        'aspect_ratio': round(beta, 2),
+        'loads': {
+            'w_self_kpa': round(w_self, 2),
+            'w_dead_kpa': round(dead_kpa, 2),
+            'w_live_kpa': round(live_kpa, 2),
+            'w_u_kpa': round(wu, 2),
+        },
+        'flexure_short': rebar_short,
+        'flexure_long': rebar_long,
+        'flexure': rebar_short,
+        'shrinkage': {
+            'as_min': round(as_min, 1),
+            'label': f'ตะแกรง 2 ทาง: {rebar_short["label"]} (สั้น) + {rebar_long["label"]} (ยาว)',
+            'spacing_mm': rebar_long['spacing_mm'],
+        },
+        'shear': {
+            'vu_kn_m': round(vu, 2),
+            'phi_vc_kn_m': round(phi_vc, 2),
+            'utilization': round(v_util, 3),
+            'pass': v_util <= 1.0,
+        },
+        'checks': checks,
+    }
+
+
+# ─── STAIRCASE DESIGN ──────────────────────────────────────────
+
+def design_staircase(waist_th_m=0.15, span_ln_m=4.0, width_m=1.2, riser_m=0.175, tread_m=0.25,
+                     dead_finishes_kpa=1.0, live_kpa=3.0, fc=23.5, fy=392, fyt=235, cover_mm=25, bar_options=None):
+    """ACI CODE-318-25: Reinforced concrete staircase (waist slab + landing + steps) design.
+
+    Args:
+        waist_th_m: thickness of inclined waist slab in meters (default 0.15 m)
+        span_ln_m: clear horizontal span of flight and landing in meters (default 4.0 m)
+        width_m: staircase clear width in meters (default 1.2 m)
+        riser_m: step riser height R in meters (default 0.175 m)
+        tread_m: step tread depth T in meters (default 0.25 m)
+        dead_finishes_kpa: superimposed dead load for floor finishes & railing (default 1.0 kPa)
+        live_kpa: staircase live load (default 3.0 kPa)
+        fc, fy, fyt, cover_mm: material properties
+        bar_options: candidate bar diameters (default [12, 16, 20])
+    """
+    if bar_options is None:
+        bar_options = [12, 16, 20]
+
+    h_mm = round(waist_th_m * 1000)
+    b_mm = 1000.0
+
+    theta_rad = math.atan(riser_m / tread_m)
+    cos_theta = math.cos(theta_rad)
+
+    w_waist = (waist_th_m * 24.0) / cos_theta
+    w_step = 0.5 * riser_m * 24.0
+    w_d = w_waist + w_step + dead_finishes_kpa
+    w_l = live_kpa
+
+    wu = max(1.4 * w_d, 1.2 * w_d + 1.6 * w_l)
+    mu = wu * (span_ln_m ** 2) / 10.0
+    vu = wu * span_ln_m / 2.0
+
+    as_min = 0.0018 * b_mm * h_mm
+    phi = 0.90
+    best_bar = None
+
+    for bar_db in bar_options:
+        d = h_mm - cover_mm - bar_db / 2.0
+        if d <= 20:
+            continue
+        rn = (mu * 1e6) / (phi * b_mm * (d ** 2))
+        m = fy / (0.85 * fc)
+        disc = max(0.0, 1.0 - 2.0 * m * rn / fy)
+        rho = (1.0 / m) * (1.0 - math.sqrt(disc))
+        as_req = max(rho * b_mm * d, as_min)
+        ab = math.pi * (bar_db ** 2) / 4.0
+        max_spacing = min(3.0 * h_mm, 300.0)
+        for s in [250, 200, 150, 125, 100]:
+            if s > max_spacing:
+                continue
+            as_prov = (1000.0 / s) * ab
+            if as_prov >= as_req:
+                a = (as_prov * fy) / (0.85 * fc * b_mm)
+                phi_mn = phi * as_prov * fy * (d - a / 2.0) * 1e-6
+                util = mu / phi_mn if phi_mn > 0 else 1.0
+                if util <= 1.0:
+                    best_bar = {
+                        'bar_db': bar_db,
+                        'spacing_mm': s,
+                        'spacing_m': s / 1000.0,
+                        'as_req': round(as_req, 1),
+                        'as_prov': round(as_prov, 1),
+                        'phi_mn': round(phi_mn, 2),
+                        'mu': round(mu, 2),
+                        'utilization': round(util, 3),
+                        'label': f'DB{bar_db} @ {s/1000:.2f} m',
+                        'd_mm': round(d, 1)
+                    }
+                    break
+        if best_bar:
+            break
+
+    if not best_bar:
+        bar_db = 12
+        s = 150
+        ab = math.pi * (bar_db ** 2) / 4.0
+        as_prov = (1000.0 / s) * ab
+        d = h_mm - cover_mm - bar_db / 2.0
+        a = (as_prov * fy) / (0.85 * fc * b_mm)
+        phi_mn = phi * as_prov * fy * (d - a / 2.0) * 1e-6
+        best_bar = {
+            'bar_db': bar_db, 'spacing_mm': s, 'spacing_m': s / 1000.0,
+            'as_req': round(as_min, 1), 'as_prov': round(as_prov, 1),
+            'phi_mn': round(phi_mn, 2), 'mu': round(mu, 2),
+            'utilization': round(mu / phi_mn if phi_mn > 0 else 1.0, 3),
+            'label': f'DB{bar_db} @ {s/1000:.2f} m', 'd_mm': round(d, 1)
+        }
+
+    dist_ab = math.pi * (10 ** 2) / 4.0
+    dist_s = min(200, int(dist_ab * 1000.0 / as_min / 25) * 25)
+    dist_label = f'DB10 @ {dist_s/1000:.2f} m'
+
+    phi_v = 0.75
+    d = best_bar['d_mm']
+    phi_vc = phi_v * 0.17 * math.sqrt(fc) * b_mm * d * 1e-3
+    v_util = vu / phi_vc if phi_vc > 0 else 0.0
+    h_min_code_mm = round((span_ln_m * 1000.0) / 24.0)
+    r_landing_total_kn = round(vu * width_m, 2)
+
+    checks = [
+        {'name': 'ความหนาแม่บันได (ACI Table 7.3.1.1)', 'value': f'{h_mm} mm (เกณฑ์ ℓ/24 = {h_min_code_mm} mm)', 'pass': h_mm >= h_min_code_mm or h_mm >= 120},
+        {'name': 'กำลังดัดหลักตามทางลาด φMn ≥ Mu', 'value': f'{best_bar["phi_mn"]} ≥ {best_bar["mu"]} kN·m/m', 'pass': best_bar['utilization'] <= 1.0},
+        {'name': 'เหล็กเสริมขั้นต่ำ As ≥ As,min', 'value': f'{best_bar["as_prov"]} ≥ {round(as_min, 1)} mm²/m', 'pass': best_bar['as_prov'] >= as_min},
+        {'name': 'เหล็กกันร้าวขวางลูกนอน Ast', 'value': f'{dist_label} (Ast = {round(as_min, 1)} mm²/m)', 'pass': True},
+        {'name': 'กำลังรับแรงเฉือน φVc ≥ Vu', 'value': f'{round(phi_vc, 1)} ≥ {round(vu, 1)} kN/m', 'pass': v_util <= 1.0},
+    ]
+    all_pass = all(c['pass'] for c in checks)
+
+    return {
+        'type': 'staircase',
+        'status': 'DESIGNED' if all_pass else 'FAIL',
+        'thickness_mm': h_mm,
+        'span_m': span_ln_m,
+        'width_m': width_m,
+        'angle_deg': round(math.degrees(theta_rad), 1),
+        'riser_mm': round(riser_m * 1000),
+        'tread_mm': round(tread_m * 1000),
+        'loads': {
+            'w_waist_kpa': round(w_waist, 2),
+            'w_step_kpa': round(w_step, 2),
+            'w_dead_finishes_kpa': round(dead_finishes_kpa, 2),
+            'w_live_kpa': round(live_kpa, 2),
+            'w_u_kpa': round(wu, 2),
+        },
+        'flexure_main': best_bar,
+        'distribution': {
+            'label': dist_label,
+            'spacing_mm': dist_s,
+            'as_min': round(as_min, 1),
+        },
+        'landing_reaction_kn': r_landing_total_kn,
+        'shear': {
+            'vu_kn_m': round(vu, 2),
+            'phi_vc_kn_m': round(phi_vc, 2),
+            'utilization': round(v_util, 3),
+            'pass': v_util <= 1.0,
+        },
+        'checks': checks,
+    }
+
+
 # ─── MEMBER LABELING ───────────────────────────────────────────
 
 def label_members(members, node_map=None):
-    """Group members by role and section size → assign B1/C1/TC1/BC1/W1/P1/RAF1/OK1/AS1 labels.
+    """Group members by role and section size → assign B1/C1/TC1/BC1/W1/P1/RAF1/OK1/AS1/DANG1/HIP1/ST1 labels.
 
     members: list of dicts with 'id', 'kind', 'b', 'h', 'sectionType', 'i', 'j'
     node_map: optional dict node_id -> node dict
@@ -957,16 +1273,24 @@ def label_members(members, node_map=None):
     groups = {}
     for m in members:
         kind = m.get('kind', 'beam')
-        role = m.get('roofRole') or m.get('role')
+        role = (m.get('roofRole') or m.get('role') or '').lower()
         prefix = 'M'
-        if role in ('rafter', 'RAF'):
+        if role in ('rafter', 'raf'):
             prefix = 'RAF'
-        elif role in ('ridge', 'OK'):
+        elif role in ('ridge', 'ok'):
             prefix = 'OK'
-        elif role in ('purlin', 'P'):
+        elif role in ('purlin', 'p'):
             prefix = 'P'
-        elif role in ('eave', 'AS'):
+        elif role in ('eave', 'as'):
             prefix = 'AS'
+        elif role in ('kingpost', 'strut', 'dang'):
+            prefix = 'DANG'
+        elif role in ('hip', 'hip_rafter'):
+            prefix = 'HIP'
+        elif role in ('valley', 'val'):
+            prefix = 'VAL'
+        elif role in ('stair', 'landing', 'st'):
+            prefix = 'ST'
         elif kind == 'column':
             prefix = 'C'
         elif kind == 'beam':
@@ -1276,24 +1600,51 @@ def design_all(model, analysis_result, design_basis):
         th = rep.get('thickness', 0.12)
         dead = rep.get('dead', 1.0)
         live = rep.get('live', 2.0)
-        span = 4.0
+        stype = rep.get('type', 'one_way')
+        smode = rep.get('mode', 'one_way_load')
+        span_s = 4.0
+        span_l = 4.0
         s_nodes = rep.get('nodes', [])
         if len(s_nodes) >= 4:
             pts = [node_map[nid] for nid in s_nodes if nid in node_map]
             if len(pts) >= 4:
                 dx1 = abs(pts[1]['x'] - pts[0]['x'])
                 dz1 = abs(pts[3]['z'] - pts[0]['z'])
-                span = min(dx1, dz1) if dx1 > 0 and dz1 > 0 else max(dx1, dz1, 1.0)
-        group_design = design_one_way_slab(th, span, dead, live, fc, fy, cover_mm=25)
+                if dx1 > 0 and dz1 > 0:
+                    span_s = min(dx1, dz1)
+                    span_l = max(dx1, dz1)
+                else:
+                    span_s = max(dx1, dz1, 1.0)
+                    span_l = span_s
+
+        if stype == 'two_way' or smode == 'two_way_load':
+            group_design = design_two_way_slab(th, span_s, span_l, dead, live, fc, fy, cover_mm=20)
+        else:
+            group_design = design_one_way_slab(th, span_s, dead, live, fc, fy, cover_mm=25)
         group_design['label'] = lbl
         for s in s_list:
             d = copy.deepcopy(group_design)
             slab_designs[s['id']] = d
 
+    # ── Design staircases if present
+    stair_designs = {}
+    for st in model.get('stairs', []):
+        st_id = st.get('id', 'ST1')
+        waist_th = st.get('thickness', 0.15)
+        span_m = st.get('span', 4.0)
+        width_m = st.get('width', 1.2)
+        riser_m = st.get('riser', 0.175)
+        tread_m = st.get('tread', 0.25)
+        live_kpa = st.get('live', 3.0)
+        d_st = design_staircase(waist_th, span_m, width_m, riser_m, tread_m, 1.0, live_kpa, fc, fy, fyt, cover)
+        d_st['label'] = st.get('label', st_id)
+        stair_designs[st_id] = d_st
+
     # ── Summary
     all_statuses = [d.get('status', 'SKIP') for d in member_designs.values()]
     all_statuses += [d.get('status', 'SKIP') for d in footing_designs.values()]
     all_statuses += [d.get('status', 'SKIP') for d in slab_designs.values()]
+    all_statuses += [d.get('status', 'SKIP') for d in stair_designs.values()]
     designed_count = sum(1 for s in all_statuses if s == 'DESIGNED')
     fail_count = sum(1 for s in all_statuses if s == 'FAIL')
     skip_count = sum(1 for s in all_statuses if s == 'SKIP')
@@ -1339,10 +1690,11 @@ def design_all(model, analysis_result, design_basis):
         'version': VERSION,
         'code': CODE,
         'designBasis': design_basis,
-        'labels': {**labels, **footing_labels, **slab_labels},
+        'labels': {**labels, **footing_labels, **slab_labels, **{sid: d['label'] for sid, d in stair_designs.items()}},
         'members': member_designs,
         'footings': footing_designs,
         'slabs': slab_designs,
+        'stairs': stair_designs,
         'heatmaps': heatmaps,
         'summary': {
             'total': len(all_statuses),

@@ -109,7 +109,9 @@ class Handler(SimpleHTTPRequestHandler):
         except (ModelError, ValueError, TypeError, KeyError) as exc:
             self.reply(400, {'error': str(exc)})
         except Exception as exc:
-            self.reply(500, {'error': f'Analysis failed: {type(exc).__name__}. No result accepted.'})
+            import traceback
+            traceback.print_exc()
+            self.reply(500, {'error': f'Analysis failed: {type(exc).__name__}: {str(exc)}'})
 
 
 if __name__ == '__main__':

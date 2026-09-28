@@ -344,5 +344,76 @@ class TestGoverningGroupDesign(unittest.TestCase):
         self.assertGreater(d1['flexure']['bottom']['rebar']['phi_mn'], 90.0)
 
 
+class TestTwoWaySlabAndStairs(unittest.TestCase):
+    """Test ACI 318-25 Two-Way Slab and RC Staircase design."""
+
+    def test_two_way_slab_design(self):
+        from design_rc25 import design_two_way_slab
+        # 4m x 4.5m slab, 12cm thick
+        res = design_two_way_slab(
+            thickness_m=0.12,
+            span_s_m=4.0,
+            span_l_m=4.5,
+            dead_kpa=1.0,
+            live_kpa=2.0,
+            fc=23.5,
+            fy=392,
+            cover_mm=20
+        )
+        self.assertEqual(res['type'], 'two_way_slab')
+        self.assertEqual(res['status'], 'DESIGNED')
+        self.assertIn('DB', res['flexure_short']['label'])
+        self.assertIn('DB', res['flexure_long']['label'])
+        self.assertLessEqual(res['flexure_short']['utilization'], 1.0)
+        self.assertLessEqual(res['flexure_long']['utilization'], 1.0)
+        self.assertTrue(all(c['pass'] for c in res['checks']))
+
+    def test_staircase_design(self):
+        from design_rc25 import design_staircase
+        res = design_staircase(
+            waist_th_m=0.15,
+            span_ln_m=4.0,
+            width_m=1.2,
+            riser_m=0.175,
+            tread_m=0.25,
+            dead_finishes_kpa=1.0,
+            live_kpa=3.0,
+            fc=23.5,
+            fy=392,
+            fyt=235,
+            cover_mm=25
+        )
+        self.assertEqual(res['type'], 'staircase')
+        self.assertEqual(res['status'], 'DESIGNED')
+        self.assertIn('DB', res['flexure_main']['label'])
+        self.assertIn('DB', res['distribution']['label'])
+        self.assertLessEqual(res['flexure_main']['utilization'], 1.0)
+        self.assertGreater(res['landing_reaction_kn'], 0)
+        self.assertTrue(all(c['pass'] for c in res['checks']))
+
+    def test_roof_and_stair_member_labels(self):
+        from design_rc25 import label_members
+        members = [
+            {'id': 'M1', 'kind': 'beam', 'role': 'eave', 'b': 0.25, 'h': 0.45},
+            {'id': 'M2', 'kind': 'beam', 'roofRole': 'AS', 'b': 0.25, 'h': 0.45},
+            {'id': 'M3', 'kind': 'roof', 'roofRole': 'kingpost', 'A': 0.0014},
+            {'id': 'M4', 'kind': 'roof', 'roofRole': 'hip', 'A': 0.0016},
+            {'id': 'M5', 'kind': 'roof', 'roofRole': 'rafter', 'A': 0.0014},
+            {'id': 'M6', 'kind': 'roof', 'roofRole': 'ridge', 'A': 0.0018},
+            {'id': 'M7', 'kind': 'roof', 'roofRole': 'purlin', 'A': 0.0007},
+            {'id': 'M8', 'kind': 'beam', 'role': 'stair', 'b': 0.20, 'h': 0.40},
+        ]
+        labels = label_members(members)
+        self.assertTrue(labels['M1'].startswith('AS'))
+        self.assertTrue(labels['M2'].startswith('AS'))
+        self.assertTrue(labels['M3'].startswith('DANG'))
+        self.assertTrue(labels['M4'].startswith('HIP'))
+        self.assertTrue(labels['M5'].startswith('RAF'))
+        self.assertTrue(labels['M6'].startswith('OK'))
+        self.assertTrue(labels['M7'].startswith('P'))
+        self.assertTrue(labels['M8'].startswith('ST'))
+
+
 if __name__ == '__main__':
     unittest.main()
+

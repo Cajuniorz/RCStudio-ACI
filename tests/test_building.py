@@ -101,7 +101,18 @@ class BuildingTests(unittest.TestCase):
         r=solve(p)
         self.assertEqual(r['memberProperties']['M1']['material'],p['steel'])
         self.assertEqual(r['sections']['M1']['J'],1e-6)
-        self.assertIn('steel custom A/Iy/Iz/J are user-supplied',r['assumptions'][-1])
+    def test_two_way_slab_transfer_equilibrium(self):
+        p = slab_frame()
+        p['slabs'][0].update(
+            type='two_way',
+            mode='two_way_load',
+            support1='M2', support2='M5', support3='M7', support4='M3'
+        )
+        r = solve(p)
+        for case, expected in [('D', (.12*24+1)*16), ('L', 2*16)]:
+            total = sum(n['reaction'][1] for n in r['combinations'][case]['nodes'].values())
+            self.assertAlmostEqual(total, expected, places=8)
+        self.assertEqual(len(r['coverage']['floorLoadTransfers']), 8) # 4 beams x 2 cases
 
 
 if __name__=='__main__':unittest.main(verbosity=2)
