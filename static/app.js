@@ -12,8 +12,11 @@ let viewMode='3d',planLevelY=null,activeTool='select',beamDrag=null,beamAxisLock
 let structMode='solid';  // solid | wire - one state, switched by a single click
 let viewScales={deformScale:100,diagramScale:1,lastPeakH:0};
 let dragLite=false;
-// member name plate: 48 px canvas, 34 px font, blown up to about 0.9 m in world space so the name reads at a glance
-const MEMBER_NAME_CANVAS_H=48,MEMBER_NAME_FONT=34,MEMBER_NAME_SCALE=4.5;  // while a scale slider is held, draw the structure without the heavy overlays
+// member name plate: 84 px canvas (padding wide enough for the halo to show), 34 px font.
+// world size is tuned so the glyphs stand ~0.19 m tall = 30% of the previous 0.63 m (the -70% request)
+const MEMBER_NAME_CANVAS_H=84,MEMBER_NAME_FONT=34,MEMBER_NAME_SCALE=1.35,MEMBER_NAME_PAD=24;
+const MEMBER_NAME_FILL='#FFB020';        // ส้มแสง: luminous amber, same family as the lit lamp
+const MEMBER_NAME_GLOW='#FF9A00';        // halo colour behind the glyphs  // while a scale slider is held, draw the structure without the heavy overlays
 const PLAN_LEVEL_TOLERANCE=1e-5;
 const memberDraft={b:.25,h:.45};
 const empty=blankProject;
@@ -696,7 +699,8 @@ function labelSprite(text, width=0, height=44, fontSize=16, options={}){
  const ctx = c.getContext('2d');
  ctx.scale(dpr, dpr);
 
- const bg = options.bg ?? 'rgba(15, 23, 42, 0.88)';
+ // an explicit null/false means 'no backplate at all' (?? would silently fall back to the default)
+ const bg = 'bg' in options ? options.bg : 'rgba(15, 23, 42, 0.88)';
  const border = options.border ?? 'rgba(148, 163, 184, 0.45)';
  const color = options.color ?? '#e2e8f0';
  const radius = options.radius ?? 6;
@@ -720,6 +724,15 @@ function labelSprite(text, width=0, height=44, fontSize=16, options={}){
  ctx.font = `bold ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
  ctx.textAlign = 'center';
  ctx.textBaseline = 'middle';
+ if (options.glow) {
+  // a soft halo of the same orange makes the name read as a lit sign, not a flat sticker
+  ctx.save();
+  ctx.shadowColor = options.glow;
+  ctx.shadowBlur = options.glowBlur ?? 10;
+  ctx.fillStyle = color;
+  ctx.fillText(text, realW / 2, realH / 2);
+  ctx.restore();
+ }
  if (options.outline) {
   // a black outline keeps the glyphs readable on top of solids and heatmap colours
   ctx.lineJoin = 'round';
@@ -1369,8 +1382,10 @@ function drawModel(){
   if(showMemberNames){
    // the member name sits on the member itself: large orange glyphs with a black outline, no backplate
    const nameLabel = labelSprite(getMemberMark(m), 0, MEMBER_NAME_CANVAS_H, MEMBER_NAME_FONT, {
-    bg: null, padX: 8, color: '#FF9100', outline: '#000000', outlineWidth: 7, alwaysOnTop: true
+    bg: null, padX: MEMBER_NAME_PAD, color: MEMBER_NAME_FILL, outline: '#000000', outlineWidth: 7,
+    glow: MEMBER_NAME_GLOW, glowBlur: 14, alwaysOnTop: true
    });
+   nameLabel.userData={kind:'memberName',member:m.id};
    nameLabel.scale.multiplyScalar(MEMBER_NAME_SCALE);
    nameLabel.position.copy(a).lerp(b, 0.5).add(new THREE.Vector3(0, (secH / 2) + 0.22, 0));
    group.add(nameLabel);
