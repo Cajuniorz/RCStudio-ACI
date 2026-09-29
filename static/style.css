@@ -40,15 +40,17 @@
 /* independent options stay pills: the whole pill is the hit area and shows its own state */
 .viewbottom label input[type=checkbox]{position:absolute;width:1px;height:1px;opacity:0;margin:0;pointer-events:none}
 .viewbottom label:focus-within{outline:1px solid #FF8F1F;outline-offset:1px}
-.viewbottom label.on{background:#31414f;border-color:#7aa7c7;color:#eaf4ff;font-weight:600}
+.viewbottom label.on{background:#3a3020;border-color:#ffb020;color:#ffe9c9;font-weight:600;box-shadow:0 0 7px rgba(255,170,32,.42),inset 0 0 7px rgba(255,170,32,.16)}
+.viewbottom label.on:hover{border-color:#ffd28a}
 /* every control carries a fixed width: text metrics can then never resize or re-wrap the row */
 #roofSheetingToggle{width:106px}#pointLoadsToggle{width:100px}#uniformLoadsToggle{width:106px}#selfWeightToggle{width:118px}
-#labelToggle{width:82px}#diagram3dToggle{width:150px}#diagramValuesToggle{width:126px}#deformedToggle{width:118px}
+#memberNameToggle{width:124px}#labelToggle{width:82px}#diagram3dToggle{width:150px}#diagramValuesToggle{width:126px}#deformedToggle{width:118px}
 #deformScalePill{width:170px}#diagramScalePill{width:186px}
 .viewbottom>label,.slider-pill{justify-content:flex-start}
-/* the tick always reserves its slot, so toggling never changes the pill width */
-.viewbottom>label::before{content:'';display:inline-block;width:12px;text-align:center;font-weight:700;color:#7dd3fc}
-.viewbottom>label.on::before{content:'✓'}
+/* the lamp always reserves its slot, so toggling never changes the pill width.
+   no tick symbol: on = the lamp is lit and the pill frame glows, off = the light is out */
+.viewbottom>label::before{content:'';display:inline-block;flex:0 0 auto;width:11px;height:11px;border-radius:50%;box-sizing:border-box;background:#141b24;border:1px solid #4c5f75;box-shadow:inset 0 0 2px rgba(0,0,0,.9)}
+.viewbottom>label.on::before{background:radial-gradient(circle at 34% 30%,#fff7e2 0%,#ffb020 46%,#b45309 100%);border-color:#ffd28a;box-shadow:0 0 7px 2px rgba(255,170,32,.72),0 0 15px 5px rgba(255,120,0,.3)}
 .viewbottom label[hidden]{display:none!important}
 /* sliders that size the 3D diagrams and the deformed shape */
 .slider-pill{pointer-events:auto;display:inline-flex;align-items:center;gap:5px;height:30px;box-sizing:border-box;padding:2px 8px;border-radius:4px;background:rgba(30,35,42,0.85);border:1px solid #4a637d;font-size:10px;color:#c2d3e4}

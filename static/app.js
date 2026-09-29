@@ -11,7 +11,9 @@ let model, result=null, designResult=null, revision=0, tab='nodes', selected=nul
 let viewMode='3d',planLevelY=null,activeTool='select',beamDrag=null,beamAxisLock=null,lineSnapHover=null,pointerStart=null;
 let structMode='solid';  // solid | wire - one state, switched by a single click
 let viewScales={deformScale:100,diagramScale:1,lastPeakH:0};
-let dragLite=false;  // while a scale slider is held, draw the structure without the heavy overlays
+let dragLite=false;
+// member name plate: 48 px canvas, 34 px font, blown up to about 0.9 m in world space so the name reads at a glance
+const MEMBER_NAME_CANVAS_H=48,MEMBER_NAME_FONT=34,MEMBER_NAME_SCALE=4.5;  // while a scale slider is held, draw the structure without the heavy overlays
 const PLAN_LEVEL_TOLERANCE=1e-5;
 const memberDraft={b:.25,h:.45};
 const empty=blankProject;
@@ -716,9 +718,17 @@ function labelSprite(text, width=0, height=44, fontSize=16, options={}){
  }
 
  ctx.font = `bold ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
- ctx.fillStyle = color;
  ctx.textAlign = 'center';
  ctx.textBaseline = 'middle';
+ if (options.outline) {
+  // a black outline keeps the glyphs readable on top of solids and heatmap colours
+  ctx.lineJoin = 'round';
+  ctx.miterLimit = 2;
+  ctx.lineWidth = options.outlineWidth ?? Math.max(4, fontSize * 0.18);
+  ctx.strokeStyle = options.outline;
+  ctx.strokeText(text, realW / 2, realH / 2);
+ }
+ ctx.fillStyle = color;
  ctx.fillText(text, realW / 2, realH / 2);
 
  const texture = new THREE.CanvasTexture(c);
@@ -851,7 +861,7 @@ function getMemberLocalAxes(a,b,rotationDeg=0){
 }
 const planLevels=()=>groupLevels(model.nodes,PLAN_LEVEL_TOLERANCE);
 function choosePlanLevel(levels){let best=levels[0],bestCount=-1;for(const level of levels){const ids=new Set(level.nodes.map(node=>node.id));const count=model.members.filter(member=>ids.has(member.i)&&ids.has(member.j)&&member.kind==='beam').length+model.slabs.filter(slab=>slab.nodes.length>=3&&slab.nodes.every(id=>ids.has(id))).length*2;if(count>bestCount){best=level;bestCount=count;}}return best?.y??null;}
-function renderPlanControls(){const levels=planLevels(),select=$('planLevel'),previous=planLevelY;select.replaceChildren();for(const level of levels){const option=el('option',level.label);option.value=String(level.y);select.append(option);}if(levels.length){const custom=Number.isFinite(previous)&&!levels.some(level=>Math.abs(level.y-previous)<=PLAN_LEVEL_TOLERANCE);if(custom){const option=el('option',`ระดับอิสระ · Y ${Number(previous.toFixed(3))} m`);option.value=String(previous);select.append(option);}else if(!levels.some(level=>Math.abs(level.y-(previous??NaN))<=PLAN_LEVEL_TOLERANCE))planLevelY=choosePlanLevel(levels);const level=levels.find(item=>Math.abs(item.y-planLevelY)<=PLAN_LEVEL_TOLERANCE);if(level)planLevelY=level.y;select.value=String(planLevelY);}else if(!Number.isFinite(planLevelY))planLevelY=null;select.disabled=!levels.length&&planLevelY===null;select.hidden=viewMode!=='plan';$('planElevation').hidden=viewMode!=='plan';$('setPlanElevation').hidden=viewMode!=='plan';$('planGridStep').disabled=!$('planSnap').checked;$('planTools').hidden=viewMode!=='plan';$('labelToggle').classList.toggle('pill-hidden',viewMode==='plan');$('deformedToggle').classList.toggle('pill-hidden',viewMode==='plan');if($('diagram3dToggle'))$('diagram3dToggle').classList.toggle('pill-hidden',viewMode==='plan');if($('diagramValuesToggle'))$('diagramValuesToggle').classList.toggle('pill-hidden',viewMode==='plan'||!$('diagram3d')?.checked);$('view3d').classList.toggle('active',viewMode==='3d');$('viewPlan').classList.toggle('active',viewMode==='plan');$('planSelectTool').classList.toggle('active',activeTool==='select');$('planNodeTool').classList.toggle('active',activeTool==='node');$('planMemberNodeTool').classList.toggle('active',activeTool==='memberNode');$('planBeamTool').classList.toggle('active',activeTool==='beam');$('planBeamLockX').hidden=viewMode!=='plan'||activeTool!=='beam';$('planBeamLockZ').hidden=viewMode!=='plan'||activeTool!=='beam';$('planBeamLockX').classList.toggle('active',beamAxisLock==='x');$('planBeamLockZ').classList.toggle('active',beamAxisLock==='z');$('viewHint').textContent=viewMode==='plan'?'ผัง X–Z · ระดับ '+(levels.find(item=>item.y===planLevelY)?.label??`Y ${fmt(planLevelY)} m`):'ลากหมุน · ล้อเมาส์ซูม · คลิกเลือก';if(viewMode==='plan'&&previous!==planLevelY){cancelInteraction(false);fitPlan();}}
+function renderPlanControls(){const levels=planLevels(),select=$('planLevel'),previous=planLevelY;select.replaceChildren();for(const level of levels){const option=el('option',level.label);option.value=String(level.y);select.append(option);}if(levels.length){const custom=Number.isFinite(previous)&&!levels.some(level=>Math.abs(level.y-previous)<=PLAN_LEVEL_TOLERANCE);if(custom){const option=el('option',`ระดับอิสระ · Y ${Number(previous.toFixed(3))} m`);option.value=String(previous);select.append(option);}else if(!levels.some(level=>Math.abs(level.y-(previous??NaN))<=PLAN_LEVEL_TOLERANCE))planLevelY=choosePlanLevel(levels);const level=levels.find(item=>Math.abs(item.y-planLevelY)<=PLAN_LEVEL_TOLERANCE);if(level)planLevelY=level.y;select.value=String(planLevelY);}else if(!Number.isFinite(planLevelY))planLevelY=null;select.disabled=!levels.length&&planLevelY===null;select.hidden=viewMode!=='plan';$('planElevation').hidden=viewMode!=='plan';$('setPlanElevation').hidden=viewMode!=='plan';$('planGridStep').disabled=!$('planSnap').checked;$('planTools').hidden=viewMode!=='plan';$('labelToggle').classList.toggle('pill-hidden',viewMode==='plan');if($('memberNameToggle'))$('memberNameToggle').classList.toggle('pill-hidden',viewMode==='plan');$('deformedToggle').classList.toggle('pill-hidden',viewMode==='plan');if($('diagram3dToggle'))$('diagram3dToggle').classList.toggle('pill-hidden',viewMode==='plan');if($('diagramValuesToggle'))$('diagramValuesToggle').classList.toggle('pill-hidden',viewMode==='plan'||!$('diagram3d')?.checked);$('view3d').classList.toggle('active',viewMode==='3d');$('viewPlan').classList.toggle('active',viewMode==='plan');$('planSelectTool').classList.toggle('active',activeTool==='select');$('planNodeTool').classList.toggle('active',activeTool==='node');$('planMemberNodeTool').classList.toggle('active',activeTool==='memberNode');$('planBeamTool').classList.toggle('active',activeTool==='beam');$('planBeamLockX').hidden=viewMode!=='plan'||activeTool!=='beam';$('planBeamLockZ').hidden=viewMode!=='plan'||activeTool!=='beam';$('planBeamLockX').classList.toggle('active',beamAxisLock==='x');$('planBeamLockZ').classList.toggle('active',beamAxisLock==='z');$('viewHint').textContent=viewMode==='plan'?'ผัง X–Z · ระดับ '+(levels.find(item=>item.y===planLevelY)?.label??`Y ${fmt(planLevelY)} m`):'ลากหมุน · ล้อเมาส์ซูม · คลิกเลือก';if(viewMode==='plan'&&previous!==planLevelY){cancelInteraction(false);fitPlan();}}
 function cancelInteraction(redraw=true){pointerStart=null;beamDrag=null;lineSnapHover=null;$('beamHint').textContent='';if(controls)controls.enabled=!(viewMode==='plan'&&activeTool==='beam');if(redraw&&model)drawModel();}
 function setPlanTool(tool){cancelInteraction(false);activeTool=tool;beamAxisLock=null;if(controls)controls.enabled=!(viewMode==='plan'&&activeTool==='beam');renderPlanControls();drawModel();}
 function setBeamAxisLock(axis){beamAxisLock=beamAxisLock===axis?null:axis;renderPlanControls();if(beamDrag)drawModel();status(beamAxisLock?`ล็อกแนว ${beamAxisLock.toUpperCase()} · ${beamAxisLock==='x'?'คง Z':'คง X'} จากโหนดเริ่ม · กด ${beamAxisLock.toUpperCase()} ซ้ำเพื่อปลดล็อก`:'ปลดล็อกแกน');}
@@ -1208,7 +1218,8 @@ function drawModel(){
  const showUniformLoads=(!$('showUniformLoads')||$('showUniformLoads').checked)&&!lite;
  const showSelfWeight=(!$('showSelfWeight')||$('showSelfWeight').checked)&&!lite;
  const showRoofSheeting=(!$('showRoofSheeting')||$('showRoofSheeting').checked)&&!lite;
- const showMemberLabels=(!$('labels')||$('labels').checked)&&!lite;
+ const showNodeLabels=(!$('labels')||$('labels').checked)&&!lite;
+ const showMemberNames=(!$('memberNames')||$('memberNames').checked)&&!lite;
  const columnPeaks=heatKey&&active?.members?model.members.filter(m=>m.kind==='column').map(m=>({id:m.id,peak:peakStation(active.members[m.id],heatKey)})).filter(x=>x.peak):[];
  const maxColumnPeak=columnPeaks.reduce((best,row)=>!best||row.peak.value>best.peak.value?row:best,null);
  const visibleMembers=new Set();for(const m of model.members){if(visibleNodeIds&&(!visibleNodeIds.has(m.i)||!visibleNodeIds.has(m.j)))continue;const a=pos.get(m.i),b=pos.get(m.j);if(!a||!b||a.distanceTo(b)<1e-6)continue;visibleMembers.add(m.id);
@@ -1355,19 +1366,14 @@ function drawModel(){
     }
    }
   }
-  if(showMemberLabels){
-   const isSelectedMem = selected?.kind === 'members' && selected.id === m.id;
-   const isRoof = m.kind === 'roof' || m.sectionType === 'steel_custom';
-   const isSecondaryWeb = isRoof && (m.roofRole === 'web' || (!m.roofRole && axes.L < 1.4));
-   if(!isSecondaryWeb || isSelectedMem || model.members.length < 50){
-    const mark = getMemberMark(m);
-    const labelOpts = isSelectedMem
-     ? { bg: 'rgba(245, 158, 11, 0.95)', border: '#fef08a', color: '#0f172a', radius: 6, alwaysOnTop: true }
-     : { bg: 'rgba(30, 41, 59, 0.88)', border: 'rgba(148, 163, 184, 0.4)', color: '#cbd5e1', radius: 6 };
-    const label = labelSprite(`${mark} (${m.id})`, 0, 32, 13, labelOpts);
-    label.position.copy(a).lerp(b, 0.5).add(new THREE.Vector3(0, (secH / 2) + 0.15, 0));
-    group.add(label);
-   }
+  if(showMemberNames){
+   // the member name sits on the member itself: large orange glyphs with a black outline, no backplate
+   const nameLabel = labelSprite(getMemberMark(m), 0, MEMBER_NAME_CANVAS_H, MEMBER_NAME_FONT, {
+    bg: null, padX: 8, color: '#FF9100', outline: '#000000', outlineWidth: 7, alwaysOnTop: true
+   });
+   nameLabel.scale.multiplyScalar(MEMBER_NAME_SCALE);
+   nameLabel.position.copy(a).lerp(b, 0.5).add(new THREE.Vector3(0, (secH / 2) + 0.22, 0));
+   group.add(nameLabel);
   }
   if(active&&$('deformed').checked&&deformScale>0){const da=active.nodes[m.i].displacement,db=active.nodes[m.j].displacement;line([a.clone().add(new THREE.Vector3(...da.slice(0,3)).multiplyScalar(deformScale)),b.clone().add(new THREE.Vector3(...db.slice(0,3)).multiplyScalar(deformScale))],0xffb861);}
  }
@@ -1382,13 +1388,13 @@ function drawModel(){
    const support=new THREE.Mesh(new THREE.ConeGeometry(.24,.32,4),new THREE.MeshStandardMaterial({color:coneColor,transparent:true,opacity:.85}));
    support.position.copy(p).add(new THREE.Vector3(0,-.2,0));
    group.add(support);
-   if(isElevated&&$('labels').checked){
+   if(isElevated&&showNodeLabels){
     const badge=labelSprite(`⚠️ ${n.id} (Support ลอยฟ้า Y=${fmt(n.y)}m)`,0,30,13,{bg:'rgba(239, 68, 68, 0.95)',border:'#fef08a',color:'#ffffff',radius:6,alwaysOnTop:true});
     badge.position.copy(p).add(new THREE.Vector3(0,0.35,0));
     group.add(badge);
    }
   }
-  if($('labels').checked){
+  if(showNodeLabels){
    const isSelNode = selected?.kind === 'nodes' && selected.id === n.id;
    const labelOpts = isSelNode
     ? { bg: 'rgba(245, 158, 11, 0.95)', border: '#fef08a', color: '#0f172a', radius: 8, alwaysOnTop: true }
@@ -2048,7 +2054,7 @@ $('addMember').onclick=()=>{const i=$('memberI').value,j=$('memberJ').value,kind
 $('addSlab').onclick=()=>{tab='slabs';addRow();};$('addFoundation').onclick=()=>{tab='foundations';addRow();};
 $('undo').onclick=()=>{cancelInteraction(false);if(!history.length)return;model=history.pop();revision++;result=null;selected=null;persist();render();status('ย้อนแล้ว · ต้องวิเคราะห์ใหม่');};
 $('tabs').onclick=e=>{if(e.target.dataset.tab){tab=e.target.dataset.tab;renderTable();}};
-$('fit').onclick=fit;for(const id of ['labels','deformed','diagram3d','diagramValues','showPointLoads','showUniformLoads','showSelfWeight','showRoofSheeting']){if($(id))$(id).onchange=drawModel;}
+$('fit').onclick=fit;for(const id of ['memberNames','labels','deformed','diagram3d','diagramValues','showPointLoads','showUniformLoads','showSelfWeight','showRoofSheeting']){if($(id))$(id).onchange=drawModel;}
 function updateScaleControls(){
  const d=$('deformScale'),dp=$('deformScalePill');
  if(d&&dp){dp.classList.toggle('pill-hidden',!$('deformed')?.checked);const v=$('deformScaleValue');if(v)v.textContent=fmt(Number(d.value)||0,0);}
@@ -2120,7 +2126,7 @@ if($('structModeButton'))$('structModeButton').onclick=()=>{
 renderStructButton();
 function updateDisplayToggles(){
  // hide a load toggle when the model has no data of that type (nothing it could show)
- const hasData={pointLoadsToggle:model?.nodalLoads?.length>0,uniformLoadsToggle:model?.memberLoads?.length>0,selfWeightToggle:model?.members?.length>0};
+ const hasData={pointLoadsToggle:model?.nodalLoads?.length>0,uniformLoadsToggle:model?.memberLoads?.length>0,selfWeightToggle:model?.members?.length>0,memberNameToggle:model?.members?.length>0};
  // keep the slot (visibility) instead of display:none so no other control ever moves
  for(const [id,available] of Object.entries(hasData)){const label=$(id);if(label)label.classList.toggle('pill-hidden',!available);}
  // the pill itself shows on/off, so the user does not have to aim at a 15 px box
