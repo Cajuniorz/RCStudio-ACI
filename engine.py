@@ -50,7 +50,10 @@ def validate_draft(data):
 
     Solve always uses the stricter validate() path. Never infer missing values.
     """
-    shape(data, 'schemaVersion name material nodes members nodalLoads memberLoads combinations selfWeight', 'Project')
+    req_fields = 'schemaVersion name material nodes members nodalLoads memberLoads combinations selfWeight'
+    if isinstance(data, dict) and 'coordinateSystem' in data:
+        req_fields += ' coordinateSystem'
+    shape(data, req_fields, 'Project')
     if type(data['schemaVersion']) is not int or data['schemaVersion'] != 1:
         fail('Unsupported schemaVersion')
     if not isinstance(data['name'], str) or len(data['name']) > 120 or type(data['selfWeight']) is not bool:
@@ -103,7 +106,10 @@ def validate(data, draft=False, section_overrides=None):
         return validate_project(data) if draft else prepare(data)
     if draft:
         return validate_draft(data)
-    shape(data, 'schemaVersion name material nodes members nodalLoads memberLoads combinations selfWeight', 'Project')
+    req_fields = 'schemaVersion name material nodes members nodalLoads memberLoads combinations selfWeight'
+    if isinstance(data, dict) and 'coordinateSystem' in data:
+        req_fields += ' coordinateSystem'
+    shape(data, req_fields, 'Project')
     if type(data['schemaVersion']) is not int or data['schemaVersion'] != 1:
         fail('Unsupported schemaVersion')
     if not isinstance(data['name'], str) or not 1 <= len(data['name']) <= 120:
@@ -217,6 +223,7 @@ def section_properties(b, h):
 
 def solve(data):
     source = copy.deepcopy(data)
+    is_z_up = bool(isinstance(data, dict) and data.get('coordinateSystem') == 'z-up')
     overrides, coverage = {}, None
     if isinstance(data, dict) and data.get('schemaVersion') == 2:
         from project_v2 import prepare
@@ -257,8 +264,13 @@ def solve(data):
             if value:
                 dir_name = 'F' + (axis.lower() if is_local else axis.upper())
                 model.add_member_dist_load(load['member'], dir_name, value, value, case=load['case'])
+    if not is_z_up and isinstance(data, dict) and data.get('coordinateSystem') == 'z-up':
+        is_z_up = True
     if data['selfWeight']:
-        model.add_member_self_weight('FY', -1, case='D')
+        if is_z_up:
+            model.add_member_self_weight('FZ', -1, case='D')
+        else:
+            model.add_member_self_weight('FY', -1, case='D')
     for combo in data['combinations']:
         model.add_load_combo(combo['name'], {c: combo[c] for c in CASES})
     try:
@@ -283,7 +295,7 @@ def solve(data):
               'modelHash': hashlib.sha256(json.dumps(source, sort_keys=True, allow_nan=False).encode()).hexdigest(),
               'assumptions': ['Linear elastic, first order, rigid joints; concrete rectangles or user-supplied steel section properties',
                               'No slab stiffness/soil/RC capacity, cracking, creep, P-Delta, seismic or code checks',
-                              'Loads and combination factors are user inputs; Y is vertical',
+                              'Loads and combination factors are user inputs; Z is vertical (SketchUp standard)',
                               'Member forces and deflections use local axes; node outputs use global axes',
                               'Concrete rectangle J uses a Saint-Venant approximation; steel custom A/Iy/Iz/J are user-supplied directly'],
               'sections': sections, 'combinations': {}}
@@ -321,7 +333,10 @@ def solve(data):
                     else:
                         q += q_vec
             if data['selfWeight']:
-                q[1] -= sections[m['id']]['A']*densities[m['id']]*combo['D']
+                if is_z_up:
+                    q[2] -= sections[m['id']]['A']*densities[m['id']]*combo['D']
+                else:
+                    q[1] -= sections[m['id']]['A']*densities[m['id']]*combo['D']
             apply((a+b)/2, q*np.linalg.norm(b-a), np.zeros(3))
         node_results, member_results = {}, {}
         for key, n in model.nodes.items():

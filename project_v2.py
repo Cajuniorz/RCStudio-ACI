@@ -27,9 +27,10 @@ def migrate(data):
     p.update(schemaVersion=2, canonicalUnits='m-kN-MPa', displayUnits={'system':'thai','force':'kgf'},
              steel={'E':200000,'nu':.3,'density':77}, slabs=[], foundations=[], gridLines={'x':[],'z':[]})
     nodes={n['id']:n for n in p['nodes']}
+    is_z_up = (p.get('coordinateSystem') == 'z-up')
     for m in p['members']:
         a,b=nodes[m['i']],nodes[m['j']]
-        kind='column' if a['x']==b['x'] and a['z']==b['z'] else 'beam'
+        kind='column' if (a['x']==b['x'] and (a['y']==b['y'] if is_z_up else a['z']==b['z'])) else 'beam'
         m.update(kind=kind, sectionType='rc_rect', A=None, Iy=None, Iz=None, J=None, roofType='custom', behavior='frame')
     return p
 
@@ -39,6 +40,8 @@ def core_project(p):
     core={k:copy.deepcopy(p[k]) for k in keys}
     core['schemaVersion']=1
     core['members']=[{k:copy.deepcopy(m[k]) for k in 'id i j b h rotation'.split()} for m in p['members']]
+    if 'coordinateSystem' in p:
+        core['coordinateSystem'] = p['coordinateSystem']
     return core
 
 
@@ -54,11 +57,15 @@ def validate_project(p, draft=True):
         allowed_roots.add('gridLines')
     if 'roofSheeting' in p:
         allowed_roots.add('roofSheeting')
+    if 'coordinateSystem' in p:
+        allowed_roots.add('coordinateSystem')
     if set(p.keys()) != allowed_roots:
         fail(f'Project v2: required fields: {ROOT_FIELDS}; unknown fields are not supported')
     if 'gridLines' in p:
-        shape(p['gridLines'], 'x z', 'Grid lines')
-        for axis in ('x','z'):
+        grid_keys = set(p['gridLines'].keys())
+        if grid_keys not in ({'x', 'y'}, {'x', 'z'}, {'x', 'y', 'z'}):
+            fail('Grid lines: required axes x and y (or x and z)')
+        for axis in [a for a in ('x', 'y', 'z') if a in p['gridLines']]:
             rows=p['gridLines'][axis]
             if not isinstance(rows,list) or len(rows)>20:
                 fail(f'Grid lines {axis}: maximum 20 axes')
@@ -144,11 +151,14 @@ def validate_project(p, draft=True):
     return core
 
 
-def rectangle(nodes, label):
+def rectangle(nodes, label, is_z_up=None):
     if len(nodes)!=4:
         fail(f'{label}: one-way transfer requires four ordered corners')
     points=np.array(nodes,dtype=float)
-    if np.ptp(points[:,1])>1e-7:
+    if is_z_up is None:
+        is_z_up = np.ptp(points[:,2]) <= 1e-7 and np.ptp(points[:,1]) > 1e-7
+    elev_idx = 2 if is_z_up else 1
+    if np.ptp(points[:,elev_idx])>1e-7:
         fail(f'{label}: floor must be horizontal')
     edges=np.roll(points,-1,axis=0)-points
     lengths=np.linalg.norm(edges,axis=1)
@@ -159,13 +169,17 @@ def rectangle(nodes, label):
     return points, float(lengths[0]*lengths[1])
 
 
-def overlap(a,b):
-    if abs(a[0,1]-b[0,1])>1e-7: return False
+def overlap(a,b, is_z_up=None):
+    if is_z_up is None:
+        is_z_up = np.ptp(a[:,2]) <= 1e-7 and np.ptp(b[:,2]) <= 1e-7 and (np.ptp(a[:,1]) > 1e-7 or np.ptp(b[:,1]) > 1e-7)
+    elev_idx = 2 if is_z_up else 1
+    plane_idx = [0, 1] if is_z_up else [0, 2]
+    if abs(a[0,elev_idx]-b[0,elev_idx])>1e-7: return False
     for points in (a,b):
         for i in (0,1):
-            v=points[(i+1)%4,[0,2]]-points[i,[0,2]]
+            v=points[(i+1)%4,plane_idx]-points[i,plane_idx]
             axis=np.array([-v[1],v[0]])/np.linalg.norm(v)
-            pa=a[:,[0,2]]@axis;pb=b[:,[0,2]]@axis
+            pa=a[:,plane_idx]@axis;pb=b[:,plane_idx]@axis
             if min(max(pa),max(pb))-max(min(pa),min(pb))<=1e-7:return False
     return True
 
@@ -188,6 +202,10 @@ def prepare(p):
     member_map={m['id']:m for m in p['members']}
     loads={(l['member'],l['case']):copy.deepcopy(l) for l in core['memberLoads']}
     provenance=[];coverage=[];rectangles=[]
+    is_z_up = (p.get('coordinateSystem') == 'z-up')
+    force_axis = 2 if is_z_up else 1
+    q_key = 'qz' if is_z_up else 'qy'
+    elev_axis_name = 'Z' if is_z_up else 'Y'
     for slab in p['slabs']:
         sid=slab['id']
         if slab['mode'] not in ('one_way_load', 'two_way_load'):
@@ -198,8 +216,8 @@ def prepare(p):
         elif slab['mode'] == 'two_way_load':
             if slab['type'] not in ('two_way', 'custom'):
                 fail(f'{sid}: selected floor type cannot use two-way transfer in this version')
-        pts,area=rectangle([coords[n] for n in slab['nodes']],sid)
-        if any(overlap(pts,previous) for previous in rectangles):fail(f'{sid}: overlapping floor panels would double-count load')
+        pts,area=rectangle([coords[n] for n in slab['nodes']],sid,is_z_up=is_z_up)
+        if any(overlap(pts,previous,is_z_up=is_z_up) for previous in rectangles):fail(f'{sid}: overlapping floor panels would double-count load')
         rectangles.append(pts)
         number(slab['thickness'],f'{sid}.thickness (m)',.001,5)
         number(slab['dead'],f'{sid}.additional dead (kN/m2)',0,10000)
@@ -239,13 +257,13 @@ def prepare(p):
                         q = -(pressure * Ls / 2.0) * (1.0 - Ls / (2.0 * Ll))
                     key=(m['id'],case)
                     if key not in loads:loads[key]={'member':m['id'],'case':case,'qx':0,'qy':0,'qz':0}
-                    loads[key]['qy']+=q
+                    loads[key][q_key]+=q
                     a,b=coords[m['i']],coords[m['j']]
-                    force=np.array([0,q*L_edge,0])
+                    force=np.zeros(3); force[force_axis]=q*L_edge
                     generated_force+=force
                     generated_moment+=np.cross((a+b)/2,force)
-                    provenance.append({'source':sid,'member':m['id'],'case':case,'areaM2':area,'pressureKNm2':pressure,'qyKNm':q,'formula':'Two-way 45 deg tributary load (triangular/trapezoidal)'})
-                expected=np.array([0,-total,0]);expected_m=np.cross(pts.mean(axis=0),expected)
+                    provenance.append({'source':sid,'member':m['id'],'case':case,'areaM2':area,'pressureKNm2':pressure,'qzKNm':q if is_z_up else 0,'qyKNm':q if not is_z_up else 0,'formula':'Two-way 45 deg tributary load (triangular/trapezoidal)'})
+                expected=np.zeros(3); expected[force_axis]=-total; expected_m=np.cross(pts.mean(axis=0),expected)
                 if not np.allclose(generated_force,expected,atol=1e-8,rtol=1e-9) or not np.allclose(generated_moment,expected_m,atol=1e-8,rtol=1e-9):fail(f'{sid}: floor transfer force/moment mismatch')
             coverage.append({'id':sid,'kind':'slab','status':'LOAD_TRANSFER_ONLY','detail':'Two-way tributary transfer (45 deg triangular/trapezoidal); no plate stiffness, diaphragm or RC capacity'})
         else:
@@ -265,10 +283,10 @@ def prepare(p):
                     a,b=coords[m['i']],coords[m['j']];length=float(np.linalg.norm(b-a));q=-total/(2*length)
                     key=(m['id'],case)
                     if key not in loads:loads[key]={'member':m['id'],'case':case,'qx':0,'qy':0,'qz':0}
-                    loads[key]['qy']+=q
-                    force=np.array([0,q*length,0]);generated_force+=force;generated_moment+=np.cross((a+b)/2,force)
-                    provenance.append({'source':sid,'member':m['id'],'case':case,'areaM2':area,'pressureKNm2':pressure,'qyKNm':q,'formula':'q = -(self + additional pressure) * area / (2 * beam length)'})
-                expected=np.array([0,-total,0]);expected_m=np.cross(pts.mean(axis=0),expected)
+                    loads[key][q_key]+=q
+                    force=np.zeros(3); force[force_axis]=q*length; generated_force+=force;generated_moment+=np.cross((a+b)/2,force)
+                    provenance.append({'source':sid,'member':m['id'],'case':case,'areaM2':area,'pressureKNm2':pressure,'qzKNm':q if is_z_up else 0,'qyKNm':q if not is_z_up else 0,'formula':'q = -(self + additional pressure) * area / (2 * beam length)'})
+                expected=np.zeros(3); expected[force_axis]=-total; expected_m=np.cross(pts.mean(axis=0),expected)
                 if not np.allclose(generated_force,expected,atol=1e-8,rtol=1e-9) or not np.allclose(generated_moment,expected_m,atol=1e-8,rtol=1e-9):fail(f'{sid}: floor transfer force/moment mismatch')
             coverage.append({'id':sid,'kind':'slab','status':'LOAD_TRANSFER_ONLY','detail':'One-way simply supported tributary transfer; no plate stiffness, diaphragm or RC capacity'})
     core['memberLoads']=list(loads.values())
@@ -277,24 +295,24 @@ def prepare(p):
         fid=f['id']
         if f['mode']!='ideal_support':fail(f'{fid}: foundation support idealization is pending')
         if not f['nodes']:fail(f'{fid}: assign supported nodes')
-        if np.ptp([coords[n][1] for n in f['nodes']])>1e-7:fail(f'{fid}: linked support nodes must be at one elevation')
+        if np.ptp([coords[n][force_axis] for n in f['nodes']])>1e-7:fail(f'{fid}: linked support nodes must be at one elevation')
         for n in f['nodes']:
             if n in linked:fail(f'{fid}: node {n} already belongs to another foundation')
             if not any(node_map[n]['restraints'][:3]):fail(f'{fid}: node {n} needs an explicit translational restraint')
-            if coords[n][1] > 0.1:
-                fail(f'{fid}: ฐานรากไม่สามารถอยู่บนโหนดลอยฟ้า {n} (Y={coords[n][1]:.3f}m) ได้ กรุณาผูกฐานรากกับโหนดฐานเสาที่ระดับดิน (Y=0)')
+            if coords[n][force_axis] > 0.1:
+                fail(f'{fid}: ฐานรากไม่สามารถอยู่บนโหนดลอยฟ้า {n} ({elev_axis_name}={coords[n][force_axis]:.3f}m) ได้ กรุณาผูกฐานรากกับโหนดฐานเสาที่ระดับดิน ({elev_axis_name}=0)')
             linked.add(n)
-        for key in ('bx','bz','depth'):number(f[key],f'{fid}.{key} (m)',.01,10000)
+        for key in [k for k in ('bx','by','bz','depth') if k in f]:number(f[key],f'{fid}.{key} (m)',.01,10000)
         for key in ('qa','pileCapacity','pileLength','embedment'):
             if f[key] is not None:number(f[key],f'{fid}.{key}',0,1e8)
         if f['pileCount'] is not None and (type(f['pileCount']) is not int or f['pileCount']<0):fail(f'{fid}: pileCount must be a nonnegative integer')
         coverage.append({'id':fid,'kind':'foundation','status':'IDEAL_SUPPORT_ONLY','detail':'Uses explicit node restraints. Geometry, soil and pile inputs are records, not soil/pile stiffness or capacity; foundation self weight excluded from superstructure model.'})
-    elevated_supports = [n['id'] for n in p['nodes'] if n['y'] > 0.05 and any(n['restraints'])]
+    elevated_supports = [n['id'] for n in p['nodes'] if (n.get('z', 0) if is_z_up else n.get('y', 0)) > 0.05 and any(n['restraints'])]
     if elevated_supports:
         coverage.append({
             'id': ','.join(elevated_supports),
             'kind': 'support',
             'status': 'ELEVATED_SUPPORT_WARNING',
-            'detail': f'พบจุดรองรับลอยฟ้า (Elevated Support) ที่โหนด {", ".join(elevated_supports)} (Y > 0.05m): จุดรองรับนี้จะดูดซับแรงและโมเมนต์โดยตรง ทำให้น้ำหนักไม่ถ่ายลงเสาและฐานรากตามความเป็นจริง'
+            'detail': f'พบจุดรองรับลอยฟ้า (Elevated Support) ที่โหนด {", ".join(elevated_supports)} ({elev_axis_name} > 0.05m): จุดรองรับนี้จะดูดซับแรงและโมเมนต์โดยตรง ทำให้น้ำหนักไม่ถ่ายลงเสาและฐานรากตามความเป็นจริง'
         })
     return core,overrides,{'components':coverage,'floorLoadTransfers':provenance,'foundationDefinitions':copy.deepcopy(p['foundations'])}

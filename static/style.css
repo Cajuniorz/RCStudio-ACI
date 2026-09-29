@@ -31,6 +31,20 @@
 .force-pill{display:inline-block;padding:2px 6px;border-radius:4px;background:#2B2F36;border:1px solid #4B5563;font-size:10px;font-family:monospace;margin:2px}
 .reference-node-tool{display:grid;gap:6px;margin:10px 0;padding:10px;border:1px solid #3A404D;border-radius:6px;background:#1A1D21}
 .reference-node-tool b{color:#FF9A33}.reference-node-tool small{color:#A0A4AA;line-height:1.5}.reference-node-tool select,.reference-node-tool input{margin:0}.reference-node-tool button{white-space:normal;font-size:11px}#gridLabelsOverlay{position:absolute;inset:0;pointer-events:none;z-index:4;overflow:hidden}.grid-axis-label{position:absolute;z-index:4;transform:translate(-50%,-50%);display:grid;place-items:center;min-width:28px;height:28px;padding:0 5px;border-radius:50%;background:#141A22;border:2px solid #5b9bd5;color:#f0f7ff;font:700 12px Prompt,'Segoe UI',sans-serif;box-shadow:0 2px 8px rgba(0,0,0,.8);pointer-events:none}.grid-axis-label.grid-z{border-color:#e68a35;color:#ffe6c7}.grid-dim-badge{position:absolute;z-index:3;transform:translate(-50%,-50%);padding:2px 6px;border-radius:4px;background:rgba(18,22,28,0.92);border:1px solid #4e6275;color:#a8c4db;font:700 10px Consolas,monospace;box-shadow:0 1px 4px rgba(0,0,0,.6);pointer-events:none;white-space:nowrap}.grid-dim-badge.total{border-color:#e68a35;color:#ffd8ad}.plan-role-select{padding:3px 8px;border-radius:4px;background:#1b222a;color:#d8e8f8;border:1px solid #4a637d;font-size:11px;font-weight:600}.plan-continuous{display:inline-flex;align-items:center;gap:4px;font-size:11px;color:#c2d3e4;cursor:pointer;user-select:none;margin-left:2px}.btn-subaction{padding:6px 12px;background:#243242;border:1px solid #49698a;color:#cfe5f9;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;transition:all .15s}.btn-subaction:hover{background:#304359;border-color:#6591bd}.grid-add-btn{padding:4px 10px;background:#1e2732;border:1px dashed #54799f;color:#b1d4f4;border-radius:5px;font-size:11px;font-weight:600;cursor:pointer}.grid-add-btn:hover{background:#283647;border-color:#74a3d4}.grid-editor-dialog{width:min(1180px,96vw);max-width:1180px;max-height:88vh;margin:auto;padding:0;color:#E2E4E8;background:#20252b;border:1px solid #49637c;border-radius:12px;box-shadow:0 22px 80px rgba(0,0,0,.8);overflow:auto}.grid-editor-dialog::backdrop{background:rgba(7,10,14,.82);backdrop-filter:blur(4px)}.grid-editor-head{display:flex;justify-content:space-between;align-items:center;gap:18px;padding:18px 24px;border-bottom:1px solid #364453;background:#182029}.grid-editor-head h2{margin:0;color:#f3f8fd;font-size:18px}.grid-editor-head p{margin:4px 0 0;color:#9eb0c1;font-size:12px}.grid-editor-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;padding:20px 24px 14px}.grid-axis-card{min-width:0;padding:14px;border:1px solid #35475a;border-radius:8px;background:#181d24}.grid-axis-card h3{display:flex;align-items:center;gap:9px;margin:0 0 10px;font-size:13px}.grid-axis-mark{display:grid;place-items:center;width:26px;height:26px;border-radius:50%;font-weight:700}.grid-axis-mark.x{color:#c6e1fb;border:1.5px solid #5b9bd5;background:#122131}.grid-axis-mark.z{color:#ffd29d;border:1.5px solid #e68a35;background:#2d1e12}.grid-table-scroll{max-height:46vh;overflow:auto;border:1px solid #32404f;border-radius:6px}.grid-edit-table{width:100%;border-collapse:collapse;font-size:12px}.grid-edit-table th{position:sticky;top:0;z-index:1;padding:9px 8px;background:#25313d;color:#b4c8db;text-align:left;white-space:nowrap}.grid-edit-table td{padding:6px 6px;border-top:1px solid #2d3844}.grid-edit-table input{min-width:0;padding:7px 8px;font-variant-numeric:tabular-nums;border-radius:4px}.grid-edit-table .axis-label-input{width:68px;text-align:center;font-weight:700}.grid-edit-table .axis-value-input{width:100%;min-width:92px}.grid-edit-table .grid-gap-input{width:100%;min-width:85px;color:#a5c7e7;font-weight:600}.grid-edit-table .remove-grid-axis{padding:5px 8px;color:#f0b0a7;border-color:#68443f;border-radius:4px;cursor:pointer}.grid-add-axis{margin-top:10px;width:100%;border-style:dashed;color:#c5d6e4;padding:8px}.grid-editor-help{margin:4px 24px 14px;padding:10px 14px;border-left:4px solid #e98a32;background:#262d36;color:#c7d1dc;font-size:12px;border-radius:0 6px 6px 0}.grid-editor-actions{position:sticky;bottom:0;display:flex;justify-content:flex-end;align-items:center;gap:10px;padding:14px 24px;background:#1e242b;border-top:1px solid #364453}.grid-editor-actions .primary{padding:9px 20px;font-weight:700}.grid-editor-actions .secondary{padding:8px 16px;background:#283442;border:1px solid #4a6788;color:#d5e7f9;border-radius:6px;cursor:pointer}@media(max-width:750px){.grid-editor-dialog{width:96vw;max-height:92vh}.grid-editor-head{padding:14px;flex-direction:column;align-items:flex-start}.grid-editor-grid{grid-template-columns:1fr;padding:12px}.grid-table-scroll{max-height:28vh}.grid-editor-help{margin:4px 12px 12px}.grid-editor-actions{padding:10px 14px;flex-wrap:wrap}}
+
+/* on/off + its value are one pill: the frame and the position are fixed, the value is typed or stepped */
+.viewbottom .combo-pill{pointer-events:auto;display:inline-flex;align-items:center;gap:3px;height:27px;box-sizing:border-box;padding:0 4px 0 8px;border-radius:4px;background:rgba(30,35,42,0.85);border:1px solid #3a4552;font-size:10px;color:#c2d3e4;transition:background .15s,border-color .15s}
+.viewbottom .combo-pill.on{background:#3a3020;border-color:#ffb020;color:#ffe9c9;box-shadow:0 0 7px rgba(255,170,32,.42),inset 0 0 7px rgba(255,170,32,.16)}
+.viewbottom .combo-head{display:inline-flex;align-items:center;gap:4px;margin:0;padding:0;border:0;background:transparent;color:inherit;font-size:10px;cursor:pointer;white-space:nowrap}
+.viewbottom .combo-head::before{content:'';display:inline-block;flex:0 0 auto;width:11px;height:11px;border-radius:50%;box-sizing:border-box;background:#141b24;border:1px solid #4c5f75;box-shadow:inset 0 0 2px rgba(0,0,0,.9)}
+.viewbottom .combo-pill.on .combo-head::before{background:radial-gradient(circle at 34% 30%,#fff7e2 0%,#ffb020 46%,#b45309 100%);border-color:#ffd28a;box-shadow:0 0 7px 2px rgba(255,170,32,.72),0 0 15px 5px rgba(255,120,0,.3)}
+.viewbottom .combo-pill .step{width:17px;height:17px;margin:0;padding:0;display:grid;place-items:center;font-size:12px;line-height:1;background:#2b3542;border:1px solid #4a637d;border-radius:3px;color:#dbe9f7;cursor:pointer}
+.viewbottom .combo-pill .step:hover{background:#38495c;border-color:#7aa7c7}
+.viewbottom .combo-pill .combo-value{width:44px;height:18px;margin:0;padding:0 2px;font:10px Consolas,monospace;text-align:center;background:#1b222a;border:1px solid #4a637d;border-radius:3px;color:#eaf4ff}
+.viewbottom .combo-pill .combo-value:focus{outline:1px solid #FF8F1F}
+/* switched off = cannot be adjusted */
+.viewbottom .combo-pill:not(.on) .step,.viewbottom .combo-pill:not(.on) .combo-value{opacity:.38;pointer-events:none}
+.viewbottom .combo-pill:not(.on) .combo-head{color:#8f9aa6}
 .viewbottom label{position:relative;margin:0;padding:5px 8px;border-radius:4px;background:rgba(30,35,42,0.85);border:1px solid #3a4552;cursor:pointer;user-select:none;transition:all .15s}
 .viewbottom label:hover{background:#2b3542;border-color:#566f8a;color:#f1f5f9}
 /* one button cycles the mutually exclusive view states: no dropdown, no aiming */
@@ -43,32 +57,588 @@
 .viewbottom label.on{background:#3a3020;border-color:#ffb020;color:#ffe9c9;box-shadow:0 0 7px rgba(255,170,32,.42),inset 0 0 7px rgba(255,170,32,.16)}
 .viewbottom label.on:hover{border-color:#ffd28a}
 /* the row is fixed in content, so pills size to their own text: nothing can appear or vanish and shift the rest */
-#deformScalePill{width:158px}#diagramScalePill{width:176px}
-.viewbottom>label,.slider-pill{justify-content:flex-start}
 /* the lamp always reserves its slot, so toggling never changes the pill width.
    no tick symbol: on = the lamp is lit and the pill frame glows, off = the light is out */
 .viewbottom>label::before{content:'';display:inline-block;flex:0 0 auto;width:11px;height:11px;border-radius:50%;box-sizing:border-box;background:#141b24;border:1px solid #4c5f75;box-shadow:inset 0 0 2px rgba(0,0,0,.9)}
 .viewbottom>label.on::before{background:radial-gradient(circle at 34% 30%,#fff7e2 0%,#ffb020 46%,#b45309 100%);border-color:#ffd28a;box-shadow:0 0 7px 2px rgba(255,170,32,.72),0 0 15px 5px rgba(255,120,0,.3)}
 .viewbottom label[hidden]{display:none!important}
 /* sliders that size the 3D diagrams and the deformed shape */
-.slider-pill{pointer-events:auto;display:inline-flex;align-items:center;gap:5px;height:30px;margin:0;box-sizing:border-box;padding:2px 8px;border-radius:4px;background:rgba(30,35,42,0.85);border:1px solid #4a637d;font-size:10px;color:#c2d3e4}
-.slider-pill span{white-space:nowrap}
-.slider-pill input[type=range]{flex:1 1 auto;width:auto;min-width:0;padding:0;margin:0;background:transparent;border:0;accent-color:#38bdf8}
-.slider-pill b{min-width:30px;text-align:right;font:10px Consolas,monospace;color:#eaf4ff}
 /* folded state: one number the user can click to reveal the slider again */
-.slider-pill .sp-head{display:none;align-items:center;gap:5px;padding:0;border:0;background:transparent;color:inherit;font:inherit;cursor:pointer;flex:1 1 auto;justify-content:flex-start}
-.slider-pill .sp-head::after{content:'\25BE';color:#7dd3fc;margin-left:auto}
-.slider-pill.collapsed .sp-head{display:inline-flex}
 /* expanded: keep the short name so the two sliders are never ambiguous, but hide the value/caret
    (the number field beside the track already shows the value) */
-.slider-pill:not(.collapsed) .sp-head{display:inline-flex;pointer-events:none;flex:0 0 auto}
-.slider-pill:not(.collapsed) .sp-head b,.slider-pill:not(.collapsed) .sp-head::after{display:none}
-.slider-pill.collapsed input[type=range],.slider-pill.collapsed .sp-number{display:none}
-.slider-pill .sp-number{width:54px;height:24px;min-width:0;margin:0;padding:1px 4px;font-size:10px;background:#1b222a;border-color:#4a637d;color:#d8e8f8;font-family:Consolas,monospace}
-.slider-pill .sp-number:focus{outline:1px solid #FF8F1F}
 /* a control with nothing to show keeps its box, so every other control stays put */
 .pill-hidden{visibility:hidden!important;pointer-events:none!important}
 #pointLoadsToggle,#uniformLoadsToggle,#selfWeightToggle{border-color:#f59e0b;color:#fde68a}
+
+/* ==========================================================================
+   SketchUp 3D Build Mode & Controls (Sprint 1)
+   ========================================================================== */
+
+/* Mode Switcher in Header */
+.mode-switcher {
+  display: inline-flex;
+  align-items: center;
+  background: #181d24;
+  border: 1px solid #364453;
+  border-radius: 8px;
+  padding: 3px;
+  gap: 3px;
+  user-select: none;
+}
+.mode-btn {
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #9eb0c1;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+.mode-btn:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.06);
+}
+.mode-btn.active {
+  background: #FF7A00;
+  color: #1A1D21;
+  font-weight: 700;
+  box-shadow: 0 2px 8px rgba(255, 122, 0, 0.35);
+}
+
+/* Floating Build Tool Palette (Viewport) */
+.build-tool-palette {
+  position: absolute;
+  left: 16px;
+  top: 56px;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 6px;
+  background: rgba(22, 27, 34, 0.88);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(80, 95, 115, 0.45);
+  border-radius: 10px;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.6), 0 0 1px rgba(255, 255, 255, 0.15);
+  pointer-events: auto;
+  min-width: 140px;
+  animation: fadeInPalette 0.18s ease-out;
+}
+.build-tool-palette[hidden] {
+  display: none !important;
+}
+@keyframes fadeInPalette {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.build-palette-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #c2d3e4;
+  padding: 6px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 11.5px;
+  text-align: left;
+  transition: all 0.12s ease;
+  user-select: none;
+}
+.build-palette-btn:hover {
+  background: rgba(43, 53, 66, 0.7);
+  border-color: #4a637d;
+  color: #fff;
+}
+.build-palette-btn.active {
+  background: #FF7A00;
+  color: #1A1D21;
+  font-weight: 700;
+  border-color: #ff9a33;
+  box-shadow: 0 0 10px rgba(255, 122, 0, 0.4);
+}
+.palette-icon {
+  font-size: 13px;
+  line-height: 1;
+  width: 16px;
+  text-align: center;
+}
+.palette-label {
+  flex: 1;
+}
+.palette-kbd {
+  margin-left: auto;
+  background: rgba(15, 19, 24, 0.65);
+  border: 1px solid rgba(70, 85, 105, 0.4);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font: bold 9.5px Consolas, monospace;
+  color: #e2e8f0;
+}
+.build-palette-btn.active .palette-kbd {
+  background: rgba(0, 0, 0, 0.22);
+  border-color: rgba(0, 0, 0, 0.3);
+  color: #1A1D21;
+}
+.build-palette-divider {
+  height: 1px;
+  background: rgba(80, 95, 115, 0.35);
+  margin: 3px 4px;
+}
+
+/* Custom Context Menu (Modern Dark Glassmorphism) */
+.custom-context-menu {
+  position: fixed;
+  z-index: 1000;
+  background: rgba(22, 27, 34, 0.94);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border: 1px solid rgba(80, 95, 115, 0.45);
+  border-radius: 10px;
+  padding: 5px;
+  min-width: 230px;
+  box-shadow: 0 18px 45px rgba(0, 0, 0, 0.7), 0 0 1px rgba(255, 255, 255, 0.2);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  user-select: none;
+  animation: contextMenuPop 0.12s ease-out;
+}
+.custom-context-menu[hidden] {
+  display: none !important;
+}
+@keyframes contextMenuPop {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
+}
+.ctx-header {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: #FF9A33;
+  padding: 5px 10px 4px;
+  text-transform: uppercase;
+}
+.ctx-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  border: 1px solid transparent;
+  background: transparent;
+  padding: 6px 10px;
+  border-radius: 6px;
+  color: #d8e2ec;
+  font-size: 11.5px;
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+.ctx-item:hover {
+  background: rgba(255, 122, 0, 0.18);
+  border-color: rgba(255, 122, 0, 0.35);
+  color: #fff;
+}
+.ctx-icon {
+  font-size: 13px;
+  line-height: 1;
+  width: 16px;
+  text-align: center;
+}
+.ctx-title {
+  flex: 1;
+}
+.ctx-key {
+  margin-left: auto;
+  background: rgba(30, 36, 44, 0.85);
+  border: 1px solid rgba(80, 95, 115, 0.4);
+  border-radius: 4px;
+  padding: 1px 6px;
+  font: bold 9.5px Consolas, monospace;
+  color: #ffb050;
+}
+.ctx-divider {
+  height: 1px;
+  background: rgba(80, 95, 115, 0.35);
+  margin: 3px 6px;
+}
+
+/* Shortcut Manager Dialog */
+.shortcut-manager-dialog {
+  width: min(680px, 94vw);
+  max-height: 86vh;
+  margin: auto;
+  padding: 0;
+  color: #E2E4E8;
+  background: #1e242b;
+  border: 1px solid #49637c;
+  border-radius: 12px;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.85);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.shortcut-manager-dialog::backdrop {
+  background: rgba(7, 10, 14, 0.82);
+  backdrop-filter: blur(4px);
+}
+.shortcut-dialog-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 22px;
+  border-bottom: 1px solid #364453;
+  background: #182029;
+}
+.shortcut-dialog-head h2 {
+  margin: 0;
+  color: #f3f8fd;
+  font-size: 17px;
+}
+.shortcut-dialog-head p {
+  margin: 4px 0 0;
+  color: #9eb0c1;
+  font-size: 11.5px;
+}
+#closeShortcutDialog {
+  background: transparent;
+  border: 0;
+  color: #a0a4aa;
+  font-size: 18px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  line-height: 1;
+}
+#closeShortcutDialog:hover {
+  background: #2b3542;
+  color: #fff;
+}
+.shortcut-dialog-body {
+  flex: 1;
+  overflow-y: auto;
+  max-height: 54vh;
+  padding: 14px 22px;
+}
+.shortcut-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.shortcut-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 8px 10px;
+  background: #25313d;
+  color: #b4c8db;
+  text-align: left;
+}
+.shortcut-table td {
+  padding: 7px 10px;
+  border-top: 1px solid #2d3844;
+  vertical-align: middle;
+}
+.shortcut-record-btn {
+  padding: 4px 10px;
+  min-width: 76px;
+  background: #243242;
+  border: 1px solid #486586;
+  color: #ffd29d;
+  border-radius: 5px;
+  font: bold 11px Consolas, monospace;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.shortcut-record-btn:hover {
+  background: #304359;
+  border-color: #6a90bb;
+  color: #fff;
+}
+.shortcut-record-btn.recording {
+  background: #854d0e;
+  border-color: #f59e0b;
+  color: #fff;
+  box-shadow: 0 0 10px rgba(245, 158, 11, 0.5);
+  animation: pulseRecording 0.8s ease-in-out infinite alternate;
+}
+@keyframes pulseRecording {
+  from { opacity: 0.85; transform: scale(0.98); }
+  to { opacity: 1; transform: scale(1.02); }
+}
+.shortcut-dialog-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 22px;
+  border-top: 1px solid #364453;
+  background: #182029;
+}
+
+/* Axis Lock Badge (Sprint 2 - SketchUp Style Arrow Key Locking) */
+.axis-lock-badge {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 35;
+  padding: 6px 16px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.65);
+  pointer-events: none;
+  user-select: none;
+  animation: badgePop 0.15s ease-out;
+}
+.axis-lock-badge[hidden] {
+  display: none !important;
+}
+.axis-lock-badge.lock-x {
+  background: rgba(220, 38, 38, 0.94);
+  color: #fff;
+  border: 1.5px solid #f87171;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+.axis-lock-badge.lock-y {
+  background: rgba(22, 163, 74, 0.94);
+  color: #fff;
+  border: 1.5px solid #4ade80;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+.axis-lock-badge.lock-z {
+  background: rgba(37, 99, 235, 0.94);
+  color: #fff;
+  border: 1.5px solid #60a5fa;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+@keyframes badgePop {
+  from { opacity: 0; transform: translate(-50%, -6px) scale(0.95); }
+  to { opacity: 1; transform: translate(-50%, 0) scale(1); }
+}
+
+/* ==========================================================================
+   SketchUp-style Measurement Box (Sprint 3)
+   ========================================================================== */
+.build-measurement-box {
+  position: absolute;
+  bottom: 52px;
+  right: 18px;
+  z-index: 35;
+  background: rgba(15, 23, 42, 0.92);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(56, 189, 248, 0.5);
+  border-radius: 8px;
+  padding: 6px 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #f1f5f9;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 13px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+  transition: all 0.2s ease;
+  user-select: none;
+}
+.build-measurement-box:focus-within {
+  border-color: #38bdf8;
+  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.35), 0 8px 24px rgba(0, 0, 0, 0.7);
+}
+.build-measurement-box .measurement-label {
+  color: #94a3b8;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.build-measurement-box .measurement-input {
+  background: rgba(30, 41, 59, 0.85);
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 4px;
+  color: #38bdf8;
+  font-weight: 700;
+  font-family: inherit;
+  font-size: 14px;
+  width: 95px;
+  padding: 3px 6px;
+  text-align: right;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+.build-measurement-box .measurement-input:focus {
+  border-color: #38bdf8;
+  background: rgba(15, 23, 42, 0.95);
+  box-shadow: 0 0 8px rgba(56, 189, 248, 0.4);
+}
+.build-measurement-box .measurement-unit {
+  color: #64748b;
+  font-size: 12px;
+}
+.build-measurement-box[hidden] {
+  display: none !important;
+}
+
+/* ==========================================================================
+   Continuous Beams Join Dialog (Sprint 4)
+   ========================================================================== */
+.join-beams-dialog {
+  width: min(540px, 92vw);
+  margin: auto;
+  padding: 0;
+  color: #E2E4E8;
+  background: #1e242b;
+  border: 1px solid #49637c;
+  border-radius: 12px;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.85);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.join-beams-dialog::backdrop {
+  background: rgba(7, 10, 14, 0.82);
+  backdrop-filter: blur(4px);
+}
+.join-dialog-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 20px;
+  border-bottom: 1px solid #364453;
+  background: #182029;
+}
+.join-dialog-head h2 {
+  margin: 0;
+  color: #f3f8fd;
+  font-size: 16px;
+}
+.join-dialog-head p {
+  margin: 4px 0 0;
+  color: #9eb0c1;
+  font-size: 11.5px;
+}
+#closeJoinDialog {
+  background: transparent;
+  border: 0;
+  color: #a0a4aa;
+  font-size: 18px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  line-height: 1;
+}
+#closeJoinDialog:hover {
+  background: #2b3542;
+  color: #fff;
+}
+.join-dialog-body {
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  font-size: 12.5px;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+.join-beam-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: rgba(30, 41, 59, 0.6);
+  border: 1px solid rgba(70, 85, 105, 0.4);
+  border-radius: 8px;
+}
+.join-dialog-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 12px 20px;
+  border-top: 1px solid #364453;
+  background: #182029;
+}
+
+/* ==========================================================================
+   Pull / Extrude Node Floating Menu (Sprint 4)
+   ========================================================================== */
+.pull-node-menu {
+  position: fixed;
+  z-index: 1000;
+  background: rgba(22, 27, 34, 0.95);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(56, 189, 248, 0.5);
+  border-radius: 10px;
+  padding: 6px;
+  min-width: 250px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.75);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  user-select: none;
+  animation: contextMenuPop 0.12s ease-out;
+}
+.pull-node-menu[hidden] {
+  display: none !important;
+}
+.pull-menu-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: #38bdf8;
+  padding: 6px 10px 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-bottom: 1px solid rgba(80, 95, 115, 0.35);
+  margin-bottom: 2px;
+}
+.pull-menu-items {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.pull-item-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  border: 1px solid transparent;
+  background: transparent;
+  padding: 7px 10px;
+  border-radius: 6px;
+  color: #d8e2ec;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+.pull-item-btn:hover {
+  background: rgba(56, 189, 248, 0.18);
+  border-color: rgba(56, 189, 248, 0.4);
+  color: #fff;
+}
+.pull-axis-tag {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  text-transform: uppercase;
+}
+.pull-axis-tag.axis-x { background: rgba(220, 38, 38, 0.3); color: #f87171; border: 1px solid #ef4444; }
+.pull-axis-tag.axis-y { background: rgba(22, 163, 74, 0.3); color: #4ade80; border: 1px solid #22c55e; }
+.pull-axis-tag.axis-z { background: rgba(37, 99, 235, 0.3); color: #60a5fa; border: 1px solid #3b82f6; }
+
 
 
 

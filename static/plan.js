@@ -1,9 +1,14 @@
 function alphaLabel(index){let n=index+1,label='';while(n>0){n--;label=String.fromCharCode(65+n%26)+label;n=Math.floor(n/26);}return label;}
-export function buildGridLayoutFromLines({linesX,linesZ,y=0}={}){
+
+export function buildGridLayoutFromLines({linesX,linesY,linesZ,y,z}={}){
   const reject=reason=>({ok:false,reason});
   const round=v=>Number(v.toFixed(3));
-  if(!Array.isArray(linesX)||!Array.isArray(linesZ)||linesX.length<2||linesZ.length<2||linesX.length>20||linesZ.length>20||linesX.length*linesZ.length>400)return reject('กริดต้องมี 2–20 แนวต่อแกน และไม่เกิน 400 จุดตัด');
-  if(!Number.isFinite(y)||Math.abs(y)>10000)return reject('ระดับ Y ต้องเป็นตัวเลขในช่วง ±10000 m');
+  const linesSecond = linesY || linesZ;
+  const secondKey = linesY ? 'Y' : 'Z';
+  const elevVal = z !== undefined ? z : (y !== undefined ? y : 0);
+  const elevKey = z !== undefined ? 'Z' : 'Y';
+  if(!Array.isArray(linesX)||!Array.isArray(linesSecond)||linesX.length<2||linesSecond.length<2||linesX.length>20||linesSecond.length>20||linesX.length*linesSecond.length>400)return reject('กริดต้องมี 2–20 แนวต่อแกน และไม่เกิน 400 จุดตัด');
+  if(!Number.isFinite(elevVal)||Math.abs(elevVal)>10000)return reject(`ระดับ ${elevKey} ต้องเป็นตัวเลขในช่วง ±10000 m`);
   const normalize=(rows,axis)=>{
     const labels=new Set(),out=[];
     for(const row of rows){
@@ -14,24 +19,46 @@ export function buildGridLayoutFromLines({linesX,linesZ,y=0}={}){
     if(out.some((line,index)=>index>0&&line.value-out[index-1].value<.001))return null;
     return out;
   };
-  const x=normalize(linesX,'X'),z=normalize(linesZ,'Z');
-  if(!x||!z)return reject('ชื่อแนวต้องไม่ซ้ำ และพิกัดแต่ละแกนต้องเรียงเพิ่มอย่างน้อย 0.001 m');
-  const levelY=round(y),nodes=x.flatMap(gx=>z.map(gz=>({x:gx.value,y:levelY,z:gz.value})));
-  const edgesX=z.flatMap(gz=>x.slice(0,-1).map((gx,i)=>({start:{x:gx.value,y:levelY,z:gz.value},end:{x:x[i+1].value,y:levelY,z:gz.value}})));
-  const edgesZ=x.flatMap(gx=>z.slice(0,-1).map((gz,i)=>({start:{x:gx.value,y:levelY,z:gz.value},end:{x:gx.value,y:levelY,z:z[i+1].value}})));
-  return {ok:true,lines:{x,z},nodes,edgesX,edgesZ};
-}
-export function buildGridLayout({countX,countZ,spacingX,spacingZ,startX=0,startZ=0,y=0}={}){
-  const reject=reason=>({ok:false,reason});
-  if(!Number.isInteger(countX)||!Number.isInteger(countZ)||countX<2||countZ<2||countX>20||countZ>20||countX*countZ>400)return reject('กริดต้องมี 2–20 แนวต่อแกน และไม่เกิน 400 จุดตัด');
-  if(![spacingX,spacingZ,startX,startZ,y].every(Number.isFinite)||spacingX<.05||spacingZ<.05||spacingX>1000||spacingZ>1000||Math.abs(startX)>10000||Math.abs(startZ)>10000||Math.abs(y)>10000)return reject('ระยะกริดต้อง ≥0.05 m และพิกัดต้องอยู่ในช่วง ±10000 m');
-  const linesX=Array.from({length:countX},(_,i)=>({label:String(i+1),value:startX+i*spacingX}));
-  const linesZ=Array.from({length:countZ},(_,i)=>({label:alphaLabel(i),value:startZ+i*spacingZ}));
-  return buildGridLayoutFromLines({linesX,linesZ,y});
+  const x=normalize(linesX,'X'),second=normalize(linesSecond,secondKey);
+  if(!x||!second)return reject('ชื่อแนวต้องไม่ซ้ำ และพิกัดแต่ละแกนต้องเรียงเพิ่มอย่างน้อย 0.001 m');
+  const level=round(elevVal);
+  let nodes, edgesX, edgesSecond;
+  if(z !== undefined){
+    nodes=x.flatMap(gx=>second.map(gy=>({x:gx.value,y:gy.value,z:level})));
+    edgesX=second.flatMap(gy=>x.slice(0,-1).map((gx,i)=>({start:{x:gx.value,y:gy.value,z:level},end:{x:x[i+1].value,y:gy.value,z:level}})));
+    edgesSecond=x.flatMap(gx=>second.slice(0,-1).map((gy,i)=>({start:{x:gx.value,y:gy.value,z:level},end:{x:gx.value,y:second[i+1].value,z:level}})));
+  } else {
+    nodes=x.flatMap(gx=>second.map(gz=>({x:gx.value,y:level,z:gz.value})));
+    edgesX=second.flatMap(gz=>x.slice(0,-1).map((gx,i)=>({start:{x:gx.value,y:level,z:gz.value},end:{x:x[i+1].value,y:level,z:gz.value}})));
+    edgesSecond=x.flatMap(gx=>second.slice(0,-1).map((gz,i)=>({start:{x:gx.value,y:level,z:gz.value},end:{x:gx.value,y:level,z:second[i+1].value}})));
+  }
+  return {ok:true,lines:{x,y:second,z:second},nodes,edgesX,edgesY:edgesSecond,edgesZ:edgesSecond,elevationAxis:z!==undefined?'z':'y'};
 }
 
-export function autoDetectGridLines(nodes, {levelY, tolerance = 0.08} = {}) {
-  const pts = (nodes || []).filter(finitePoint).filter(n => levelY === undefined || Math.abs(n.y - levelY) <= 0.05);
+export function buildGridLayout({countX,countY,countZ,spacingX,spacingY,spacingZ,startX=0,startY=0,startZ=0,y,z}={}){
+  const reject=reason=>({ok:false,reason});
+  const cSecond = countY !== undefined ? countY : countZ;
+  const spSecond = spacingY !== undefined ? spacingY : spacingZ;
+  const stSecond = startY !== undefined ? startY : startZ;
+  if(!Number.isInteger(countX)||!Number.isInteger(cSecond)||countX<2||cSecond<2||countX>20||cSecond>20||countX*cSecond>400)return reject('กริดต้องมี 2–20 แนวต่อแกน และไม่เกิน 400 จุดตัด');
+  const elevVal = z !== undefined ? z : (y !== undefined ? y : 0);
+  if(![spacingX,spSecond,startX,stSecond,elevVal].every(Number.isFinite)||spacingX<.05||spSecond<.05||spacingX>1000||spSecond>1000||Math.abs(startX)>10000||Math.abs(stSecond)>10000||Math.abs(elevVal)>10000)return reject('ระยะกริดต้อง ≥0.05 m และพิกัดต้องอยู่ในช่วง ±10000 m');
+  const linesX=Array.from({length:countX},(_,i)=>({label:String(i+1),value:startX+i*spacingX}));
+  const linesSecond=Array.from({length:cSecond},(_,i)=>({label:alphaLabel(i),value:stSecond+i*spSecond}));
+  if (z !== undefined) {
+    return buildGridLayoutFromLines({linesX,linesY:linesSecond,z});
+  } else {
+    return buildGridLayoutFromLines({linesX,linesZ:linesSecond,y:elevVal});
+  }
+}
+
+export function autoDetectGridLines(nodes, {levelY, levelZ, tolerance = 0.08} = {}) {
+  const elev = levelZ !== undefined ? levelZ : levelY;
+  const isZ = levelZ !== undefined;
+  const pts = (nodes || []).filter(finitePoint).filter(n => {
+    if (elev === undefined) return true;
+    return Math.abs((isZ ? n.z : n.y) - elev) <= 0.05;
+  });
   if (!pts.length) return { ok: false, reason: 'ไม่พบโหนดในระดับนี้' };
   const clusterCoords = (coords) => {
     const sorted = [...coords].sort((a,b) => a - b);
@@ -49,38 +76,73 @@ export function autoDetectGridLines(nodes, {levelY, tolerance = 0.08} = {}) {
     return groups.map(g => Number(g.center.toFixed(3)));
   };
   const xs = clusterCoords(pts.map(n => n.x));
+  const ys = clusterCoords(pts.map(n => n.y));
   const zs = clusterCoords(pts.map(n => n.z));
-  if (xs.length < 2 || zs.length < 2) return { ok: false, reason: 'ต้องการอย่างน้อย 2 แนวต่อแกนเพื่อสร้างกริด' };
   const linesX = xs.map((val, i) => ({ label: String(i + 1), value: val }));
+  const linesY = ys.map((val, i) => ({ label: alphaLabel(i), value: val }));
   const linesZ = zs.map((val, i) => ({ label: alphaLabel(i), value: val }));
-  return { ok: true, lines: { x: linesX, z: linesZ } };
+  if (xs.length < 2) return { ok: false, reason: 'ต้องการอย่างน้อย 2 แนวต่อแกนเพื่อสร้างกริด' };
+  return { ok: true, lines: { x: linesX, y: linesY.length >= 2 ? linesY : linesZ, z: linesZ.length >= 2 ? linesZ : linesY } };
 }
 
 const finitePoint = node => node && [node.x,node.y,node.z].every(Number.isFinite);
 
-export function groupLevels(nodes, tolerance = 1e-5) {
-  const ordered = nodes.filter(finitePoint).slice().sort((a,b) => a.y-b.y || a.id.localeCompare(b.id));
+export function groupLevels(nodes, tolerance = 1e-5, axis = 'auto') {
+  const valid = (nodes || []).filter(finitePoint);
+  let effectiveAxis = axis;
+  if (effectiveAxis === 'auto') {
+    const ys = valid.map(n => n.y), zs = valid.map(n => n.z);
+    const ptpY = ys.length ? Math.max(...ys) - Math.min(...ys) : 0;
+    const ptpZ = zs.length ? Math.max(...zs) - Math.min(...zs) : 0;
+    if (ptpZ > tolerance && ptpY <= tolerance) {
+      effectiveAxis = 'z';
+    } else if (ptpY > tolerance && ptpZ <= tolerance) {
+      effectiveAxis = 'y';
+    } else {
+      effectiveAxis = 'z';
+    }
+  }
+
+  const coordKey = effectiveAxis === 'y' ? 'y' : 'z';
+  const labelPrefix = effectiveAxis === 'y' ? 'Y' : 'Z';
+  const ordered = valid.slice().sort((a,b) => a[coordKey]-b[coordKey] || a.id.localeCompare(b.id));
   const groups = [];
   for (const node of ordered) {
     let group = groups.at(-1);
-    if (!group || Math.abs(node.y-group.anchor) > tolerance) {
-      group = {anchor:node.y,nodes:[]};
+    if (!group || Math.abs(node[coordKey]-group.anchor) > tolerance) {
+      group = {anchor:node[coordKey],nodes:[]};
       groups.push(group);
     }
     group.nodes.push(node);
   }
   return groups.map((group,index) => {
-    const y = group.nodes.reduce((sum,node) => sum+node.y,0)/group.nodes.length;
-    return {y,nodes:group.nodes,label:`ระดับ ${index+1} · Y ${Number(y.toFixed(4))} m`};
+    const val = group.nodes.reduce((sum,node) => sum+node[coordKey],0)/group.nodes.length;
+    const yVal = group.nodes.reduce((sum,node) => sum+node.y,0)/group.nodes.length;
+    const zVal = group.nodes.reduce((sum,node) => sum+node.z,0)/group.nodes.length;
+    return {
+      y: yVal,
+      z: zVal,
+      elevation: val,
+      axis: effectiveAxis,
+      nodes: group.nodes,
+      label: `ระดับ ${index+1} · ${labelPrefix} ${Number(val.toFixed(4))} m`
+    };
   });
 }
 
-export function nearestPlanNode(nodes, x, z, levelY, tolerance, maxDistance) {
+export function nearestPlanNode(nodes, c1, c2, elevation, tolerance, maxDistance) {
   let nearest = null;
   let nearestDistance = maxDistance;
   for (const node of nodes) {
-    if (!finitePoint(node) || Math.abs(node.y-levelY) > tolerance) continue;
-    const distance = Math.hypot(node.x-x,node.z-z);
+    if (!finitePoint(node)) continue;
+    let distance;
+    if (Math.abs(node.z - elevation) <= tolerance) {
+      distance = Math.hypot(node.x - c1, node.y - c2);
+    } else if (Math.abs(node.y - elevation) <= tolerance) {
+      distance = Math.hypot(node.x - c1, node.z - c2);
+    } else {
+      continue;
+    }
     if (distance <= nearestDistance) {
       nearest = node;
       nearestDistance = distance;
@@ -96,24 +158,42 @@ export function validPlanGridStep(step) {
 }
 
 export function constrainPlanPoint(start, point, axis, gridStep=1, useGrid=true) {
-  if(!finitePoint(start)||!point||![point.x,point.z].every(Number.isFinite)||!['x','z'].includes(axis)||(useGrid&&!validPlanGridStep(gridStep)))return null;
-  const freeAxis=axis==='x'?'x':'z',lockedAxis=axis==='x'?'z':'x';
-  const raw=point[freeAxis],value=useGrid?Math.round(raw/gridStep)*gridStep:raw;
-  return {[freeAxis]:Number(value.toFixed(3)),y:start.y,[lockedAxis]:start[lockedAxis]};
+  if(!finitePoint(start)||!point||(useGrid&&!validPlanGridStep(gridStep)))return null;
+  const sameZ = Math.abs(start.z - (point.z ?? start.z)) < 1e-5;
+  const sameY = Math.abs(start.y - (point.y ?? start.y)) < 1e-5;
+  const diffY = !sameY;
+  const diffZ = !sameZ;
+
+  if (sameZ && (diffY || axis === 'y') && !diffZ) {
+    if(!['x','y'].includes(axis))return null;
+    const freeAxis=axis,lockedAxis=axis==='x'?'y':'x';
+    const raw=point[freeAxis],value=useGrid?Math.round(raw/gridStep)*gridStep:raw;
+    return {[freeAxis]:Number(value.toFixed(3)),[lockedAxis]:start[lockedAxis],z:start.z};
+  } else {
+    if(!['x','z'].includes(axis))return null;
+    const freeAxis=axis==='x'?'x':'z',lockedAxis=axis==='x'?'z':'x';
+    const raw=point[freeAxis],value=useGrid?Math.round(raw/gridStep)*gridStep:raw;
+    return {[freeAxis]:Number(value.toFixed(3)),y:start.y,[lockedAxis]:start[lockedAxis]};
+  }
 }
 
-export function snapPlanPoint(point, nodes, levelY, gridStep = 1, axisTolerance = .12) {
-  if (!point || ![point.x,point.z,levelY,axisTolerance].every(Number.isFinite) || axisTolerance<0 || !validPlanGridStep(gridStep)) return null;
-  const snapAxis=(value,axis) => {
-    let snapped=Math.round(value/gridStep)*gridStep, distance=axisTolerance;
+export function snapPlanPoint(point, nodes, levelElevation, gridStep = 1, axisTolerance = .12) {
+  if (!point || !validPlanGridStep(gridStep) || axisTolerance < 0) return null;
+  const snapAxis = (value, axis) => {
+    let snapped = Math.round(value / gridStep) * gridStep, distance = axisTolerance;
     for (const node of nodes) {
       if (!finitePoint(node)) continue;
-      const offset=Math.abs(value-node[axis]);
-      if (offset<distance) {distance=offset;snapped=node[axis];}
+      const offset = Math.abs(value - node[axis]);
+      if (offset < distance) { distance = offset; snapped = node[axis]; }
     }
     return Number(snapped.toFixed(3));
   };
-  return {x:snapAxis(point.x,'x'),y:levelY,z:snapAxis(point.z,'z')};
+  if (Number.isFinite(point.x) && Number.isFinite(point.y) && (point.z === undefined || Math.abs(point.z - levelElevation) < 1e-4)) {
+    const elev = Number.isFinite(levelElevation) ? levelElevation : (point.z ?? 0);
+    return { x: snapAxis(point.x, 'x'), y: snapAxis(point.y, 'y'), z: elev };
+  }
+  if (![point.x, point.z, levelElevation, axisTolerance].every(Number.isFinite)) return null;
+  return { x: snapAxis(point.x, 'x'), y: levelElevation, z: snapAxis(point.z, 'z') };
 }
 
 export function planNodeDraft(nodes, point, id) {
@@ -125,28 +205,46 @@ export function planNodeDraft(nodes, point, id) {
   return {ok:true,node:{id,...coordinates,restraints:[false,false,false,false,false,false]}};
 }
 
-export function nearestBeamOnPlan(model, point, levelY, maxDistance, levelTolerance=1e-5) {
-  if (!point || ![point.x,point.z,levelY,maxDistance].every(Number.isFinite) || maxDistance<0) return null;
+export function nearestBeamOnPlan(model, point, levelElevation, maxDistance, levelTolerance=1e-5) {
+  if (!point || !Number.isFinite(levelElevation) || !Number.isFinite(maxDistance) || maxDistance<0) return null;
   const nodes=new Map((model?.nodes||[]).map(n=>[n.id,n]));
   let nearest=null;
   for (const member of model?.members||[]) {
     if (member.kind!=='beam'||member.behavior!=='frame') continue;
     const a=nodes.get(member.i),b=nodes.get(member.j);
-    if (!finitePoint(a)||!finitePoint(b)||Math.abs(a.y-levelY)>levelTolerance||Math.abs(b.y-levelY)>levelTolerance) continue;
-    const dx=b.x-a.x,dz=b.z-a.z,L2=dx*dx+dz*dz;
-    if (L2<=1e-12) continue;
-    const t=((point.x-a.x)*dx+(point.z-a.z)*dz)/L2;
-    if(t<=0||t>=1)continue;
-    const px=a.x+t*dx,pz=a.z+t*dz,distance=Math.hypot(point.x-px,point.z-pz);
-    if(distance>maxDistance)continue;
-    const candidate={member,fromId:member.i,distanceFromI:Number((t*Math.sqrt(L2)).toFixed(3)),point:{x:Number(px.toFixed(3)),y:levelY,z:Number(pz.toFixed(3))},distance};
-    if(nearest&&Math.abs(distance-nearest.distance)<1e-5)nearest={ambiguous:true,distance};
-    else if(!nearest||distance<nearest.distance-1e-5)nearest=candidate;
+    if (!finitePoint(a)||!finitePoint(b)) continue;
+
+    // Check if beam is at elevation Z (Z-up)
+    if (Math.abs(a.z-levelElevation)<=levelTolerance && Math.abs(b.z-levelElevation)<=levelTolerance) {
+      const py = point.y !== undefined ? point.y : point.z;
+      const dx=b.x-a.x,dy=b.y-a.y,L2=dx*dx+dy*dy;
+      if (L2<=1e-12) continue;
+      const t=((point.x-a.x)*dx+(py-a.y)*dy)/L2;
+      if(t<=0||t>=1)continue;
+      const px=a.x+t*dx,pY=a.y+t*dy,distance=Math.hypot(point.x-px,py-pY);
+      if(distance>maxDistance)continue;
+      const candidate={member,fromId:member.i,distanceFromI:Number((t*Math.sqrt(L2)).toFixed(3)),point:{x:Number(px.toFixed(3)),y:Number(pY.toFixed(3)),z:levelElevation},distance};
+      if(nearest&&Math.abs(distance-nearest.distance)<1e-5)nearest={ambiguous:true,distance};
+      else if(!nearest||distance<nearest.distance-1e-5)nearest=candidate;
+    }
+    // Check if beam is at elevation Y (Y-up)
+    else if (Math.abs(a.y-levelElevation)<=levelTolerance && Math.abs(b.y-levelElevation)<=levelTolerance) {
+      const pz = point.z !== undefined ? point.z : point.y;
+      const dx=b.x-a.x,dz=b.z-a.z,L2=dx*dx+dz*dz;
+      if (L2<=1e-12) continue;
+      const t=((point.x-a.x)*dx+(pz-a.z)*dz)/L2;
+      if(t<=0||t>=1)continue;
+      const px=a.x+t*dx,pzRes=a.z+t*dz,distance=Math.hypot(point.x-px,pz-pzRes);
+      if(distance>maxDistance)continue;
+      const candidate={member,fromId:member.i,distanceFromI:Number((t*Math.sqrt(L2)).toFixed(3)),point:{x:Number(px.toFixed(3)),y:levelElevation,z:Number(pzRes.toFixed(3))},distance};
+      if(nearest&&Math.abs(distance-nearest.distance)<1e-5)nearest={ambiguous:true,distance};
+      else if(!nearest||distance<nearest.distance-1e-5)nearest=candidate;
+    }
   }
   return nearest;
 }
 
-export function planGridModel(model, layout, {beamsX=false,beamsZ=false,b=.25,h=.45}={}) {
+export function planGridModel(model, layout, {beamsX=false,beamsY=false,beamsZ=false,b=.25,h=.45}={}) {
   const reject=reason=>({ok:false,reason});
   if(!layout?.ok)return reject(layout?.reason||'ข้อมูลกริดไม่ถูกต้อง');
   if(!model||!Array.isArray(model.nodes)||!Array.isArray(model.members))return reject('ไม่พบโมเดลสำหรับสร้างกริด');
@@ -162,11 +260,25 @@ export function planGridModel(model, layout, {beamsX=false,beamsZ=false,b=.25,h=
   const pointKey=p=>`${p.x.toFixed(3)}|${p.y.toFixed(3)}|${p.z.toFixed(3)}`;
   const resolveEdge=edge=>[byPoint.get(pointKey(edge.start)),byPoint.get(pointKey(edge.end))];
   const stagedMembers=[],usedMemberIds=new Set(model.members.map(m=>m.id));
-  if(beamsX||beamsZ){if(!Number.isFinite(b)||!Number.isFinite(h)||b<.01||h<.01)return reject('ขนาดหน้าตัดคาน b/h ต้องมากกว่า 0.01 m');}
+  const makeSecondBeams = beamsY || beamsZ;
+  if(beamsX||makeSecondBeams){if(!Number.isFinite(b)||!Number.isFinite(h)||b<.01||h<.01)return reject('ขนาดหน้าตัดคาน b/h ต้องมากกว่า 0.01 m');}
   const allNodes=model.nodes.concat(stagedNodes),allMembers=model.members.slice();
-  const addEdges=edges=>{for(const edge of edges){const [i,j]=resolveEdge(edge);if(!i||!j||i===j)return reject('กริดสร้างโหนดปลายคานไม่ครบ');if(allMembers.some(m=>m.i===i&&m.j===j||m.i===j&&m.j===i))continue;const checked=validateMemberEndpoints(allNodes,allMembers,i,j,{levelY:edge.start.y,disallowIntervening:true});if(!checked.ok)return reject(`${i}–${j}: ${checked.reason}`);const id=freshId('M',usedMemberIds),member={id,i,j,b,h,rotation:0,kind:'beam',sectionType:'rc_rect',A:null,Iy:null,Iz:null,J:null,roofType:'custom',behavior:'frame'};stagedMembers.push(member);allMembers.push(member);}return null;};
+  const addEdges=edges=>{
+    if(!edges)return null;
+    for(const edge of edges){
+      const [i,j]=resolveEdge(edge);
+      if(!i||!j||i===j)return reject('กริดสร้างโหนดปลายคานไม่ครบ');
+      if(allMembers.some(m=>m.i===i&&m.j===j||m.i===j&&m.j===i))continue;
+      const elevOpts = layout.elevationAxis === 'z' ? {levelZ: edge.start.z} : {levelY: edge.start.y};
+      const checked=validateMemberEndpoints(allNodes,allMembers,i,j,{...elevOpts,disallowIntervening:true});
+      if(!checked.ok)return reject(`${i}–${j}: ${checked.reason}`);
+      const id=freshId('M',usedMemberIds),member={id,i,j,b,h,rotation:0,kind:'beam',sectionType:'rc_rect',A:null,Iy:null,Iz:null,J:null,roofType:'custom',behavior:'frame'};
+      stagedMembers.push(member);allMembers.push(member);
+    }
+    return null;
+  };
   if(beamsX){const error=addEdges(layout.edgesX);if(error)return error;}
-  if(beamsZ){const error=addEdges(layout.edgesZ);if(error)return error;}
+  if(makeSecondBeams){const error=addEdges(layout.edgesY || layout.edgesZ);if(error)return error;}
   if(model.nodes.length+stagedNodes.length>500)return reject('กริดนี้จะเกินขีดจำกัด 500 โหนด');
   if(model.members.length+stagedMembers.length>1000)return reject('กริดนี้จะเกินขีดจำกัด 1000 สมาชิก');
   return {ok:true,gridLines:layout.lines,nodes:stagedNodes,members:stagedMembers,intersectionCount:layout.nodes.length};
@@ -195,58 +307,86 @@ export function splitBeamAtDistance(model, memberId, fromNodeId, distance, newNo
 }
 
 function planSegmentsIntersect(a,b,c,d,tol=1e-8){
-  const rx=b.x-a.x,rz=b.z-a.z,sx=d.x-c.x,sz=d.z-c.z,den=rx*sz-rz*sx,qx=c.x-a.x,qz=c.z-a.z,qxr=qx*rz-qz*rx;
+  // Check if planar in X-Y (Z constant)
+  const isXY = Math.abs(a.z-b.z)<1e-5 && Math.abs(c.z-d.z)<1e-5 && Math.abs(a.z-c.z)<1e-5;
+  const a2 = isXY ? a.y : a.z, b2 = isXY ? b.y : b.z, c2 = isXY ? c.y : c.z, d2 = isXY ? d.y : d.z;
+  const rx=b.x-a.x,rz=b2-a2,sx=d.x-c.x,sz=d2-c2,den=rx*sz-rz*sx,qx=c.x-a.x,qz=c2-a2,qxr=qx*rz-qz*rx;
   if(Math.abs(den)<=tol){if(Math.abs(qxr)>tol)return false;const rr=rx*rx+rz*rz;if(rr<=tol)return false;const t0=(qx*rx+qz*rz)/rr,t1=t0+(sx*rx+sz*rz)/rr;return Math.min(1,Math.max(t0,t1))-Math.max(0,Math.min(t0,t1))>tol;}
   const t=(qx*sz-qz*sx)/den,u=(qx*rz-qz*rx)/den;if(t<-tol||t>1+tol||u<-tol||u>1+tol)return false;
   const tEnd=t<=tol?a.id:t>=1-tol?b.id:null,uEnd=u<=tol?c.id:u>=1-tol?d.id:null;
   return !(tEnd&&uEnd&&tEnd===uEnd);
 }
 
-export function validateMemberEndpoints(nodes, members, i, j, {levelY,levelTolerance=1e-5,lineTolerance=1e-6,disallowIntervening=false} = {}) {
+export function validateMemberEndpoints(nodes, members, i, j, {levelY,levelZ,levelTolerance=1e-5,lineTolerance=1e-6,disallowIntervening=false} = {}) {
   const reject = reason => ({ok:false,reason});
   if (!i || !j || i===j) return reject('เลือกโหนดต้นและปลายคนละโหนด');
   const a = nodes.find(node => node.id===i), b = nodes.find(node => node.id===j);
   if (!a || !b) return reject('ไม่พบโหนดต้นหรือปลายในโมเดล');
   if (!finitePoint(a) || !finitePoint(b)) return reject('พิกัดโหนดต้องเป็นตัวเลขที่มีค่าจำกัด');
-  if (levelY!==undefined && (Math.abs(a.y-levelY)>levelTolerance || Math.abs(b.y-levelY)>levelTolerance)) return reject('เลือกโหนดที่ระดับเดียวกันก่อนวาดคาน');
+
+  const isZ = levelZ !== undefined;
+  const elev = isZ ? levelZ : levelY;
+  if (elev !== undefined) {
+    const aElev = isZ ? a.z : a.y;
+    const bElev = isZ ? b.z : b.y;
+    if (Math.abs(aElev - elev) > levelTolerance || Math.abs(bElev - elev) > levelTolerance) {
+      return reject('เลือกโหนดที่ระดับเดียวกันก่อนวาดคาน');
+    }
+  }
+
   const length = Math.hypot(b.x-a.x,b.y-a.y,b.z-a.z);
   if (length<=lineTolerance) return reject('โหนดต้นและปลายอยู่ตำแหน่งเดียวกัน');
   if (members.some(member => member.i===i&&member.j===j || member.i===j&&member.j===i)) return reject('มีสมาชิกคู่นี้แล้ว');
   if (disallowIntervening) {
-    const dx=b.x-a.x, dz=b.z-a.z, length2=dx*dx+dz*dz;
-    if (length2<=lineTolerance*lineTolerance) return reject('คานในผังต้องมีระยะในแนว XZ มากกว่าศูนย์');
+    const secondCoord = isZ ? 'y' : 'z';
+    const dx=b.x-a.x, dSecond=b[secondCoord]-a[secondCoord], length2=dx*dx+dSecond*dSecond;
+    if (length2<=lineTolerance*lineTolerance) return reject(`คานในผังต้องมีระยะในแนว X${secondCoord.toUpperCase()} มากกว่าศูนย์`);
     for (const node of nodes) {
-      if (node.id===i||node.id===j||!finitePoint(node)||Math.abs(node.y-levelY)>levelTolerance) continue;
-      const t=((node.x-a.x)*dx+(node.z-a.z)*dz)/length2;
-      if (t<=lineTolerance||t>=1-lineTolerance) continue;
-      const distance=Math.abs((node.x-a.x)*dz-(node.z-a.z)*dx)/Math.sqrt(length2);
-      if (distance<=lineTolerance*Math.max(1,Math.sqrt(length2))) return reject('มีโหนดคั่นกลาง กรุณาวาดแยกช่วง');
+      if (node.id===i||node.id===j||!finitePoint(node)) continue;
+      if (elev !== undefined && Math.abs((isZ ? node.z : node.y) - elev) > levelTolerance) continue;
+      const t=((node.x-a.x)*dx+(node[secondCoord]-a[secondCoord])*dSecond)/length2;
+      if (t<=1e-4||t>=1-1e-4) continue;
+      const perp=Math.abs((node.x-a.x)*dSecond-(node[secondCoord]-a[secondCoord])*dx)/Math.sqrt(length2);
+      if (perp<=Math.max(lineTolerance,0.01)) return reject('มีโหนดคั่นกลาง กรุณาวาดแยกช่วง');
     }
-    const byId=new Map(nodes.map(node=>[node.id,node]));
-    for(const member of members){
-      if(member.kind!=='beam'||member.behavior==='truss'||member.i===i||member.i===j||member.j===i||member.j===j)continue;
-      const c=byId.get(member.i),d=byId.get(member.j);
-      if(!finitePoint(c)||!finitePoint(d)||Math.abs(c.y-levelY)>levelTolerance||Math.abs(d.y-levelY)>levelTolerance)continue;
-      if(planSegmentsIntersect(a,b,c,d,lineTolerance))return reject('เส้นคานตัด/ซ้อนกับสมาชิกเดิมโดยไม่มีโหนดร่วม กรุณาแบ่งหรือเชื่อมโหนดก่อน');
+    for (const member of members) {
+      if (member.kind!=='beam'||member.behavior!=='frame'||[member.i,member.j].some(endpoint=>endpoint===i||endpoint===j)) continue;
+      const c=nodes.find(node=>node.id===member.i),d=nodes.find(node=>node.id===member.j);
+      if (!c||!d||!finitePoint(c)||!finitePoint(d)) continue;
+      if (elev !== undefined && (Math.abs((isZ ? c.z : c.y)-elev)>levelTolerance||Math.abs((isZ ? d.z : d.y)-elev)>levelTolerance)) continue;
+      if (planSegmentsIntersect(a,b,c,d)) return reject(`แนวคานตัดกับคาน ${member.id} กรุณาแบ่งช่วงที่จุดตัด`);
     }
   }
-  return {ok:true,a,b,length};
+  return {ok:true};
 }
 
-export function planContinuousBeamSegments(nodes, members, startId, endTarget, {
-  levelY,
-  levelTolerance = 1e-5,
-  lineTolerance = 1e-4,
-  memberProps = {},
-  allowNewEndNode = false,
-  freshNodeId = null,
-  nextMemberIdFn = null
-} = {}) {
+export function planContinuousBeamSegments(
+  nodes,
+  members,
+  startId,
+  endTarget,
+  {
+    levelY,
+    levelZ,
+    levelTolerance = 1e-5,
+    lineTolerance = 1e-6,
+    memberProps = {},
+    allowNewEndNode = false,
+    freshNodeId = null,
+    nextMemberIdFn = null
+  } = {}
+) {
   const reject = reason => ({ ok: false, reason });
   if (!startId) return reject('ต้องระบุโหนดเริ่มต้น');
   const startNode = nodes.find(n => n.id === startId);
   if (!startNode || !finitePoint(startNode)) return reject('ไม่พบโหนดเริ่มต้น');
-  if (levelY !== undefined && Math.abs(startNode.y - levelY) > levelTolerance) return reject('โหนดเริ่มต้นไม่อยู่ในระดับที่เลือก');
+
+  const isZ = levelZ !== undefined;
+  const elev = isZ ? levelZ : levelY;
+  if (elev !== undefined) {
+    const sElev = isZ ? startNode.z : startNode.y;
+    if (Math.abs(sElev - elev) > levelTolerance) return reject('โหนดเริ่มต้นไม่อยู่ในระดับที่เลือก');
+  }
 
   let endNode = null;
   let endPoint = null;
@@ -254,10 +394,17 @@ export function planContinuousBeamSegments(nodes, members, startId, endTarget, {
     if (endTarget === startId) return reject('โหนดต้นและปลายต้องไม่เป็นโหนดเดียวกัน');
     endNode = nodes.find(n => n.id === endTarget);
     if (!endNode || !finitePoint(endNode)) return reject('ไม่พบโหนดปลายทาง');
-    if (levelY !== undefined && Math.abs(endNode.y - levelY) > levelTolerance) return reject('โหนดปลายทางไม่อยู่ในระดับที่เลือก');
+    if (elev !== undefined) {
+      const eElev = isZ ? endNode.z : endNode.y;
+      if (Math.abs(eElev - elev) > levelTolerance) return reject('โหนดปลายทางไม่อยู่ในระดับที่เลือก');
+    }
     endPoint = { x: endNode.x, y: endNode.y, z: endNode.z };
   } else if (endTarget && typeof endTarget === 'object' && [endTarget.x, endTarget.y, endTarget.z].every(Number.isFinite)) {
-    endPoint = { x: Number(endTarget.x.toFixed(3)), y: Number((levelY ?? endTarget.y).toFixed(3)), z: Number(endTarget.z.toFixed(3)) };
+    endPoint = {
+      x: Number(endTarget.x.toFixed(3)),
+      y: Number((isZ ? endTarget.y : (levelY ?? endTarget.y)).toFixed(3)),
+      z: Number((isZ ? (levelZ ?? endTarget.z) : endTarget.z).toFixed(3))
+    };
     const match = nodes.find(n => finitePoint(n) && Math.hypot(n.x - endPoint.x, n.y - endPoint.y, n.z - endPoint.z) < 1e-4);
     if (match) {
       if (match.id === startId) return reject('จุดปลายตรงกับโหนดเริ่มต้น');
@@ -267,9 +414,10 @@ export function planContinuousBeamSegments(nodes, members, startId, endTarget, {
     return reject('พิกัดปลายคานไม่ถูกต้อง');
   }
 
+  const secondCoord = isZ ? 'y' : 'z';
   const dx = endPoint.x - startNode.x;
-  const dz = endPoint.z - startNode.z;
-  const length2 = dx * dx + dz * dz;
+  const dSecond = endPoint[secondCoord] - startNode[secondCoord];
+  const length2 = dx * dx + dSecond * dSecond;
   if (length2 <= lineTolerance * lineTolerance) return reject('ระยะระหว่างจุดเริ่มต้นและปลายต้องมากกว่าศูนย์');
   const totalLength = Math.sqrt(length2);
 
@@ -277,10 +425,10 @@ export function planContinuousBeamSegments(nodes, members, startId, endTarget, {
   const startIdSet = new Set([startId, endNode?.id].filter(Boolean));
   for (const node of nodes) {
     if (!finitePoint(node) || startIdSet.has(node.id)) continue;
-    if (levelY !== undefined && Math.abs(node.y - levelY) > levelTolerance) continue;
-    const t = ((node.x - startNode.x) * dx + (node.z - startNode.z) * dz) / length2;
+    if (elev !== undefined && Math.abs((isZ ? node.z : node.y) - elev) > levelTolerance) continue;
+    const t = ((node.x - startNode.x) * dx + (node[secondCoord] - startNode[secondCoord]) * dSecond) / length2;
     if (t <= 1e-4 || t >= 1 - 1e-4) continue;
-    const perpDist = Math.abs((node.x - startNode.x) * dz - (node.z - startNode.z) * dx) / totalLength;
+    const perpDist = Math.abs((node.x - startNode.x) * dSecond - (node[secondCoord] - startNode[secondCoord]) * dx) / totalLength;
     if (perpDist <= Math.max(lineTolerance, 0.05)) {
       collinear.push({ node, t });
     }
@@ -309,7 +457,8 @@ export function planContinuousBeamSegments(nodes, members, startId, endTarget, {
     if (exists) continue;
 
     const validation = validateMemberEndpoints(allNodes, existingMembers, u.id, v.id, {
-      levelY: u.y,
+      levelY: isZ ? undefined : u.y,
+      levelZ: isZ ? u.z : undefined,
       levelTolerance,
       disallowIntervening: true
     });
