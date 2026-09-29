@@ -70,5 +70,317 @@
 .pill-hidden{visibility:hidden!important;pointer-events:none!important}
 #pointLoadsToggle,#uniformLoadsToggle,#selfWeightToggle{border-color:#f59e0b;color:#fde68a}
 
+/* ==========================================================================
+   SketchUp 3D Build Mode & Controls (Sprint 1)
+   ========================================================================== */
+
+/* Mode Switcher in Header */
+.mode-switcher {
+  display: inline-flex;
+  align-items: center;
+  background: #181d24;
+  border: 1px solid #364453;
+  border-radius: 8px;
+  padding: 3px;
+  gap: 3px;
+  user-select: none;
+}
+.mode-btn {
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #9eb0c1;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+.mode-btn:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.06);
+}
+.mode-btn.active {
+  background: #FF7A00;
+  color: #1A1D21;
+  font-weight: 700;
+  box-shadow: 0 2px 8px rgba(255, 122, 0, 0.35);
+}
+
+/* Floating Build Tool Palette (Viewport) */
+.build-tool-palette {
+  position: absolute;
+  left: 16px;
+  top: 56px;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 6px;
+  background: rgba(22, 27, 34, 0.88);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(80, 95, 115, 0.45);
+  border-radius: 10px;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.6), 0 0 1px rgba(255, 255, 255, 0.15);
+  pointer-events: auto;
+  min-width: 140px;
+  animation: fadeInPalette 0.18s ease-out;
+}
+.build-tool-palette[hidden] {
+  display: none !important;
+}
+@keyframes fadeInPalette {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.build-palette-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #c2d3e4;
+  padding: 6px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 11.5px;
+  text-align: left;
+  transition: all 0.12s ease;
+  user-select: none;
+}
+.build-palette-btn:hover {
+  background: rgba(43, 53, 66, 0.7);
+  border-color: #4a637d;
+  color: #fff;
+}
+.build-palette-btn.active {
+  background: #FF7A00;
+  color: #1A1D21;
+  font-weight: 700;
+  border-color: #ff9a33;
+  box-shadow: 0 0 10px rgba(255, 122, 0, 0.4);
+}
+.palette-icon {
+  font-size: 13px;
+  line-height: 1;
+  width: 16px;
+  text-align: center;
+}
+.palette-label {
+  flex: 1;
+}
+.palette-kbd {
+  margin-left: auto;
+  background: rgba(15, 19, 24, 0.65);
+  border: 1px solid rgba(70, 85, 105, 0.4);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font: bold 9.5px Consolas, monospace;
+  color: #e2e8f0;
+}
+.build-palette-btn.active .palette-kbd {
+  background: rgba(0, 0, 0, 0.22);
+  border-color: rgba(0, 0, 0, 0.3);
+  color: #1A1D21;
+}
+.build-palette-divider {
+  height: 1px;
+  background: rgba(80, 95, 115, 0.35);
+  margin: 3px 4px;
+}
+
+/* Custom Context Menu (Modern Dark Glassmorphism) */
+.custom-context-menu {
+  position: fixed;
+  z-index: 1000;
+  background: rgba(22, 27, 34, 0.94);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border: 1px solid rgba(80, 95, 115, 0.45);
+  border-radius: 10px;
+  padding: 5px;
+  min-width: 230px;
+  box-shadow: 0 18px 45px rgba(0, 0, 0, 0.7), 0 0 1px rgba(255, 255, 255, 0.2);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  user-select: none;
+  animation: contextMenuPop 0.12s ease-out;
+}
+.custom-context-menu[hidden] {
+  display: none !important;
+}
+@keyframes contextMenuPop {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
+}
+.ctx-header {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: #FF9A33;
+  padding: 5px 10px 4px;
+  text-transform: uppercase;
+}
+.ctx-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  border: 1px solid transparent;
+  background: transparent;
+  padding: 6px 10px;
+  border-radius: 6px;
+  color: #d8e2ec;
+  font-size: 11.5px;
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+.ctx-item:hover {
+  background: rgba(255, 122, 0, 0.18);
+  border-color: rgba(255, 122, 0, 0.35);
+  color: #fff;
+}
+.ctx-icon {
+  font-size: 13px;
+  line-height: 1;
+  width: 16px;
+  text-align: center;
+}
+.ctx-title {
+  flex: 1;
+}
+.ctx-key {
+  margin-left: auto;
+  background: rgba(30, 36, 44, 0.85);
+  border: 1px solid rgba(80, 95, 115, 0.4);
+  border-radius: 4px;
+  padding: 1px 6px;
+  font: bold 9.5px Consolas, monospace;
+  color: #ffb050;
+}
+.ctx-divider {
+  height: 1px;
+  background: rgba(80, 95, 115, 0.35);
+  margin: 3px 6px;
+}
+
+/* Shortcut Manager Dialog */
+.shortcut-manager-dialog {
+  width: min(680px, 94vw);
+  max-height: 86vh;
+  margin: auto;
+  padding: 0;
+  color: #E2E4E8;
+  background: #1e242b;
+  border: 1px solid #49637c;
+  border-radius: 12px;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.85);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.shortcut-manager-dialog::backdrop {
+  background: rgba(7, 10, 14, 0.82);
+  backdrop-filter: blur(4px);
+}
+.shortcut-dialog-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 22px;
+  border-bottom: 1px solid #364453;
+  background: #182029;
+}
+.shortcut-dialog-head h2 {
+  margin: 0;
+  color: #f3f8fd;
+  font-size: 17px;
+}
+.shortcut-dialog-head p {
+  margin: 4px 0 0;
+  color: #9eb0c1;
+  font-size: 11.5px;
+}
+#closeShortcutDialog {
+  background: transparent;
+  border: 0;
+  color: #a0a4aa;
+  font-size: 18px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  line-height: 1;
+}
+#closeShortcutDialog:hover {
+  background: #2b3542;
+  color: #fff;
+}
+.shortcut-dialog-body {
+  flex: 1;
+  overflow-y: auto;
+  max-height: 54vh;
+  padding: 14px 22px;
+}
+.shortcut-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.shortcut-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 8px 10px;
+  background: #25313d;
+  color: #b4c8db;
+  text-align: left;
+}
+.shortcut-table td {
+  padding: 7px 10px;
+  border-top: 1px solid #2d3844;
+  vertical-align: middle;
+}
+.shortcut-record-btn {
+  padding: 4px 10px;
+  min-width: 76px;
+  background: #243242;
+  border: 1px solid #486586;
+  color: #ffd29d;
+  border-radius: 5px;
+  font: bold 11px Consolas, monospace;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.shortcut-record-btn:hover {
+  background: #304359;
+  border-color: #6a90bb;
+  color: #fff;
+}
+.shortcut-record-btn.recording {
+  background: #854d0e;
+  border-color: #f59e0b;
+  color: #fff;
+  box-shadow: 0 0 10px rgba(245, 158, 11, 0.5);
+  animation: pulseRecording 0.8s ease-in-out infinite alternate;
+}
+@keyframes pulseRecording {
+  from { opacity: 0.85; transform: scale(0.98); }
+  to { opacity: 1; transform: scale(1.02); }
+}
+.shortcut-dialog-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 22px;
+  border-top: 1px solid #364453;
+  background: #182029;
+}
+
 
 

@@ -735,8 +735,30 @@ renderer.setPixelRatio(Math.min(devicePixelRatio,2));
 renderer.toneMapping=THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure=1.0;
 $('canvas').append(renderer.domElement);
+renderer.domElement.addEventListener('mousedown', event => {
+ if (event.button === 1) event.preventDefault();
+});
+$('canvas').addEventListener('contextmenu', event => {
+ event.preventDefault();
+ if (currentMode === 'build') {
+  showContextMenu(event.clientX, event.clientY);
+ }
+});
 let saved3D={position:new THREE.Vector3(11,9,13),target:new THREE.Vector3(2,1.5,2)},planFrustumHeight=12;
 let currentPlanGridTags=[];
+let currentMode=(()=>{try{return localStorage.getItem('rcstudio_mode')||'classic';}catch{return 'classic';}})();
+function configureControlsForMode(){
+ if(!controls)return;
+ if(currentMode==='build'){
+  controls.mouseButtons={LEFT:-1,MIDDLE:THREE.MOUSE.ROTATE,RIGHT:-1};
+  controls.zoomToCursor=true;
+ }else{
+  controls.mouseButtons={LEFT:THREE.MOUSE.ROTATE,MIDDLE:THREE.MOUSE.DOLLY,RIGHT:THREE.MOUSE.PAN};
+  controls.zoomToCursor=false;
+ }
+ controls.enableRotate=viewMode!=='plan';
+ controls.enabled=!(viewMode==='plan'&&activeTool==='beam');
+}
 function updatePlanGridOverlay(){
  if(viewMode!=='plan'||!currentPlanGridTags.length)return;
  const overlay=$('gridLabelsOverlay');if(!overlay)return;
@@ -749,7 +771,7 @@ function updatePlanGridOverlay(){
   item.el.style.top=`${(1-p.y)*box.height/2}px`;
  }
 }
-function bindControls(target,position,up){controls?.dispose();controls=new OrbitControls(camera,renderer.domElement);controls.enableDamping=true;controls.enableRotate=viewMode!=='plan';controls.enabled=!(viewMode==='plan'&&activeTool==='beam');if(up)camera.up.copy(up);camera.position.copy(position);camera.lookAt(target);controls.target.copy(target);controls.addEventListener('change',updatePlanGridOverlay);controls.update();window.__rc_camera=camera;window.__rc_renderer=renderer;window.__rc_controls=controls;}
+function bindControls(target,position,up){controls?.dispose();controls=new OrbitControls(camera,renderer.domElement);controls.enableDamping=true;if(up)camera.up.copy(up);camera.position.copy(position);camera.lookAt(target);controls.target.copy(target);configureControlsForMode();controls.addEventListener('change',updatePlanGridOverlay);controls.update();window.__rc_camera=camera;window.__rc_renderer=renderer;window.__rc_controls=controls;}
 bindControls(saved3D.target,saved3D.position);
 scene.add(new THREE.AmbientLight(0xffffff,1.2));
 const mainLight=new THREE.DirectionalLight(0xffffff,1.2);mainLight.position.set(10,20,15);scene.add(mainLight);
@@ -1192,9 +1214,9 @@ function commitPlanBeam(startId,endId){
   if(revision!==before)status(`เพิ่มสมาชิก ${startId} → ${endId} แล้ว · ต้องวิเคราะห์ใหม่`);
  }
 }
-renderer.domElement.addEventListener('pointerdown',event=>{if(viewMode==='plan'&&activeTool==='beam'){event.preventDefault();if(!beamDrag){const start=snapPlanNode(event);if(!start){$('beamHint').textContent='เริ่มจากโหนดกริด/โหนดเดิมก่อน';return;}beamDrag={startId:start.node.id,startNode:start.node,world:new THREE.Vector3(start.node.x,start.node.y,start.node.z),endId:start.node.id};$('beamHint').textContent=`เริ่ม ${start.node.id} · คลิกปลายคาน · X/Z ล็อกแกน`;drawModel();return;}const start=beamDrag;const end=planBeamEndpoint(event,start.startNode);beamDrag=null;$('beamHint').textContent='';if(end.error)status(end.error,'error');else if(end.node){if(end.node.id===start.startId)status('ปลายคานต้องต่างจากโหนดเริ่ม','error');else commitPlanBeam(start.startId,end.node.id);}else commitPlanBeamPoint(start.startId,end.point);drawModel();return;}pointerStart=[event.clientX,event.clientY];});
+renderer.domElement.addEventListener('pointerdown',event=>{if(viewMode==='plan'&&activeTool==='beam'&&event.button===0){event.preventDefault();if(!beamDrag){const start=snapPlanNode(event);if(!start){$('beamHint').textContent='เริ่มจากโหนดกริด/โหนดเดิมก่อน';return;}beamDrag={startId:start.node.id,startNode:start.node,world:new THREE.Vector3(start.node.x,start.node.y,start.node.z),endId:start.node.id};$('beamHint').textContent=`เริ่ม ${start.node.id} · คลิกปลายคาน · X/Z ล็อกแกน`;drawModel();return;}const start=beamDrag;const end=planBeamEndpoint(event,start.startNode);beamDrag=null;$('beamHint').textContent='';if(end.error)status(end.error,'error');else if(end.node){if(end.node.id===start.startId)status('ปลายคานต้องต่างจากโหนดเริ่ม','error');else commitPlanBeam(start.startId,end.node.id);}else commitPlanBeamPoint(start.startId,end.point);drawModel();return;}if(event.button===0)pointerStart=[event.clientX,event.clientY];else pointerStart=null;});
 renderer.domElement.addEventListener('pointermove',event=>{if(viewMode==='plan'&&activeTool==='beam'&&beamDrag){const end=planBeamEndpoint(event,beamDrag.startNode);beamDrag.endId=end.node?.id||null;beamDrag.world=end.point?new THREE.Vector3(end.point.x,end.point.y,end.point.z):null;$('beamHint').textContent=end.error?end.error:`${beamDrag.startId} → ${beamDrag.endId||'โหนดใหม่'} · X ${fmt(end.point?.x)} Z ${fmt(end.point?.z)} m${$('planContinuous')?.checked?' (ต่อเนื่อง)':''}${beamAxisLock?` · 🔒 ${beamAxisLock.toUpperCase()}`:''}${end.useGrid?` · กริด ${fmt(end.step,2)} m`:''}`;drawModel();return;}if(viewMode==='plan'&&activeTool==='memberNode'&&!beamDrag){const hit=snapPlanBeam(event),previous=lineSnapHover;lineSnapHover=hit&&!hit.ambiguous?hit:null;$('beamHint').textContent=hit?.ambiguous?'เส้นคานซ้อนกัน เลือกคานในตารางแทน':hit?`${hit.member.id} · จาก ${hit.fromId} ${fmt(hit.distanceFromI)} m${model.slabs.some(s=>['support1','support2','support3','support4'].some(k=>s[k]===hit.member.id))?' · คานรับพื้น แบ่งไม่ได้':''}`:'ชี้ใกล้เส้นคานที่ระดับนี้';if(previous?.member?.id!==lineSnapHover?.member?.id||Math.abs((previous?.distanceFromI??-1)-(lineSnapHover?.distanceFromI??-1))>.02)drawModel();return;}if(viewMode==='plan'&&activeTool==='node'&&!beamDrag){const point=planPointerPoint(event),gridStep=Number($('planGridStep').value),valid=$('planSnap').checked?validPlanGridStep(gridStep):true,snapped=valid&&$('planSnap').checked&&!event.altKey&&point?snapPlanPoint(point,model.nodes,planLevelY,gridStep,Math.min(.25,planFrustumHeight/Math.max(.01,camera.zoom||1)/Math.max(1,renderer.domElement.clientHeight)*18)):point;$('beamHint').textContent=!valid?'ระยะกริด 0.05–1.00 m · เพิ่มครั้งละ 0.05 m':snapped?`X ${fmt(snapped.x)} · Z ${fmt(snapped.z)} m${$('planSnap').checked&&!event.altKey?` · กริด ${fmt(gridStep,2)} m`:''}`:'';return;}});
-renderer.domElement.addEventListener('pointerup',event=>{if(!pointerStart||Math.hypot(event.clientX-pointerStart[0],event.clientY-pointerStart[1])>4){pointerStart=null;return;}pointerStart=null;if(viewMode==='plan'&&activeTool==='memberNode'){const hit=snapPlanBeam(event);if(!hit)return status('คลิกใกล้เส้นคานที่ระดับชั้นนี้','error');if(hit.ambiguous)return status('เส้นคานซ้อนกัน เลือกคานในตารางแล้วระบุระยะแทน','error');commitReferenceNode(hit.member.id,hit.fromId,hit.distanceFromI);lineSnapHover=null;drawModel();return;}if(viewMode==='plan'&&activeTool==='node'){const point=planPointerPoint(event);if(point)commitPlanNode(point,event);else status('เลือกระดับชั้นก่อนวางโหนด','error');return;}const rect=renderer.domElement.getBoundingClientRect();pointer.set((event.clientX-rect.left)/rect.width*2-1,-(event.clientY-rect.top)/rect.height*2+1);ray.setFromCamera(pointer,camera);const allHits=ray.intersectObjects(group.children,true),hit=viewMode==='plan'?(allHits.find(item=>['nodes','members'].includes(item.object.userData.kind))||allHits.find(item=>['slabs','foundations'].includes(item.object.userData.kind))):allHits.find(item=>item.object.userData.kind);selected=hit?hit.object.userData:null;if(selected?.kind==='members'){$('resultMember').value=selected.id;drawDiagram();}renderSelection();drawModel();renderTable();});
+renderer.domElement.addEventListener('pointerup',event=>{if(event.button!==0){pointerStart=null;return;}if(!pointerStart||Math.hypot(event.clientX-pointerStart[0],event.clientY-pointerStart[1])>4){pointerStart=null;return;}pointerStart=null;if(viewMode==='plan'&&activeTool==='memberNode'){const hit=snapPlanBeam(event);if(!hit)return status('คลิกใกล้เส้นคานที่ระดับชั้นนี้','error');if(hit.ambiguous)return status('เส้นคานซ้อนกัน เลือกคานในตารางแล้วระบุระยะแทน','error');commitReferenceNode(hit.member.id,hit.fromId,hit.distanceFromI);lineSnapHover=null;drawModel();return;}if(viewMode==='plan'&&activeTool==='node'){const point=planPointerPoint(event);if(point)commitPlanNode(point,event);else status('เลือกระดับชั้นก่อนวางโหนด','error');return;}const rect=renderer.domElement.getBoundingClientRect();pointer.set((event.clientX-rect.left)/rect.width*2-1,-(event.clientY-rect.top)/rect.height*2+1);ray.setFromCamera(pointer,camera);const allHits=ray.intersectObjects(group.children,true),hit=viewMode==='plan'?(allHits.find(item=>['nodes','members'].includes(item.object.userData.kind))||allHits.find(item=>['slabs','foundations'].includes(item.object.userData.kind))):allHits.find(item=>item.object.userData.kind);selected=hit?hit.object.userData:null;if(selected?.kind==='members'){$('resultMember').value=selected.id;drawDiagram();}renderSelection();drawModel();renderTable();});
 renderer.domElement.addEventListener('pointercancel',()=>cancelInteraction());
 renderer.domElement.addEventListener('pointerleave',()=>{if(lineSnapHover){lineSnapHover=null;$('beamHint').textContent='';drawModel();}});
 function drawModel(){
@@ -2325,7 +2347,36 @@ function updateDisplayToggles(){
 $('view3d').onclick=()=>setViewMode('3d');$('viewPlan').onclick=()=>setViewMode('plan');$('planLevel').onchange=()=>{const next=Number($('planLevel').value);if(!Number.isFinite(next))return;cancelInteraction(false);planLevelY=next;renderPlanControls();if(viewMode==='plan')fitPlan();drawModel();};$('setPlanElevation').onclick=()=>{const input=$('planElevation');if(input.value.trim()===''||!Number.isFinite(Number(input.value)))return status('กรอกระดับ Y เป็นตัวเลขเมตรก่อน','error');const y=Number(input.value);if(Math.abs(y)>10000)return status('ระดับ Y ต้องอยู่ในช่วง ±10000 m','error');cancelInteraction(false);planLevelY=Number(y.toFixed(3));renderPlanControls();if(viewMode==='plan')fitPlan();drawModel();status(`ตั้งระดับวางโหนด Y ${fmt(planLevelY)} m · คลิก วางโหนด แล้วคลิกบนผัง`);};$('planElevation').onkeydown=e=>{if(e.key==='Enter')$('setPlanElevation').click();};$('generatePlanGrid').onclick=createBuildingGrid;$('openGridEditor').onclick=openGridEditor;$('closeGridEditor').onclick=()=> $('gridEditorDialog').close();$('closeGridEditorBottom').onclick=()=> $('gridEditorDialog').close();$('addGridX').onclick=()=>addGridEditorAxis('x');$('addGridZ').onclick=()=>addGridEditorAxis('z');$('buildGridFromEditor').onclick=buildGridFromEditor;
 if($('autoDetectGrids'))$('autoDetectGrids').onclick=()=>{const detected=autoDetectGridLines(model.nodes,{levelY:planLevelY});if(!detected.ok)return status(detected.reason,'error');renderGridEditorAxis('x',detected.lines.x);renderGridEditorAxis('z',detected.lines.z);status(`ตรวจจับแนวกริดจากเสาอาคารสำเร็จ: X ${detected.lines.x.length} แนว, Z ${detected.lines.z.length} แนว`);};
 if($('clearGridsBtn'))$('clearGridsBtn').onclick=()=>{if(!confirm('ต้องการล้างแนวกริดทั้งหมดในผังหรือไม่?'))return;mutate(()=>{model.gridLines={x:[],z:[]};});renderGridEditorAxis('x',[]);renderGridEditorAxis('z',[]);drawModel();status('ล้างแนวกริดในผังแล้ว');};
-if($('applyGridLinesOnly'))$('applyGridLinesOnly').onclick=()=>{const linesX=gridEditorRows('x'),linesZ=gridEditorRows('z');const validX=linesX.length>=2&&linesX.every(l=>l.label&&Number.isFinite(l.value)),validZ=linesZ.length>=2&&linesZ.every(l=>l.label&&Number.isFinite(l.value));if(!validX||!validZ)return status('ต้องมีแนวกริดที่ถูกต้องอย่างน้อยแกนละ 2 แนว','error');linesX.sort((a,b)=>a.value-b.value);linesZ.sort((a,b)=>a.value-b.value);mutate(()=>{model.gridLines={x:linesX,z:linesZ};});$('gridEditorDialog').close();if(viewMode==='plan')fitPlan();drawModel();status(`อัปเดตเฉพาะแนวกริดในผังแล้ว: X ${linesX.length} แนว, Z ${linesZ.length} แนว`);};$('planSnap').onchange=()=>{renderPlanControls();drawModel();status($('planSnap').checked?`เปิดดูดกริด ${fmt(Number($('planGridStep').value),2)} m · Alt+คลิกวางอิสระ`:'ปิดดูดกริด · วางตามเมาส์');};$('planGridStep').onchange=()=>{const input=$('planGridStep'),step=Number(input.value);if(!validPlanGridStep(step)){input.setCustomValidity('กรอกตั้งแต่ 0.05 ถึง 1.00 m เพิ่มครั้งละ 0.05 m');input.reportValidity();return status('ระยะกริดต้องอยู่ระหว่าง 0.05–1.00 m เพิ่มครั้งละ 0.05 m','error');}input.setCustomValidity('');input.value=String(Number(step.toFixed(2)));$('beamHint').textContent=`ระยะดูดกริด ${fmt(step,2)} m`;drawModel();status(`ตั้งระยะดูดกริด ${fmt(step,2)} m · โหนดใหม่จะปัดตามช่วงนี้`);};$('planSelectTool').onclick=()=>setPlanTool('select');$('planNodeTool').onclick=()=>setPlanTool('node');$('planMemberNodeTool').onclick=()=>setPlanTool('memberNode');$('planBeamTool').onclick=()=>setPlanTool('beam');$('planBeamLockX').onclick=()=>setBeamAxisLock('x');$('planBeamLockZ').onclick=()=>setBeamAxisLock('z');document.addEventListener('keydown',event=>{if(event.key==='Escape'){cancelInteraction();return;}if(viewMode==='plan'&&activeTool==='beam'&&!['INPUT','SELECT','TEXTAREA'].includes(document.activeElement?.tagName)){const key=event.key.toLowerCase();if(key==='x'||key==='z'){event.preventDefault();setBeamAxisLock(key);}}});$('resultCombo').onchange=()=>{renderResults();drawModel();if(tab==='results')renderTable();};$('resultMember').onchange=()=>{drawDiagram();if($('diagram3d')?.checked)drawModel();};$('diagramType').onchange=()=>{drawDiagram();if($('diagram3d')?.checked)drawModel();};
+if($('applyGridLinesOnly'))$('applyGridLinesOnly').onclick=()=>{const linesX=gridEditorRows('x'),linesZ=gridEditorRows('z');const validX=linesX.length>=2&&linesX.every(l=>l.label&&Number.isFinite(l.value)),validZ=linesZ.length>=2&&linesZ.every(l=>l.label&&Number.isFinite(l.value));if(!validX||!validZ)return status('ต้องมีแนวกริดที่ถูกต้องอย่างน้อยแกนละ 2 แนว','error');linesX.sort((a,b)=>a.value-b.value);linesZ.sort((a,b)=>a.value-b.value);mutate(()=>{model.gridLines={x:linesX,z:linesZ};});$('gridEditorDialog').close();if(viewMode==='plan')fitPlan();drawModel();status(`อัปเดตเฉพาะแนวกริดในผังแล้ว: X ${linesX.length} แนว, Z ${linesZ.length} แนว`);};$('planSnap').onchange=()=>{renderPlanControls();drawModel();status($('planSnap').checked?`เปิดดูดกริด ${fmt(Number($('planGridStep').value),2)} m · Alt+คลิกวางอิสระ`:'ปิดดูดกริด · วางตามเมาส์');};$('planGridStep').onchange=()=>{const input=$('planGridStep'),step=Number(input.value);if(!validPlanGridStep(step)){input.setCustomValidity('กรอกตั้งแต่ 0.05 ถึง 1.00 m เพิ่มครั้งละ 0.05 m');input.reportValidity();return status('ระยะกริดต้องอยู่ระหว่าง 0.05–1.00 m เพิ่มครั้งละ 0.05 m','error');}input.setCustomValidity('');input.value=String(Number(step.toFixed(2)));$('beamHint').textContent=`ระยะดูดกริด ${fmt(step,2)} m`;drawModel();status(`ตั้งระยะดูดกริด ${fmt(step,2)} m · โหนดใหม่จะปัดตามช่วงนี้`);};$('planSelectTool').onclick=()=>setPlanTool('select');$('planNodeTool').onclick=()=>setPlanTool('node');$('planMemberNodeTool').onclick=()=>setPlanTool('memberNode');$('planBeamTool').onclick=()=>setPlanTool('beam');$('planBeamLockX').onclick=()=>setBeamAxisLock('x');$('planBeamLockZ').onclick=()=>setBeamAxisLock('z');
+document.addEventListener('keydown',event=>{
+ if(event.key==='Escape'){
+  cancelInteraction();
+  hideContextMenu();
+  if(listeningShortcutAction)stopListeningShortcut();
+  return;
+ }
+ const activeTag=document.activeElement?.tagName;
+ if(['INPUT','SELECT','TEXTAREA'].includes(activeTag)||document.activeElement?.isContentEditable){
+  return;
+ }
+ if(listeningShortcutAction)return;
+ if(viewMode==='plan'&&activeTool==='beam'&&!event.ctrlKey&&!event.altKey&&!event.metaKey){
+  const key=event.key.toLowerCase();
+  if(key==='x'||key==='z'){
+   event.preventDefault();
+   setBeamAxisLock(key);
+   return;
+  }
+ }
+ for(const [action,shortcutStr] of Object.entries(currentShortcuts)){
+  if(matchesShortcut(event,shortcutStr)){
+   event.preventDefault();
+   executeShortcutAction(action);
+   return;
+  }
+ }
+});
+$('resultCombo').onchange=()=>{renderResults();drawModel();if(tab==='results')renderTable();};$('resultMember').onchange=()=>{drawDiagram();if($('diagram3d')?.checked)drawModel();};$('diagramType').onchange=()=>{drawDiagram();if($('diagram3d')?.checked)drawModel();};
 $('save').onclick=async()=>{try{const data=await api('/api/save',clone(model));$('saveStatus').textContent='บันทึกไฟล์แล้ว: '+data.path;status('บันทึกไฟล์แล้ว: '+data.filename);}catch(err){status('บันทึกไม่ได้: '+err.message,'error');}};
 $('load').onclick=()=>{cancelInteraction();$('file').click();};$('file').onchange=async()=>{cancelInteraction();const file=$('file').files[0];if(!file)return;const rev=revision;try{if(file.size>1_000_000)throw new Error('ไฟล์ใหญ่กว่า 1 MB');const raw=JSON.parse(await file.text()),validated=await api('/api/validate',raw);if(rev!==revision)throw new Error('โมเดลเปลี่ยนระหว่างเปิดไฟล์');mutate(()=>{model=validated.model;selected=null;});fit();status('เปิดโมเดลแล้ว · ต้องวิเคราะห์ใหม่');}catch(err){status('เปิดไฟล์ไม่ได้: '+err.message,'error');}finally{$('file').value='';}};
 $('analyze').onclick=async()=>{if(busy)return;const rev=revision,snapshot=clone(model);busy=true;result=null;renderResults();drawModel();if(tab==='results'||tab==='coverage')renderTable();$('analyze').disabled=true;$('analyze').textContent='กำลังคำนวณ…';status('ตรวจโมเดล หน่วย และการถ่ายแรง');try{const data=await api('/api/analyze',snapshot);if(rev!==revision){status('โมเดลเปลี่ยนระหว่างคำนวณ · ไม่ใช้ผลเก่า');return;}result=data;tab='results';render();const elevatedWarning=result?.coverage?.components?.find(c=>c.status==='ELEVATED_SUPPORT_WARNING');if(elevatedWarning)status('⚠️ '+elevatedWarning.detail,'error');else status('วิเคราะห์ตามขอบเขตสำเร็จ · ตรวจสมดุล 6 แกน · ดูสถานะ/ที่มาโหลด · ยังไม่ตรวจออกแบบ','ok');}catch(err){if(rev===revision)status(err.message,'error');}finally{busy=false;$('analyze').disabled=false;$('analyze').textContent='▶ วิเคราะห์';}};
@@ -2650,6 +2701,435 @@ async function exportCalculationPdf(){
 }
 if($('exportPdf'))$('exportPdf').onclick=exportCalculationPdf;
 if($('btnReportPdf'))$('btnReportPdf').onclick=exportCalculationPdf;
+
+/* ==========================================================================
+   RCStudio SketchUp-style 3D Build Mode & Shortcut Manager (Sprint 1)
+   ========================================================================== */
+
+let activeBuildTool = 'select';
+
+const SHORTCUTS_STORAGE_KEY = 'rcstudio_shortcuts';
+const DEFAULT_SHORTCUTS = {
+  Select: ' ',
+  Line: 'l',
+  Node: 'n',
+  Slab: 'r',
+  Wall: 'p',
+  Join: 'j',
+  Pull: 'q',
+  Toggle2D3D: 'v',
+  ToggleDiagram: 'd',
+  CycleDiagram: 'Ctrl+e',
+  Analyze: 'Ctrl+a',
+  Delete: 'Delete'
+};
+
+const SHORTCUT_METADATA = [
+  { id: 'Select', label: 'เลือก (Select)', desc: 'เลือกวัตถุ / โหนด / สมาชิก' },
+  { id: 'Line', label: 'เส้น (Line)', desc: 'วาดเส้น / คานโครงสร้าง' },
+  { id: 'Node', label: 'โหนด (Node)', desc: 'วางตำแหน่งโหนดโครงสร้าง' },
+  { id: 'Slab', label: 'พื้น (Slab)', desc: 'สร้างแผ่นพื้น คสล.' },
+  { id: 'Wall', label: 'ผนัง (Wall)', desc: 'สร้างแผงผนังรับแรง / ผนังทั่วไป' },
+  { id: 'Join', label: 'เชื่อม (Join)', desc: 'เชื่อมต่อจุดหรือเส้นโครงสร้าง' },
+  { id: 'Pull', label: 'ดึง (Pull / Extrude)', desc: 'ดึงยืดหน้าตัด 3D' },
+  { id: 'Toggle2D3D', label: 'สลับ 3D / 2D', desc: 'สลับมุมมองระหว่าง 3D กับผัง 2D' },
+  { id: 'ToggleDiagram', label: 'แผนภาพ 3D', desc: 'เปิด / ปิด แผนภาพแรง 3D' },
+  { id: 'CycleDiagram', label: 'เปลี่ยนแผนภาพ', desc: 'วนเปลี่ยนประเภท Mz, My, Vy, Vz, N, T' },
+  { id: 'Analyze', label: 'วิเคราะห์', desc: 'สั่งคำนวณวิเคราะห์โครงสร้าง 3D' },
+  { id: 'Delete', label: 'ลบ', desc: 'ลบรายการหรือชิ้นส่วนที่เลือก' }
+];
+
+function loadShortcuts() {
+  try {
+    const raw = localStorage.getItem(SHORTCUTS_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      return { ...DEFAULT_SHORTCUTS, ...parsed };
+    }
+  } catch (err) {
+    console.warn('Failed to load shortcuts from localStorage:', err);
+  }
+  return { ...DEFAULT_SHORTCUTS };
+}
+
+function saveShortcuts(shortcuts) {
+  try {
+    localStorage.setItem(SHORTCUTS_STORAGE_KEY, JSON.stringify(shortcuts));
+  } catch (err) {
+    console.warn('Failed to save shortcuts to localStorage:', err);
+  }
+}
+
+let currentShortcuts = loadShortcuts();
+let listeningShortcutAction = null;
+let keydownCaptureHandler = null;
+
+function formatShortcutDisplay(key) {
+  if (!key) return '—';
+  if (key === ' ' || key.toLowerCase() === 'space') return 'Space';
+  if (key.toLowerCase() === 'delete') return 'Delete';
+  return key.split('+').map(part => {
+    const lower = part.toLowerCase();
+    if (lower === 'ctrl') return 'Ctrl';
+    if (lower === 'shift') return 'Shift';
+    if (lower === 'alt') return 'Alt';
+    if (lower === ' ') return 'Space';
+    return part.length === 1 ? part.toUpperCase() : part;
+  }).join('+');
+}
+
+function eventToKeyCombo(event) {
+  const parts = [];
+  if (event.ctrlKey || event.metaKey) parts.push('Ctrl');
+  if (event.altKey) parts.push('Alt');
+  if (event.shiftKey) parts.push('Shift');
+  
+  let key = event.key;
+  if (key === ' ' || event.code === 'Space') {
+    key = ' ';
+  } else if (key.length === 1) {
+    key = key.toLowerCase();
+  }
+  
+  if (['Control', 'Shift', 'Alt', 'Meta'].includes(event.key)) {
+    return null;
+  }
+  
+  if (parts.length > 0) {
+    return parts.join('+') + '+' + key;
+  }
+  return key;
+}
+
+function matchesShortcut(event, shortcutStr) {
+  if (!shortcutStr) return false;
+  if (shortcutStr === ' ' || shortcutStr.toLowerCase() === 'space') {
+    return (event.key === ' ' || event.code === 'Space') && !event.ctrlKey && !event.altKey && !event.metaKey;
+  }
+  const str = shortcutStr.trim();
+  if (str.toLowerCase() === 'delete') {
+    return (event.key === 'Delete' || event.key === 'Backspace') && !event.ctrlKey && !event.altKey && !event.metaKey;
+  }
+  const combo = eventToKeyCombo(event);
+  if (!combo) return false;
+  return combo.toLowerCase() === str.toLowerCase();
+}
+
+function deleteSelectedElement() {
+  if (!selected) {
+    status('ยังไม่ได้เลือกชิ้นส่วนหรือโหนดที่จะลบ', 'error');
+    return;
+  }
+  const collection = selected.kind;
+  if (!collection || !model[collection]) {
+    status('ไม่สามารถลบรายการนี้ได้', 'error');
+    return;
+  }
+  const row = model[collection].find(r => r.id === selected.id);
+  if (!row) {
+    status(`ไม่พบรายการ ${selected.id}`, 'error');
+    return;
+  }
+  deleteRow(collection, row);
+  selected = null;
+  renderSelection();
+  drawModel();
+  renderTable();
+}
+
+function setBuildTool(tool) {
+  activeBuildTool = tool;
+  const palette = $('buildToolPalette');
+  if (palette) {
+    palette.querySelectorAll('.build-palette-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.tool === tool);
+    });
+  }
+  if (viewMode === 'plan') {
+    if (tool === 'select') setPlanTool('select');
+    else if (tool === 'line') setPlanTool('beam');
+    else if (tool === 'node') setPlanTool('node');
+  }
+  const toolNames = {
+    select: 'เลือก (Select)',
+    line: 'เส้น / คาน (Line)',
+    node: 'โหนด (Node)',
+    slab: 'พื้น (Slab)',
+    wall: 'ผนัง (Wall)',
+    join: 'เชื่อม (Join)',
+    pull: 'ดึง / Extrude (Pull)'
+  };
+  status(`เครื่องมือ Build: ${toolNames[tool] || tool}`);
+}
+
+function executeShortcutAction(action) {
+  switch (action) {
+    case 'Select':
+      setBuildTool('select');
+      break;
+    case 'Line':
+      setBuildTool('line');
+      break;
+    case 'Node':
+      setBuildTool('node');
+      break;
+    case 'Slab':
+      setBuildTool('slab');
+      break;
+    case 'Wall':
+      setBuildTool('wall');
+      break;
+    case 'Join':
+      setBuildTool('join');
+      break;
+    case 'Pull':
+      setBuildTool('pull');
+      break;
+    case 'Toggle2D3D':
+      setViewMode(viewMode === '3d' ? 'plan' : '3d');
+      status(`สลับมุมมองเป็น ${viewMode === '3d' ? '3D' : 'ผัง 2D'}`);
+      break;
+    case 'ToggleDiagram': {
+      const d = $('diagram3d');
+      if (d) {
+        d.checked = !d.checked;
+        d.dispatchEvent(new Event('change'));
+        status(`แผนภาพ 3D: ${d.checked ? 'เปิด' : 'ปิด'}`);
+      }
+      break;
+    }
+    case 'CycleDiagram': {
+      const sel = $('diagramType');
+      if (sel && sel.options.length) {
+        sel.selectedIndex = (sel.selectedIndex + 1) % sel.options.length;
+        sel.dispatchEvent(new Event('change'));
+        status(`แผนภาพ: ${sel.options[sel.selectedIndex].text}`);
+      }
+      break;
+    }
+    case 'Analyze':
+      $('analyze')?.click();
+      break;
+    case 'Delete':
+      deleteSelectedElement();
+      break;
+  }
+}
+
+function setMode(mode) {
+  if (mode !== 'classic' && mode !== 'build') return;
+  currentMode = mode;
+  try {
+    localStorage.setItem('rcstudio_mode', mode);
+  } catch {}
+
+  $('btnModeClassic')?.classList.toggle('active', mode === 'classic');
+  $('btnModeBuild')?.classList.toggle('active', mode === 'build');
+  $('btnModeClassic')?.setAttribute('aria-checked', mode === 'classic' ? 'true' : 'false');
+  $('btnModeBuild')?.setAttribute('aria-checked', mode === 'build' ? 'true' : 'false');
+
+  const palette = $('buildToolPalette');
+  if (palette) {
+    palette.hidden = (mode !== 'build');
+  }
+
+  hideContextMenu();
+  configureControlsForMode();
+
+  if (mode === 'build') {
+    status('สลับสู่ โหมด Build (3D) · คลิกกลางเพื่อหมุน · Shift+คลิกกลางเพื่อเลื่อน (Pan)');
+  } else {
+    status('สลับสู่ โหมด Classic');
+  }
+}
+
+function showContextMenu(clientX, clientY) {
+  const menu = $('customContextMenu');
+  if (!menu) return;
+  menu.hidden = false;
+  menu.style.display = 'flex';
+  
+  const width = 230;
+  const height = 370;
+  let left = clientX;
+  let top = clientY;
+  if (left + width > window.innerWidth - 10) {
+    left = window.innerWidth - width - 10;
+  }
+  if (top + height > window.innerHeight - 10) {
+    top = window.innerHeight - height - 10;
+  }
+  menu.style.left = `${Math.max(10, left)}px`;
+  menu.style.top = `${Math.max(10, top)}px`;
+}
+
+function hideContextMenu() {
+  const menu = $('customContextMenu');
+  if (menu && !menu.hidden) {
+    menu.hidden = true;
+    menu.style.display = 'none';
+  }
+}
+
+function renderShortcutTable() {
+  const tbody = $('shortcutTableBody');
+  if (!tbody) return;
+  tbody.replaceChildren();
+
+  SHORTCUT_METADATA.forEach(meta => {
+    const tr = el('tr');
+    
+    const tdName = el('td');
+    tdName.innerHTML = `<strong>${meta.label}</strong>`;
+    
+    const tdDesc = el('td');
+    tdDesc.textContent = meta.desc;
+    
+    const tdKey = el('td');
+    tdKey.style.textAlign = 'center';
+    const keyBtn = el('button', formatShortcutDisplay(currentShortcuts[meta.id]));
+    keyBtn.type = 'button';
+    keyBtn.className = 'shortcut-record-btn';
+    keyBtn.dataset.action = meta.id;
+    keyBtn.title = 'คลิกเพื่อเปลี่ยนปุ่มลัด';
+    keyBtn.onclick = () => startListeningShortcut(meta.id, keyBtn);
+    
+    tdKey.append(keyBtn);
+    tr.append(tdName, tdDesc, tdKey);
+    tbody.append(tr);
+  });
+}
+
+function startListeningShortcut(action, buttonEl) {
+  stopListeningShortcut();
+  
+  listeningShortcutAction = action;
+  buttonEl.classList.add('recording');
+  buttonEl.textContent = 'กดปุ่มใหม่...';
+
+  keydownCaptureHandler = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    
+    if (event.key === 'Escape') {
+      stopListeningShortcut();
+      return;
+    }
+    
+    const combo = eventToKeyCombo(event);
+    if (!combo) return;
+    
+    currentShortcuts[action] = combo;
+    saveShortcuts(currentShortcuts);
+    stopListeningShortcut();
+    renderShortcutTable();
+    updateUIWithShortcuts();
+    status(`ตั้งค่าปุ่มลัดสำหรับ ${action} เป็น [${formatShortcutDisplay(combo)}] แล้ว`);
+  };
+
+  window.addEventListener('keydown', keydownCaptureHandler, { capture: true });
+}
+
+function stopListeningShortcut() {
+  if (keydownCaptureHandler) {
+    window.removeEventListener('keydown', keydownCaptureHandler, { capture: true });
+    keydownCaptureHandler = null;
+  }
+  listeningShortcutAction = null;
+  document.querySelectorAll('.shortcut-record-btn.recording').forEach(btn => {
+    btn.classList.remove('recording');
+    const act = btn.dataset.action;
+    btn.textContent = formatShortcutDisplay(currentShortcuts[act]);
+  });
+}
+
+function openShortcutManager() {
+  renderShortcutTable();
+  $('shortcutManagerDialog')?.showModal();
+}
+
+function closeShortcutManager() {
+  stopListeningShortcut();
+  $('shortcutManagerDialog')?.close();
+}
+
+function resetShortcuts() {
+  stopListeningShortcut();
+  currentShortcuts = { ...DEFAULT_SHORTCUTS };
+  saveShortcuts(currentShortcuts);
+  renderShortcutTable();
+  updateUIWithShortcuts();
+  status('รีเซ็ตคีย์ลัดเป็นค่าเริ่มต้นแล้ว');
+}
+
+function updateUIWithShortcuts() {
+  const toolMap = {
+    Select: 'toolBuildSelect',
+    Line: 'toolBuildLine',
+    Node: 'toolBuildNode',
+    Slab: 'toolBuildSlab',
+    Wall: 'toolBuildWall',
+    Join: 'toolBuildJoin',
+    Pull: 'toolBuildPull'
+  };
+  for (const [action, btnId] of Object.entries(toolMap)) {
+    const kbd = $(btnId)?.querySelector('.palette-kbd');
+    if (kbd) kbd.textContent = formatShortcutDisplay(currentShortcuts[action]);
+  }
+
+  const ctx = $('customContextMenu');
+  if (ctx) {
+    ctx.querySelectorAll('.ctx-item').forEach(item => {
+      const act = item.dataset.action;
+      if (act && currentShortcuts[act]) {
+        const kbd = item.querySelector('.ctx-key');
+        if (kbd) kbd.textContent = formatShortcutDisplay(currentShortcuts[act]);
+      }
+    });
+  }
+}
+
+// Global click outside context menu to hide
+document.addEventListener('pointerdown', event => {
+  if (!event.target.closest('#customContextMenu')) {
+    hideContextMenu();
+  }
+});
+
+// Context Menu item clicks
+$('customContextMenu')?.addEventListener('click', event => {
+  const item = event.target.closest('.ctx-item');
+  if (!item) return;
+  const action = item.dataset.action;
+  hideContextMenu();
+  if (action === 'settings') {
+    openShortcutManager();
+  } else {
+    executeShortcutAction(action);
+  }
+});
+
+// Floating Palette tools click
+$('buildToolPalette')?.querySelectorAll('.build-palette-btn[data-tool]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    setBuildTool(btn.dataset.tool);
+  });
+});
+$('toolBuildSettings')?.addEventListener('click', openShortcutManager);
+
+// Mode switcher buttons
+$('btnModeClassic')?.addEventListener('click', () => setMode('classic'));
+$('btnModeBuild')?.addEventListener('click', () => setMode('build'));
+
+// Shortcut Dialog buttons
+$('closeShortcutDialog')?.addEventListener('click', closeShortcutManager);
+$('saveShortcutsBtn')?.addEventListener('click', closeShortcutManager);
+$('resetShortcutsBtn')?.addEventListener('click', resetShortcuts);
+
+// Initialize mode and shortcuts UI
+setMode(currentMode);
+updateUIWithShortcuts();
+
 window.app = {
  getModel: () => model,
  structMode: applyStructMode,
@@ -2657,5 +3137,14 @@ window.app = {
  setSelected: (s) => { selected = s; renderSelection(); drawModel(); },
  selectItem: (kind, id) => { selected = { kind, id }; renderSelection(); drawModel(); },
  analyze: () => $('analyze').click(),
- drawModel: () => drawModel()
+ drawModel: () => drawModel(),
+ getMode: () => currentMode,
+ setMode: setMode,
+ getShortcuts: () => ({ ...currentShortcuts }),
+ resetShortcuts: resetShortcuts,
+ setBuildTool: setBuildTool,
+ getActiveBuildTool: () => activeBuildTool,
+ openShortcutManager: openShortcutManager,
+ closeShortcutManager: closeShortcutManager
 };
+
