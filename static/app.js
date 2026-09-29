@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import {OrbitControls} from './vendor/OrbitControls.js';
 import {stationValueKN,rangeKN,rangeByGroupKN,memberRangeKN,peakStation,memberGroupOf,GROUP_LABELS} from './heatmap.js';
 import {unit,toDisplay,toCanonical} from './units.js';
-import {catalogs,memberRecord,slabRecord,foundationRecord,blankProject,roofSeatElevation,warehouseModel,threeStoryBuilding,getMemberLocalAxes,migrateToZUp,ARROW_AXIS_LOCKS,getAxisLockFromKey,projectRayToAxisLine,computeEndpointFromDimension,findContinuousBeamChain,calculateWallUDL,classifyConnectedMembers} from './building.js';
+import {catalogs,memberRecord,slabRecord,foundationRecord,blankProject,roofSeatElevation,warehouseModel,getMemberLocalAxes,migrateToZUp,ARROW_AXIS_LOCKS,getAxisLockFromKey,projectRayToAxisLine,computeEndpointFromDimension,findContinuousBeamChain,calculateWallUDL,classifyConnectedMembers} from './building.js';
 import {groupLevels,nearestPlanNode,validateMemberEndpoints,planNodeDraft,snapPlanPoint,splitBeamAtDistance,nearestBeamOnPlan,validPlanGridStep,buildGridLayout,buildGridLayoutFromLines,planGridModel,constrainPlanPoint,autoDetectGridLines,planContinuousBeamSegments} from './plan.js';
 
 const $=id=>document.getElementById(id), clone=x=>JSON.parse(JSON.stringify(x));

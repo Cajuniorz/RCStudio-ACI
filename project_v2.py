@@ -103,8 +103,11 @@ def validate_project(p, draft=True):
         m_keys = set(m.keys())
         m_keys.discard('roofRole')
         m_keys.discard('role')
+        m_keys.discard('continuousGroup')
         if m_keys != set(MEMBER_FIELDS.split()):
             fail(f'Member v2: required fields: {MEMBER_FIELDS}; unknown fields are not supported')
+        if m.get('continuousGroup') is not None and (not isinstance(m['continuousGroup'], str) or len(m['continuousGroup']) > 64):
+            fail(f'{m["id"]}: continuousGroup must be a string up to 64 chars')
         if m['kind'] not in ('beam','column','roof') or m['sectionType'] not in ('rc_rect','steel_custom') or m['roofType'] not in ROOF_TYPES or m['behavior'] not in ('frame','truss'):
             fail('Unsupported member classification')
         for k in ('A','Iy','Iz','J'):
@@ -127,6 +130,11 @@ def validate_project(p, draft=True):
                 e_keys.discard('support4')
                 if e_keys != set(fields.split()):
                     fail(f'slabs: required fields: {fields}; unknown fields are not supported')
+            elif collection == 'foundations':
+                e_keys = set(e.keys())
+                e_keys.discard('by')
+                if e_keys != set(fields.split()):
+                    fail(f'foundations: required fields: {fields}; unknown fields are not supported')
             else:
                 shape(e, fields, collection)
             identifier(e['id'], collection)
@@ -137,8 +145,8 @@ def validate_project(p, draft=True):
                 fail(f'{e["id"]}: node reference not found')
             if len(set(e['nodes'])) != len(e['nodes']): fail(f'{e["id"]}: duplicate node references')
             if not isinstance(e['note'], str) or len(e['note']) > 500: fail('Note: maximum 500 characters')
-            for k in nums:
-                if e[k] is not None: number(e[k], f'{e["id"]}.{k}')
+            for k in (*nums, 'by'):
+                if e.get(k) is not None: number(e[k], f'{e["id"]}.{k}')
             if collection == 'slabs':
                 if e['mode'] not in ('pending', 'one_way_load', 'two_way_load') or e['weightMode'] not in ('volume', 'manual'):
                     fail('Unsupported floor analysis/weight mode')
@@ -216,6 +224,37 @@ def prepare(p):
         elif slab['mode'] == 'two_way_load':
             if slab['type'] not in ('two_way', 'custom'):
                 fail(f'{sid}: selected floor type cannot use two-way transfer in this version')
+        if (not slab.get('nodes') or len(slab.get('nodes', [])) != 4) and slab.get('mode') in ('one_way_load', 'two_way_load'):
+            inferred = None
+            if slab['mode'] == 'one_way_load':
+                s1 = member_map.get(slab.get('support1'))
+                s2 = member_map.get(slab.get('support2'))
+                if s1 and s2 and s1['i'] in coords and s1['j'] in coords and s2['i'] in coords and s2['j'] in coords:
+                    n1, n2 = s1['i'], s1['j']
+                    n3, n4 = s2['i'], s2['j']
+                    c2, c3, c4 = coords[n2], coords[n3], coords[n4]
+                    if np.linalg.norm(c2 - c4) < np.linalg.norm(c2 - c3):
+                        inferred = [n1, n2, n4, n3]
+                    else:
+                        inferred = [n1, n2, n3, n4]
+            elif slab['mode'] == 'two_way_load':
+                s_ids = [slab.get(k, '') for k in ('support1', 'support2', 'support3', 'support4')]
+                if all(sid in member_map for sid in s_ids):
+                    b_list = [member_map[sid] for sid in s_ids]
+                    first = b_list[0]
+                    curr_node = first['j']
+                    loop_nodes = [first['i'], first['j']]
+                    remaining = b_list[1:]
+                    for _ in range(2):
+                        nxt = next((b for b in remaining if b['i'] == curr_node or b['j'] == curr_node), None)
+                        if nxt:
+                            curr_node = nxt['j'] if nxt['i'] == curr_node else nxt['i']
+                            loop_nodes.append(curr_node)
+                            remaining.remove(nxt)
+                    if len(loop_nodes) == 4:
+                        inferred = loop_nodes
+            if inferred and len(set(inferred)) == 4:
+                slab['nodes'] = inferred
         pts,area=rectangle([coords[n] for n in slab['nodes']],sid,is_z_up=is_z_up)
         if any(overlap(pts,previous,is_z_up=is_z_up) for previous in rectangles):fail(f'{sid}: overlapping floor panels would double-count load')
         rectangles.append(pts)
