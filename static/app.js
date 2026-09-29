@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import {OrbitControls} from './vendor/OrbitControls.js';
 import {stationValueKN,rangeKN,rangeByGroupKN,memberRangeKN,peakStation,memberGroupOf,GROUP_LABELS} from './heatmap.js';
 import {unit,toDisplay,toCanonical} from './units.js';
-import {catalogs,memberRecord,slabRecord,foundationRecord,blankProject,roofSeatElevation,warehouseModel,threeStoryBuilding,getMemberLocalAxes,migrateToZUp,ARROW_AXIS_LOCKS,getAxisLockFromKey,projectRayToAxisLine,computeEndpointFromDimension} from './building.js';
+import {catalogs,memberRecord,slabRecord,foundationRecord,blankProject,roofSeatElevation,warehouseModel,threeStoryBuilding,getMemberLocalAxes,migrateToZUp,ARROW_AXIS_LOCKS,getAxisLockFromKey,projectRayToAxisLine,computeEndpointFromDimension,findContinuousBeamChain,calculateWallUDL,classifyConnectedMembers} from './building.js';
 import {groupLevels,nearestPlanNode,validateMemberEndpoints,planNodeDraft,snapPlanPoint,splitBeamAtDistance,nearestBeamOnPlan,validPlanGridStep,buildGridLayout,buildGridLayoutFromLines,planGridModel,constrainPlanPoint,autoDetectGridLines,planContinuousBeamSegments} from './plan.js';
 
 const $=id=>document.getElementById(id), clone=x=>JSON.parse(JSON.stringify(x));
@@ -1418,6 +1418,65 @@ function drawBuildPreview(){
  const start=buildDrawState.start||buildDrawState.ref;
  const end=buildDrawState.current;
  if(!start||!end)return;
+ if(buildDrawState.tool==='slab'){
+  const z=start.z;
+  const pts=[
+   new THREE.Vector3(start.x,start.y,z),
+   new THREE.Vector3(end.x,start.y,z),
+   new THREE.Vector3(end.x,end.y,z),
+   new THREE.Vector3(start.x,end.y,z),
+   new THREE.Vector3(start.x,start.y,z)
+  ];
+  const slabGeo=new THREE.BufferGeometry().setFromPoints(pts);
+  const slabMat=new THREE.LineBasicMaterial({color:0x38bdf8,linewidth:2,depthTest:false,transparent:true,opacity:0.95});
+  const slabMesh=new THREE.Line(slabGeo,slabMat);
+  slabMesh.renderOrder=999;
+  buildOverlayGroup.add(slabMesh);
+
+  const sphereGeo=new THREE.SphereGeometry(0.04,12,12);
+  const sphereMat=new THREE.MeshBasicMaterial({color:0x38bdf8,depthTest:false});
+  const sphere=new THREE.Mesh(sphereGeo,sphereMat);
+  sphere.position.set(end.x,end.y,z);
+  sphere.renderOrder=1000;
+  buildOverlayGroup.add(sphere);
+
+  const dx=Math.abs(end.x-start.x), dy=Math.abs(end.y-start.y);
+  if(dx>0.05&&dy>0.05){
+   const mid=new THREE.Vector3((start.x+end.x)/2,(start.y+end.y)/2,z+0.15);
+   const badge=labelSprite(`${fmt(dx,2)} × ${fmt(dy,2)} m`,0,36,12,{
+    bg:'rgba(15, 23, 42, 0.92)',
+    border:'#38bdf8',
+    color:'#f8fafc',
+    radius:6,
+    alwaysOnTop:true
+   });
+   badge.position.copy(mid);
+   badge.renderOrder=1001;
+   buildOverlayGroup.add(badge);
+  }
+  updateMeasurementBox(Math.hypot(dx,dy),dx,dy,0);
+  return;
+ }
+ if(buildDrawState.tool==='pull'){
+  const axis=buildDrawState.axis;
+  const color=axis==='x'?0xef4444:axis==='y'?0x22c55e:axis==='z'?0x3b82f6:0x38bdf8;
+  const lineGeo=new THREE.BufferGeometry().setFromPoints([start,end]);
+  const lineMat=new THREE.LineBasicMaterial({color,linewidth:2,depthTest:false,transparent:true,opacity:0.95});
+  const lineMesh=new THREE.Line(lineGeo,lineMat);
+  lineMesh.renderOrder=999;
+  buildOverlayGroup.add(lineMesh);
+
+  const sphereGeo=new THREE.SphereGeometry(0.05,12,12);
+  const sphereMat=new THREE.MeshBasicMaterial({color,depthTest:false});
+  const sphere=new THREE.Mesh(sphereGeo,sphereMat);
+  sphere.position.copy(end);
+  sphere.renderOrder=1000;
+  buildOverlayGroup.add(sphere);
+
+  const dist=start.distanceTo(end);
+  updateMeasurementBox(dist,end.x-start.x,end.y-start.y,end.z-start.z);
+  return;
+ }
  const lock=buildDrawState.axisLock||beamAxisLock;
  const color=lock==='x'?0xef4444:lock==='y'?0x22c55e:lock==='z'?0x3b82f6:0x38bdf8;
 
@@ -1533,6 +1592,19 @@ function commitBuildNodePoint(targetPoint){
 
 function commitBuildDimensionInput(targetLength){
  if(!buildDrawState||!Number.isFinite(targetLength)||targetLength<=0)return;
+ if(buildDrawState.tool==='pull'){
+  const node=model.nodes.find(n=>n.id===buildDrawState.nodeId);
+  if(!node){cancelBuildDrawing();return;}
+  const axis=buildDrawState.axis;
+  mutate(()=>{
+   if(axis==='x')node.x=Number((node.x+targetLength).toFixed(3));
+   else if(axis==='y')node.y=Number((node.y+targetLength).toFixed(3));
+   else if(axis==='z')node.z=Number(((node.z!==undefined?node.z:node.y)+targetLength).toFixed(3));
+  });
+  cancelBuildDrawing();
+  status(`ดึงโหนด ${node.id} ตามแนวแกน ${axis.toUpperCase()} ระยะ ${fmt(targetLength,3)} m สำเร็จ`);
+  return;
+ }
  const start=buildDrawState.start||buildDrawState.ref;
  const current=buildDrawState.current;
  const lock=buildDrawState.axisLock||beamAxisLock;
@@ -1542,6 +1614,240 @@ function commitBuildDimensionInput(targetLength){
  }else if(buildDrawState.tool==='node'){
   commitBuildNodePoint(new THREE.Vector3(targetPoint.x,targetPoint.y,targetPoint.z));
  }
+}
+
+function commitBuildSlab(p1,p2,startNode=null,endNode=null){
+ if(!p1||!p2)return null;
+ const z=Number((p1.z!==undefined?p1.z:0).toFixed(3));
+ const minX=Math.min(p1.x,p2.x);
+ const maxX=Math.max(p1.x,p2.x);
+ const minY=Math.min(p1.y,p2.y);
+ const maxY=Math.max(p1.y,p2.y);
+ const lx=Number((maxX-minX).toFixed(3));
+ const ly=Number((maxY-minY).toFixed(3));
+ if(lx<0.2||ly<0.2){
+  status('ขนาดพื้นเล็กเกินไป (ต้องมีขนาดอย่างน้อย 0.2 × 0.2 ม.)','error');
+  return null;
+ }
+
+ const cornerCoords=[
+  {x:minX,y:minY,z},
+  {x:maxX,y:minY,z},
+  {x:maxX,y:maxY,z},
+  {x:minX,y:maxY,z}
+ ];
+
+ const cornerIds=[];
+ const createdNodes=[];
+
+ for(const c of cornerCoords){
+  let match=model.nodes.find(n=>Math.hypot(n.x-c.x,n.y-c.y,(n.z!==undefined?n.z:n.y)-c.z)<0.05);
+  if(!match){
+   const newId=nextId('N',[...model.nodes,...createdNodes]);
+   match={id:newId,x:c.x,y:c.y,z:c.z,restraints:Array(6).fill(false)};
+   createdNodes.push(match);
+  }
+  cornerIds.push(match.id);
+ }
+
+ const findBeam=(idA,idB)=>{
+  return model.members.find(m=>(m.i===idA&&m.j===idB)||(m.i===idB&&m.j===idA));
+ };
+ const b1=findBeam(cornerIds[0],cornerIds[1]);
+ const b2=findBeam(cornerIds[1],cornerIds[2]);
+ const b3=findBeam(cornerIds[2],cornerIds[3]);
+ const b4=findBeam(cornerIds[3],cornerIds[0]);
+
+ const ratio=Math.max(lx,ly)/Math.min(lx,ly);
+ const isOneWay=ratio>=2.0;
+ const sId=nextId('S',model.slabs);
+ const slab={
+  ...slabRecord(sId,cornerIds),
+  type:isOneWay?'one_way':'two_way',
+  thickness:0.12,
+  mode:isOneWay?'one_way_load':'two_way_load',
+  dead:1.5,
+  live:2.0,
+  support1:b1?b1.id:'',
+  support2:b2?b2.id:'',
+  support3:b3?b3.id:'',
+  support4:b4?b4.id:''
+ };
+
+ mutate(()=>{
+  if(createdNodes.length>0){
+   model.nodes.push(...createdNodes);
+  }
+  model.slabs.push(slab);
+  selected={kind:'slabs',id:sId};
+  selectedList=[selected];
+ });
+
+ cancelBuildDrawing();
+ status(`สร้างพื้น ${sId} (${isOneWay?'One-Way':'Two-Way'}, ${fmt(lx,2)} × ${fmt(ly,2)} m) สำเร็จ`);
+ return slab;
+}
+
+function commitBuildWall(memberId,heightM=2.8,densityKgm2=180){
+ const mem=model.members.find(m=>m.id===memberId);
+ if(!mem){
+  status(`ไม่พบชิ้นส่วนคาน ${memberId} สำหรับสร้างผนัง`,'error');
+  return null;
+ }
+ const w=calculateWallUDL(heightM,densityKgm2);
+ mutate(()=>{
+  model.memberLoads.push({
+   member:mem.id,
+   case:'D',
+   qx:0,
+   qy:0,
+   qz:-w,
+   dist1:0,
+   dist2:null
+  });
+  mem.hasWall=true;
+  mem.wallHeight=heightM;
+  mem.wallDensity=densityKgm2;
+  mem.wallLoad=w;
+  selected={kind:'members',id:mem.id};
+  selectedList=[selected];
+ });
+ drawModel();
+ renderTable();
+ status(`สร้างผนังบนคาน ${mem.id} สำเร็จ (สูง ${fmt(heightM,2)} m, โหลดผนัง ${fmt(w,2)} kN/m ลงแกน -Z)`);
+ return {memberId:mem.id,load:w,height:heightM};
+}
+
+let currentJoinChain=null;
+
+function promptJoinBeams(){
+ const beamIds=selectedList.filter(s=>s.kind==='members').map(s=>s.id);
+ if(beamIds.length===0&&selected&&selected.kind==='members'){
+  beamIds.push(selected.id);
+ }
+ if(beamIds.length<2){
+  status('กรุณาเลือกคานต่อเนื่องอย่างน้อย 2 ชิ้น (กด Ctrl+คลิก เพื่อเลือกหลายชิ้น) แล้วกด J');
+  return;
+ }
+ const chain=findContinuousBeamChain(model.members,beamIds,model.nodes);
+ if(!chain||!chain.valid){
+  status('คานที่เลือกไม่ได้เชื่อมต่อกัน กรุณาเลือกคานที่มีโหนดร่วมกัน','error');
+  return;
+ }
+ currentJoinChain=chain;
+ const body=$('joinDialogBody');
+ if(body){
+  body.innerHTML=`
+   <p style="margin:0">พบชุดคานต่อเนื่อง <strong>${chain.members.length}</strong> ท่อน:</p>
+   <div style="display:flex;flex-direction:column;gap:6px">
+    ${chain.members.map(m=>`
+     <div class="join-beam-card">
+      <span><strong>${m.id}</strong> (${m.i} → ${m.j})</span>
+      <span>หน้าตัด: ${fmt((m.b||0.25)*100,0)} × ${fmt((m.h||0.45)*100,0)} ซม.</span>
+     </div>
+    `).join('')}
+   </div>
+   <p style="color:#38bdf8;font-size:12px;margin:4px 0 0">
+    โหนดเชื่อมต่อร่วม: <strong>${chain.sharedNodes.join(', ')}</strong>
+   </p>
+  `;
+ }
+ const dlg=$('joinBeamsDialog');
+ if(dlg){
+  if(typeof dlg.showModal==='function')dlg.showModal();
+  else dlg.open=true;
+ }
+}
+
+function executeJoinBeams(chain){
+ if(!chain||!chain.members||chain.members.length<2){
+  status('ต้องเลือกคานที่ต่อเนื่องกันอย่างน้อย 2 ชิ้นขึ้นไป','error');
+  return false;
+ }
+ const primary=chain.members[0];
+ const b=primary.b||0.25;
+ const h=primary.h||0.45;
+ const groupTag=`CB_${primary.id}`;
+
+ mutate(()=>{
+  for(const m of chain.members){
+   m.b=b;
+   m.h=h;
+   m.continuousGroup=groupTag;
+  }
+ });
+
+ const dlg=$('joinBeamsDialog');
+ if(dlg){
+  if(typeof dlg.close==='function')dlg.close();
+  else dlg.open=false;
+ }
+ currentJoinChain=null;
+ status(`รวมคาน ${chain.members.map(m=>m.id).join(', ')} เป็นคานต่อเนื่อง ${groupTag} (${fmt(b*100,0)}×${fmt(h*100,0)} cm) สำเร็จ`);
+ return true;
+}
+
+function openPullNodeMenu(nodeId,clientX=window.innerWidth/2,clientY=window.innerHeight/2){
+ const node=model.nodes.find(n=>n.id===nodeId);
+ if(!node)return;
+ const classified=classifyConnectedMembers(nodeId,model.members,model.nodes);
+ if(classified.length===0){
+  status(`โหนด ${nodeId} ไม่มีชิ้นส่วนเชื่อมต่อที่จะดึง/ยืดได้`,'error');
+  return;
+ }
+
+ const container=$('pullMenuItems');
+ if(container){
+  container.innerHTML='';
+  classified.forEach(c=>{
+   const btn=document.createElement('button');
+   btn.type='button';
+   btn.className='pull-item-btn';
+   btn.innerHTML=`<span class="pull-axis-tag axis-${c.axis}">${c.axis.toUpperCase()}</span><span>${c.label}</span>`;
+   btn.addEventListener('click',()=>{
+    closePullNodeMenu();
+    startPullingNode(nodeId,c.axis,c.member);
+   });
+   container.appendChild(btn);
+  });
+ }
+
+ const menu=$('pullNodeMenu');
+ if(menu){
+  menu.hidden=false;
+  menu.style.left=`${Math.min(window.innerWidth-270,Math.max(10,clientX+8))}px`;
+  menu.style.top=`${Math.min(window.innerHeight-220,Math.max(10,clientY+8))}px`;
+ }
+}
+
+function closePullNodeMenu(){
+ const menu=$('pullNodeMenu');
+ if(menu)menu.hidden=true;
+}
+
+function startPullingNode(nodeId,axis,member){
+ const node=model.nodes.find(n=>n.id===nodeId);
+ if(!node)return;
+ const zVal=node.z!==undefined?node.z:node.y;
+ buildDrawState={
+  tool:'pull',
+  nodeId,
+  axis,
+  member,
+  start:new THREE.Vector3(node.x,node.y,zVal),
+  current:new THREE.Vector3(node.x,node.y,zVal),
+  axisLock:axis
+ };
+ measurementBuffer='';
+ const box=$('buildMeasurementBox');
+ if(box)box.hidden=false;
+ const input=$('buildMeasurementInput');
+ if(input){
+  input.value='';
+  input.placeholder='ระยะยืด (m)';
+  input.focus();
+ }
+ status(`ดึงโหนด ${nodeId} ตามแนวแกน ${axis.toUpperCase()}: พิมพ์ระยะในช่อง Length หรือพิมพ์ตัวเลขแล้วกด Enter`);
 }
 
 renderer.domElement.addEventListener('pointerdown',event=>{
@@ -1599,6 +1905,46 @@ renderer.domElement.addEventListener('pointerdown',event=>{
     commitBuildNodePoint(buildDrawState.current);
     return;
    }
+  }else if(activeBuildTool==='slab'){
+   event.preventDefault();
+   const p=get3DPointerPoint(event);
+   if(!p)return;
+   if(!buildDrawState){
+    buildDrawState={
+     tool:'slab',
+     start:p.point.clone(),
+     startNode:p.node||null,
+     current:p.point.clone()
+    };
+    drawBuildPreview();
+    status('เริ่มกำหนดขอบเขตพื้น · คลิกมุมทแยงอีกด้าน หรือเลือกโหนดมุม');
+    return;
+   }else{
+    commitBuildSlab(buildDrawState.start,p.point,buildDrawState.startNode,p.node||null);
+    return;
+   }
+  }else if(activeBuildTool==='wall'){
+   const rect=renderer.domElement.getBoundingClientRect();
+   pointer.set((event.clientX-rect.left)/rect.width*2-1,-(event.clientY-rect.top)/rect.height*2+1);
+   ray.setFromCamera(pointer,camera);
+   const hits=ray.intersectObjects(group.children,true);
+   const memHit=hits.find(h=>h.object.userData?.kind==='members');
+   if(memHit){
+    event.preventDefault();
+    commitBuildWall(memHit.object.userData.id,2.8,180);
+    return;
+   }
+  }else if(activeBuildTool==='pull'){
+   const rect=renderer.domElement.getBoundingClientRect();
+   pointer.set((event.clientX-rect.left)/rect.width*2-1,-(event.clientY-rect.top)/rect.height*2+1);
+   ray.setFromCamera(pointer,camera);
+   const hits=ray.intersectObjects(group.children,true);
+   const nodeHit=hits.find(h=>h.object.userData?.kind==='nodes');
+   if(nodeHit){
+    event.preventDefault();
+    openPullNodeMenu(nodeHit.object.userData.id,event.clientX,event.clientY);
+    return;
+   }
   }
  }
 
@@ -1623,7 +1969,7 @@ renderer.domElement.addEventListener('pointerup',event=>{
  if(event.button!==0){pointerStart=null;return;}
  if(!pointerStart||Math.hypot(event.clientX-pointerStart[0],event.clientY-pointerStart[1])>4){pointerStart=null;return;}
  pointerStart=null;
- if(currentMode==='build'&&(activeBuildTool==='line'||activeBuildTool==='node'))return;
+ if(currentMode==='build'&&(activeBuildTool==='line'||activeBuildTool==='node'||activeBuildTool==='slab'||activeBuildTool==='wall'||activeBuildTool==='pull'))return;
  if(viewMode==='plan'&&activeTool==='memberNode'){const hit=snapPlanBeam(event);if(!hit)return status('คลิกใกล้เส้นคานที่ระดับชั้นนี้','error');if(hit.ambiguous)return status('เส้นคานซ้อนกัน เลือกคานในตารางแล้วระบุระยะแทน','error');commitReferenceNode(hit.member.id,hit.fromId,hit.distanceFromI);lineSnapHover=null;drawModel();return;}
  if(viewMode==='plan'&&activeTool==='node'){const point=planPointerPoint(event);if(point)commitPlanNode(point,event);else status('เลือกระดับชั้นก่อนวางโหนด','error');return;}
 
@@ -3458,7 +3804,17 @@ function setBuildTool(tool) {
     join: 'เชื่อม (Join)',
     pull: 'ดึง / Extrude (Pull)'
   };
-  status(`เครื่องมือ Build: ${toolNames[tool] || tool}`);
+  if (tool === 'join') {
+    promptJoinBeams();
+  } else if (tool === 'pull') {
+    if (selected && selected.kind === 'nodes') {
+      openPullNodeMenu(selected.id);
+    } else {
+      status('เครื่องมือดึง (Pull): คลิกเลือกโหนดที่ต้องการยืดขยาย');
+    }
+  } else {
+    status(`เครื่องมือ Build: ${toolNames[tool] || tool}`);
+  }
 }
 
 function executeShortcutAction(action) {
@@ -3733,6 +4089,22 @@ $('closeShortcutDialog')?.addEventListener('click', closeShortcutManager);
 $('saveShortcutsBtn')?.addEventListener('click', closeShortcutManager);
 $('resetShortcutsBtn')?.addEventListener('click', resetShortcuts);
 
+// Join Beams Dialog buttons
+$('closeJoinDialog')?.addEventListener('click', () => $('joinBeamsDialog')?.close());
+$('cancelJoinBeamsBtn')?.addEventListener('click', () => $('joinBeamsDialog')?.close());
+$('confirmJoinBeamsBtn')?.addEventListener('click', () => {
+  if (currentJoinChain) {
+    executeJoinBeams(currentJoinChain);
+  }
+});
+
+// Click outside pullNodeMenu to hide
+document.addEventListener('pointerdown', event => {
+  if (!event.target.closest('#pullNodeMenu')) {
+    closePullNodeMenu();
+  }
+});
+
 // Initialize mode and shortcuts UI
 setMode(currentMode);
 updateUIWithShortcuts();
@@ -3756,6 +4128,12 @@ window.app = {
  getSelectedList: () => [...selectedList],
  getBuildDrawState: () => buildDrawState ? { ...buildDrawState } : null,
  commitBuildDimensionInput: commitBuildDimensionInput,
- cancelBuildDrawing: cancelBuildDrawing
+ cancelBuildDrawing: cancelBuildDrawing,
+ commitBuildSlab: commitBuildSlab,
+ commitBuildWall: commitBuildWall,
+ executeJoinBeams: executeJoinBeams,
+ promptJoinBeams: promptJoinBeams,
+ openPullNodeMenu: openPullNodeMenu,
+ closePullNodeMenu: closePullNodeMenu
 };
 

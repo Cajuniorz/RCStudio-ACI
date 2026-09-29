@@ -420,3 +420,57 @@ export function computeEndpointFromDimension(start, currentPoint, axisLock, targ
  };
 }
 
+export function findContinuousBeamChain(members, selectedIds, nodes) {
+ const selectedMembers = members.filter(m => selectedIds.includes(m.id));
+ if (selectedMembers.length < 2) return null;
+
+ const nodeConnections = new Map();
+ for (const m of selectedMembers) {
+  if (!nodeConnections.has(m.i)) nodeConnections.set(m.i, []);
+  if (!nodeConnections.has(m.j)) nodeConnections.set(m.j, []);
+  nodeConnections.get(m.i).push(m);
+  nodeConnections.get(m.j).push(m);
+ }
+
+ const sharedNodes = [...nodeConnections.entries()].filter(([nodeId, mems]) => mems.length >= 2);
+ if (sharedNodes.length === 0) return null;
+
+ return {
+  valid: true,
+  members: selectedMembers,
+  sharedNodes: sharedNodes.map(s => s[0])
+ };
+}
+
+export function calculateWallUDL(heightM = 2.8, densityKgm2 = 180) {
+ const wKNm = (densityKgm2 * heightM * 9.80665) / 1000;
+ return Number(wKNm.toFixed(2));
+}
+
+export function classifyConnectedMembers(nodeId, members, nodes) {
+ const n0 = nodes.find(n => n.id === nodeId);
+ if (!n0) return [];
+ const connected = members.filter(m => m.i === nodeId || m.j === nodeId);
+ return connected.map(m => {
+  const otherId = m.i === nodeId ? m.j : m.i;
+  const n1 = nodes.find(n => n.id === otherId);
+  if (!n1) return { member: m, axis: 'unknown', label: m.id };
+  const dx = Math.abs(n1.x - n0.x);
+  const dy = Math.abs(n1.y - n0.y);
+  const dz = Math.abs(n1.z - n0.z);
+  let axis = 'other', label = `คาน ${m.id}`;
+  if (dx < 1e-4 && dy < 1e-4 && dz > 1e-4) {
+   axis = 'z';
+   label = `เสาแนวดิ่ง (Column: ${m.id})`;
+  } else if (dy < 1e-4 && dz < 1e-4 && dx > 1e-4) {
+   axis = 'x';
+   label = `คานแนวแกน X (Beam X: ${m.id})`;
+  } else if (dx < 1e-4 && dz < 1e-4 && dy > 1e-4) {
+   axis = 'y';
+   label = `คานแนวแกน Y (Beam Y: ${m.id})`;
+  }
+  return { member: m, axis, label, otherNode: n1 };
+ });
+}
+
+
