@@ -12,6 +12,15 @@ from design_rc25 import design_all as rc_design_all
 ROOT = Path(__file__).resolve().parent
 
 
+class StudioHTTPServer(ThreadingHTTPServer):
+    """A browser opens 6+ connections per origin for the module graph, but socketserver
+    defaults to a listen backlog of 5: the extra connections are refused (ERR_CONNECTION_REFUSED),
+    some ES modules never load and the page hangs with no visible error. Raise the backlog and
+    keep handler threads daemon so a browser that walks away cannot hold the process open."""
+    daemon_threads = True
+    request_queue_size = 128
+
+
 class Handler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(ROOT / 'static'), **kwargs)
@@ -119,4 +128,4 @@ if __name__ == '__main__':
     parser.add_argument('--port', type=int, default=8766)
     args = parser.parse_args()
     print(f'RC Studio: http://127.0.0.1:{args.port}', flush=True)
-    ThreadingHTTPServer(('127.0.0.1', args.port), Handler).serve_forever()
+    StudioHTTPServer(('127.0.0.1', args.port), Handler).serve_forever()
