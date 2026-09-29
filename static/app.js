@@ -780,14 +780,52 @@ function updatePlanGridOverlay(){
   item.el.style.top=`${(1-p.y)*box.height/2}px`;
  }
 }
-function bindControls(target,position,up){controls?.dispose();controls=new OrbitControls(camera,renderer.domElement);controls.enableDamping=true;if(up)camera.up.copy(up);else camera.up.set(0,0,1);camera.position.copy(position);camera.lookAt(target);controls.target.copy(target);configureControlsForMode();controls.addEventListener('change',updatePlanGridOverlay);controls.update();window.__rc_camera=camera;window.__rc_renderer=renderer;window.__rc_controls=controls;}
+let group=new THREE.Group();scene.add(group);
+const ray=new THREE.Raycaster(),pointer=new THREE.Vector2();
+ray.params.Line={threshold:0.18};
+
+function getOrbitPivotPoint(event){
+ if(viewMode==='plan')return null;
+ const dom=renderer?.domElement;
+ if(!dom)return null;
+ const rect=dom.getBoundingClientRect();
+ if(!rect.width||!rect.height)return null;
+ const px=((event.clientX-rect.left)/rect.width)*2-1;
+ const py=-((event.clientY-rect.top)/rect.height)*2+1;
+ const pivotRay=new THREE.Raycaster();
+ pivotRay.setFromCamera(new THREE.Vector2(px,py),camera);
+ if(group&&group.children.length){
+  const hits=pivotRay.intersectObjects(group.children,true);
+  const solidHit=hits.find(h=>{
+   if(!h.object||h.object.isSprite||!h.point)return false;
+   if(h.object.type==='Line'&&h.object.parent?.type==='ArrowHelper')return false;
+   if(h.object.type==='Mesh'&&h.object.parent?.type==='ArrowHelper')return false;
+   return Boolean(h.object.userData?.kind||h.object.isMesh||h.object.isLine);
+  });
+  if(solidHit&&solidHit.point)return solidHit.point.clone();
+ }
+ const groundPlane=new THREE.Plane(new THREE.Vector3(0,0,1),0);
+ const groundHit=new THREE.Vector3();
+ if(pivotRay.ray.intersectPlane(groundPlane,groundHit)){
+  const toGround=groundHit.clone().sub(camera.position);
+  const forward=new THREE.Vector3(0,0,-1).applyQuaternion(camera.quaternion);
+  if(toGround.dot(forward)>0&&toGround.length()<500)return groundHit;
+ }
+ const forward=new THREE.Vector3(0,0,-1).applyQuaternion(camera.quaternion);
+ const curTarget=controls?controls.target:new THREE.Vector3(0,0,0);
+ const targetPlane=new THREE.Plane().setFromNormalAndCoplanarPoint(forward.clone().negate(),curTarget);
+ const planeHit=new THREE.Vector3();
+ if(pivotRay.ray.intersectPlane(targetPlane,planeHit))return planeHit;
+ const dist=controls?camera.position.distanceTo(curTarget):10;
+ return camera.position.clone().addScaledVector(pivotRay.ray.direction,Math.max(1,dist));
+}
+
+function bindControls(target,position,up){controls?.dispose();controls=new OrbitControls(camera,renderer.domElement);controls.enableDamping=true;controls.getPivotPoint=getOrbitPivotPoint;if(up)camera.up.copy(up);else camera.up.set(0,0,1);camera.position.copy(position);camera.lookAt(target);controls.target.copy(target);configureControlsForMode();controls.addEventListener('change',updatePlanGridOverlay);controls.update();window.__rc_camera=camera;window.__rc_renderer=renderer;window.__rc_controls=controls;}
 bindControls(saved3D.target,saved3D.position);
 scene.add(new THREE.AmbientLight(0xffffff,1.2));
 const mainLight=new THREE.DirectionalLight(0xffffff,1.2);mainLight.position.set(10,15,20);scene.add(mainLight);
 const fillLight=new THREE.DirectionalLight(0xffffff,0.5);fillLight.position.set(-10,-10,-10);scene.add(fillLight);
-const gridHelper=new THREE.GridHelper(40,40,0x395776,0x24384e);gridHelper.rotation.x=Math.PI/2;scene.add(gridHelper);scene.add(new THREE.AxesHelper(1.5));let group=new THREE.Group();scene.add(group);
-const ray=new THREE.Raycaster(),pointer=new THREE.Vector2();
-ray.params.Line={threshold:0.18};
+const gridHelper=new THREE.GridHelper(40,40,0x395776,0x24384e);gridHelper.rotation.x=Math.PI/2;scene.add(gridHelper);scene.add(new THREE.AxesHelper(1.5));
 function resizeViewport(){const {width,height}=$('canvas').getBoundingClientRect(),w=Math.max(1,width),h=Math.max(1,height);renderer.setSize(w,h);if(camera.isPerspectiveCamera)camera.aspect=w/h;else{const aspect=w/h;camera.left=-planFrustumHeight*aspect/2;camera.right=planFrustumHeight*aspect/2;camera.top=planFrustumHeight/2;camera.bottom=-planFrustumHeight/2;}camera.updateProjectionMatrix();updatePlanGridOverlay();}
 new ResizeObserver(()=>{resizeViewport();if(model)drawModel();}).observe($('canvas'));
 renderer.setAnimationLoop(()=>{

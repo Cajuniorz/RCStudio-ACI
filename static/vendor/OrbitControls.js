@@ -27,6 +27,11 @@ const _TILT_LIMIT = Math.cos( 70 * MathUtils.DEG2RAD );
 
 const _v = new Vector3();
 const _twoPI = 2 * Math.PI;
+const _qYaw = new Quaternion();
+const _qPitch = new Quaternion();
+const _vRight = new Vector3();
+const _vForward = new Vector3();
+const _vTestForward = new Vector3();
 
 const _STATE = {
 	NONE: - 1,
@@ -53,6 +58,10 @@ class OrbitControls extends Controls {
 
 		// "target" sets the location of focus, where the object orbits around
 		this.target = new Vector3();
+
+		// Cursor-pivot orbit support (CAD/SketchUp style)
+		this.getPivotPoint = null;
+		this._currentOrbitPivot = null;
 
 		// Sets the 3D cursor (similar to Blender), from which the maxTargetRadius takes effect
 		this.cursor = new Vector3();
@@ -685,6 +694,24 @@ class OrbitControls extends Controls {
 
 	_handleMouseDownRotate( event ) {
 
+		if ( this.getPivotPoint ) {
+
+			try {
+
+				this._currentOrbitPivot = this.getPivotPoint( event );
+
+			} catch {
+
+				this._currentOrbitPivot = null;
+
+			}
+
+		} else {
+
+			this._currentOrbitPivot = null;
+
+		}
+
 		this._rotateStart.set( event.clientX, event.clientY );
 
 	}
@@ -709,6 +736,55 @@ class OrbitControls extends Controls {
 		this._rotateDelta.subVectors( this._rotateEnd, this._rotateStart ).multiplyScalar( this.rotateSpeed );
 
 		const element = this.domElement;
+
+		if ( this._currentOrbitPivot ) {
+
+			const pivot = this._currentOrbitPivot;
+			const clientHeight = element.clientHeight || 1;
+			const deltaX = this._rotateDelta.x;
+			const deltaY = this._rotateDelta.y;
+
+			const angleX = - ( _twoPI * deltaX / clientHeight );
+			const angleY = - ( _twoPI * deltaY / clientHeight );
+
+			// 1. Yaw around object.up (SketchUp Z-up)
+			const up = _v.copy( this.object.up ).normalize();
+			_qYaw.setFromAxisAngle( up, angleX );
+
+			_v.copy( this.object.position ).sub( pivot );
+			_v.applyQuaternion( _qYaw );
+			this.object.position.copy( pivot ).add( _v );
+			this.object.quaternion.premultiply( _qYaw );
+
+			// 2. Pitch around camera local X (right)
+			_vRight.set( 1, 0, 0 ).applyQuaternion( this.object.quaternion );
+			_qPitch.setFromAxisAngle( _vRight, angleY );
+
+			_vForward.set( 0, 0, - 1 ).applyQuaternion( this.object.quaternion );
+			_vTestForward.copy( _vForward ).applyQuaternion( _qPitch );
+
+			if ( Math.abs( _vTestForward.dot( up ) ) < 0.985 ) {
+
+				_v.copy( this.object.position ).sub( pivot );
+				_v.applyQuaternion( _qPitch );
+				this.object.position.copy( pivot ).add( _v );
+				this.object.quaternion.premultiply( _qPitch );
+
+			}
+
+			// Ensure up vector is preserved
+			this.object.up.copy( up );
+
+			// Synchronize target along forward vector at distance to pivot
+			_vForward.set( 0, 0, - 1 ).applyQuaternion( this.object.quaternion );
+			const dist = this.object.position.distanceTo( pivot );
+			this.target.copy( this.object.position ).addScaledVector( _vForward, dist );
+
+			this._rotateStart.copy( this._rotateEnd );
+			this.dispatchEvent( _changeEvent );
+			return;
+
+		}
 
 		this._rotateLeft( _twoPI * this._rotateDelta.x / element.clientHeight ); // yes, height
 
@@ -856,6 +932,24 @@ class OrbitControls extends Controls {
 
 	_handleTouchStartRotate( event ) {
 
+		if ( this.getPivotPoint ) {
+
+			try {
+
+				this._currentOrbitPivot = this.getPivotPoint( event );
+
+			} catch {
+
+				this._currentOrbitPivot = null;
+
+			}
+
+		} else {
+
+			this._currentOrbitPivot = null;
+
+		}
+
 		if ( this._pointers.length === 1 ) {
 
 			this._rotateStart.set( event.pageX, event.pageY );
@@ -941,6 +1035,55 @@ class OrbitControls extends Controls {
 		this._rotateDelta.subVectors( this._rotateEnd, this._rotateStart ).multiplyScalar( this.rotateSpeed );
 
 		const element = this.domElement;
+
+		if ( this._currentOrbitPivot ) {
+
+			const pivot = this._currentOrbitPivot;
+			const clientHeight = element.clientHeight || 1;
+			const deltaX = this._rotateDelta.x;
+			const deltaY = this._rotateDelta.y;
+
+			const angleX = - ( _twoPI * deltaX / clientHeight );
+			const angleY = - ( _twoPI * deltaY / clientHeight );
+
+			// 1. Yaw around object.up (SketchUp Z-up)
+			const up = _v.copy( this.object.up ).normalize();
+			_qYaw.setFromAxisAngle( up, angleX );
+
+			_v.copy( this.object.position ).sub( pivot );
+			_v.applyQuaternion( _qYaw );
+			this.object.position.copy( pivot ).add( _v );
+			this.object.quaternion.premultiply( _qYaw );
+
+			// 2. Pitch around camera local X (right)
+			_vRight.set( 1, 0, 0 ).applyQuaternion( this.object.quaternion );
+			_qPitch.setFromAxisAngle( _vRight, angleY );
+
+			_vForward.set( 0, 0, - 1 ).applyQuaternion( this.object.quaternion );
+			_vTestForward.copy( _vForward ).applyQuaternion( _qPitch );
+
+			if ( Math.abs( _vTestForward.dot( up ) ) < 0.985 ) {
+
+				_v.copy( this.object.position ).sub( pivot );
+				_v.applyQuaternion( _qPitch );
+				this.object.position.copy( pivot ).add( _v );
+				this.object.quaternion.premultiply( _qPitch );
+
+			}
+
+			// Ensure up vector is preserved
+			this.object.up.copy( up );
+
+			// Synchronize target along forward vector at distance to pivot
+			_vForward.set( 0, 0, - 1 ).applyQuaternion( this.object.quaternion );
+			const dist = this.object.position.distanceTo( pivot );
+			this.target.copy( this.object.position ).addScaledVector( _vForward, dist );
+
+			this._rotateStart.copy( this._rotateEnd );
+			this.dispatchEvent( _changeEvent );
+			return;
+
+		}
 
 		this._rotateLeft( _twoPI * this._rotateDelta.x / element.clientHeight ); // yes, height
 
@@ -1178,6 +1321,7 @@ function onPointerUp( event ) {
 			this.dispatchEvent( _endEvent );
 
 			this.state = _STATE.NONE;
+			this._currentOrbitPivot = null;
 
 			break;
 
