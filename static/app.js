@@ -4080,9 +4080,18 @@ $('buildToolPalette')?.querySelectorAll('.build-palette-btn[data-tool]').forEach
 });
 $('toolBuildSettings')?.addEventListener('click', openShortcutManager);
 
-// Mode switcher buttons
+// Mode switcher & Header buttons
 $('btnModeClassic')?.addEventListener('click', () => setMode('classic'));
 $('btnModeBuild')?.addEventListener('click', () => setMode('build'));
+$('btnHeaderShortcuts')?.addEventListener('click', openShortcutManager);
+$('btnJoinBeamsSidebar')?.addEventListener('click', promptJoinBeams);
+$('btnPullNodeSidebar')?.addEventListener('click', () => {
+  if (selected?.kind === 'nodes') {
+    openPullNodeMenu(selected.id);
+  } else {
+    status('กรุณาเลือกโหนดในโมเดลก่อนกดดึง/ยืด (Q)', 'error');
+  }
+});
 
 // Shortcut Dialog buttons
 $('closeShortcutDialog')?.addEventListener('click', closeShortcutManager);
