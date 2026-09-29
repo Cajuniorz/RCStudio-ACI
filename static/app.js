@@ -11,7 +11,6 @@ let model, result=null, designResult=null, revision=0, tab='nodes', selected=nul
 let viewMode='3d',planLevelY=null,activeTool='select',beamDrag=null,beamAxisLock=null,lineSnapHover=null,pointerStart=null;
 let structMode='solid';  // solid | wire - one state, switched by a single click
 let viewScales={deformScale:100,diagramScale:1,lastPeakH:0};
-let dragLite=false;
 // member name plate: 84 px canvas (padding wide enough for the halo to show), 34 px font.
 // world size is tuned so the glyphs stand ~0.19 m tall = 30% of the previous 0.63 m (the -70% request)
 const MEMBER_NAME_CANVAS_H=84,MEMBER_NAME_FONT=34,MEMBER_NAME_SCALE=1.35,MEMBER_NAME_PAD=24;
@@ -1218,21 +1217,19 @@ function drawModel(){
  };
  const showSolid3D=structMode!=='wire';
  const showWireframe=structMode==='wire';
- const deformScale=Math.max(0,Number($('deformScale')?.value)||100);
- const diagramScale=Math.max(.05,Number($('diagramScale')?.value)||1);
+ const deformScale=Math.max(0,Number($('deformScaleInput')?.value)||100);
+ const diagramScale=Math.max(.05,Number($('diagramScaleInput')?.value)||1);
  // diagnostic hook, same style as window.__rc_model/__rc_scene, used by the render tests
- // NOTE: read dragLite directly - 'lite' is declared further down and would be in TDZ here
- viewScales={deformScale,diagramScale,lastPeakH:0,lite:dragLite,draws:(viewScales?.draws||0)+1};
+ viewScales={deformScale,diagramScale,lastPeakH:0,draws:(viewScales?.draws||0)+1};
  window.__rc_viewScales=viewScales;
  updateDisplayToggles();
- updateScaleControls();
- const lite=dragLite;
- const showPointLoads=(!$('showPointLoads')||$('showPointLoads').checked)&&!lite;
- const showUniformLoads=(!$('showUniformLoads')||$('showUniformLoads').checked)&&!lite;
- const showSelfWeight=(!$('showSelfWeight')||$('showSelfWeight').checked)&&!lite;
- const showRoofSheeting=(!$('showRoofSheeting')||$('showRoofSheeting').checked)&&!lite;
- const showNodeLabels=(!$('labels')||$('labels').checked)&&!lite;
- const showMemberNames=(!$('memberNames')||$('memberNames').checked)&&!lite;
+ syncToggleLamps();
+ const showPointLoads=!$('showPointLoads')||$('showPointLoads').checked;
+ const showUniformLoads=!$('showUniformLoads')||$('showUniformLoads').checked;
+ const showSelfWeight=!$('showSelfWeight')||$('showSelfWeight').checked;
+ const showRoofSheeting=!$('showRoofSheeting')||$('showRoofSheeting').checked;
+ const showNodeLabels=!$('labels')||$('labels').checked;
+ const showMemberNames=!$('memberNames')||$('memberNames').checked;
  const columnPeaks=heatKey&&active?.members?model.members.filter(m=>m.kind==='column').map(m=>({id:m.id,peak:peakStation(active.members[m.id],heatKey)})).filter(x=>x.peak):[];
  const maxColumnPeak=columnPeaks.reduce((best,row)=>!best||row.peak.value>best.peak.value?row:best,null);
  const visibleMembers=new Set();for(const m of model.members){if(visibleNodeIds&&(!visibleNodeIds.has(m.i)||!visibleNodeIds.has(m.j)))continue;const a=pos.get(m.i),b=pos.get(m.j);if(!a||!b||a.distanceTo(b)<1e-6)continue;visibleMembers.add(m.id);
@@ -2070,53 +2067,44 @@ $('addSlab').onclick=()=>{tab='slabs';addRow();};$('addFoundation').onclick=()=>
 $('undo').onclick=()=>{cancelInteraction(false);if(!history.length)return;model=history.pop();revision++;result=null;selected=null;persist();render();status('ย้อนแล้ว · ต้องวิเคราะห์ใหม่');};
 $('tabs').onclick=e=>{if(e.target.dataset.tab){tab=e.target.dataset.tab;renderTable();}};
 $('fit').onclick=fit;for(const id of ['memberNames','labels','deformed','diagram3d','diagramValues','showPointLoads','showUniformLoads','showSelfWeight','showRoofSheeting']){if($(id))$(id).onchange=drawModel;}
-function updateScaleControls(){
- const d=$('deformScale'),dp=$('deformScalePill');
- if(d&&dp){const v=$('deformScaleValue');if(v)v.textContent=fmt(Number(d.value)||0,0);}
- const g=$('diagramScale'),gp=$('diagramScalePill');
- if(g&&gp){const v=$('diagramScaleValue');if(v)v.textContent=fmt(Number(g.value)||1,1);}
-}
-// one redraw per animation frame: a drag fires dozens of input events and each draw rebuilds the scene
+// on/off and its value live in one pill: the name toggles, the value is typed or stepped.
+// a control that is switched off cannot be adjusted (the value field and +- are locked in CSS).
 let pendingDraw=0;
 function drawModelSoon(){
  if(pendingDraw)return;
  pendingDraw=requestAnimationFrame(()=>{pendingDraw=0;drawModel();});
 }
-// each slider folds back to a single number once the user lets go
 const SCALE_CONTROLS=[
- {pill:'deformScalePill',range:'deformScale',number:'deformScaleInput',head:'deformScaleHead',value:'deformScaleValue',digits:0},
- {pill:'diagramScalePill',range:'diagramScale',number:'diagramScaleInput',head:'diagramScaleHead',value:'diagramScaleValue',digits:1},
+ {toggle:'deformed',number:'deformScaleInput',down:'deformScaleDown',up:'deformScaleUp',step:10,key:'deformScale',fallback:100},
+ {toggle:'diagram3d',number:'diagramScaleInput',down:'diagramScaleDown',up:'diagramScaleUp',step:0.1,key:'diagramScale',fallback:1},
 ];
 for(const cfg of SCALE_CONTROLS){
- const pill=$(cfg.pill),range=$(cfg.range),number=$(cfg.number),head=$(cfg.head);
- if(!pill||!range||!number||!head)continue;
- const bounds=()=>({min:Number(range.min),max:Number(range.max),step:Number(range.step)||1});
- const apply=(raw,source)=>{
+ const input=$(cfg.number),down=$(cfg.down),up=$(cfg.up);
+ if(!input||!down||!up)continue;
+ const bounds=()=>({min:Number(input.min),max:Number(input.max)});
+ const current=()=>{const v=Number(input.value);return Number.isFinite(v)?v:cfg.fallback;};
+ const apply=raw=>{
   const {min,max}=bounds();
   let value=Number(raw);
-  if(!Number.isFinite(value))value=Number(range.value);
-  value=Math.min(max,Math.max(min,value));            // stays inside the declared range
-  if(source!=='range')range.value=String(value);
-  if(source!=='number')number.value=String(value);
-  const label=$(cfg.value);if(label)label.textContent=fmt(value,cfg.digits);
+  if(!Number.isFinite(value))value=cfg.fallback;
+  value=Math.min(max,Math.max(min,value));          // typing a wild number is clamped, not accepted
+  if(cfg.step<1)value=Math.round(value*100)/100;    // keep the display honest for fractional steps
+  input.value=String(value);
+  viewScales[cfg.key]=value;
   drawModelSoon();
  };
- range.addEventListener('input',()=>apply(range.value,'range'));
- range.addEventListener('pointerdown',()=>{
-  // hold: draw the light frame (structure + the diagram being sized) so dragging stays smooth
-  dragLite=true;
-  const end=()=>{window.removeEventListener('pointerup',end);dragLite=false;drawModel();};
-  window.addEventListener('pointerup',end);
- });
- range.addEventListener('pointerup',()=>pill.classList.add('collapsed'));
- range.addEventListener('keyup',event=>{if(event.key==='Enter')pill.classList.add('collapsed');});
- head.onclick=()=>{pill.classList.remove('collapsed');range.focus();};
- number.addEventListener('input',()=>apply(number.value,'number'));
- // normalise the typed text only when the edit is finished, so clamping cannot fight the typing
- const settle=()=>{apply(number.value,'number');number.value=String(Number(range.value));pill.classList.add('collapsed');};
- number.addEventListener('change',settle);
- number.addEventListener('keydown',event=>{if(event.key==='Enter')settle();});
- number.addEventListener('blur',settle);
+ input.addEventListener('input',()=>apply(input.value));
+ input.addEventListener('change',()=>apply(input.value));       // commit on blur/enter: writes the clamped value back
+ input.addEventListener('keydown',event=>{if(event.key==='Enter'){apply(input.value);input.blur();}});
+ down.onclick=()=>apply(current()-cfg.step);
+ up.onclick=()=>apply(current()+cfg.step);
+}
+// the pill shows its own state: on = lamp lit + frame glowing, off = dark lamp
+function syncToggleLamps(){
+ for(const el of document.querySelectorAll('.viewbottom label,.viewbottom .combo-pill')){
+  const input=el.querySelector('input[type=checkbox]');
+  if(input)el.classList.toggle('on',input.checked);
+ }
 }
 const STRUCT_MODES=[['solid','โครงสร้าง 3D (Solid)'],['wire','เส้นแกน & โหนด']];
 function renderStructButton(){
@@ -2142,8 +2130,7 @@ renderStructButton();
 function updateDisplayToggles(){
  // hide a load toggle when the model has no data of that type (nothing it could show)
  // every control stays visible: no data-aware hiding, so the row never changes shape
- // the pill itself shows on/off, so the user does not have to aim at a 15 px box
- for(const label of document.querySelectorAll('.viewbottom label')){const input=label.querySelector('input[type=checkbox]');if(input)label.classList.toggle('on',input.checked);}
+ syncToggleLamps();
 }
 $('view3d').onclick=()=>setViewMode('3d');$('viewPlan').onclick=()=>setViewMode('plan');$('planLevel').onchange=()=>{const next=Number($('planLevel').value);if(!Number.isFinite(next))return;cancelInteraction(false);planLevelY=next;renderPlanControls();if(viewMode==='plan')fitPlan();drawModel();};$('setPlanElevation').onclick=()=>{const input=$('planElevation');if(input.value.trim()===''||!Number.isFinite(Number(input.value)))return status('กรอกระดับ Y เป็นตัวเลขเมตรก่อน','error');const y=Number(input.value);if(Math.abs(y)>10000)return status('ระดับ Y ต้องอยู่ในช่วง ±10000 m','error');cancelInteraction(false);planLevelY=Number(y.toFixed(3));renderPlanControls();if(viewMode==='plan')fitPlan();drawModel();status(`ตั้งระดับวางโหนด Y ${fmt(planLevelY)} m · คลิก วางโหนด แล้วคลิกบนผัง`);};$('planElevation').onkeydown=e=>{if(e.key==='Enter')$('setPlanElevation').click();};$('generatePlanGrid').onclick=createBuildingGrid;$('openGridEditor').onclick=openGridEditor;$('closeGridEditor').onclick=()=> $('gridEditorDialog').close();$('closeGridEditorBottom').onclick=()=> $('gridEditorDialog').close();$('addGridX').onclick=()=>addGridEditorAxis('x');$('addGridZ').onclick=()=>addGridEditorAxis('z');$('buildGridFromEditor').onclick=buildGridFromEditor;
 if($('autoDetectGrids'))$('autoDetectGrids').onclick=()=>{const detected=autoDetectGridLines(model.nodes,{levelY:planLevelY});if(!detected.ok)return status(detected.reason,'error');renderGridEditorAxis('x',detected.lines.x);renderGridEditorAxis('z',detected.lines.z);status(`ตรวจจับแนวกริดจากเสาอาคารสำเร็จ: X ${detected.lines.x.length} แนว, Z ${detected.lines.z.length} แนว`);};
