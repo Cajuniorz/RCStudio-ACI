@@ -9,6 +9,7 @@ const $=id=>document.getElementById(id), clone=x=>JSON.parse(JSON.stringify(x));
 const KEY='rcstudio-v1', dofs=['DX','DY','DZ','RX','RY','RZ'];
 let model, result=null, designResult=null, revision=0, tab='nodes', selected=null, selectedList=[], history=[], busy=false;
 let viewMode='3d',planLevelZ=null,planLevelY=null,activeTool='select',beamDrag=null,beamAxisLock=null,lineSnapHover=null,pointerStart=null;
+let buildDrawState=null, measurementBuffer='';
 
 let structMode='solid';  // solid | wire - one state, switched by a single click
 let viewScales={deformScale:100,diagramScale:1,lastPeakH:0};
