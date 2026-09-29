@@ -229,4 +229,40 @@ console.log('5. Testing UI, CSS, and Camera Integration...');
   assert(appJs.includes('0x22c55e'), 'SketchUp Green (0x22c55e) used for Y axis');
 }
 
+// 6. Auditor Defects Regression Tests (levelZ in Plan and Roof Sheeting in Z-Up)
+console.log('6. Testing Auditor Defect Regression (levelZ in Plan & Roof Sheeting in Z-Up)...');
+{
+  // Defect 2: autoDetectGridLines, planContinuousBeamSegments, validateMemberEndpoints with levelZ
+  assert(
+    appJs.includes('autoDetectGridLines(model.nodes,{levelZ:curElev,levelY:curElev})'),
+    'autoDetectGridLines called with levelZ: curElev, levelY: curElev'
+  );
+  assert(
+    appJs.includes('planContinuousBeamSegments(model.nodes,model.members,startId,point,{levelZ:curElev,levelY:curElev,'),
+    'planContinuousBeamSegments point called with levelZ: curElev, levelY: curElev'
+  );
+  assert(
+    appJs.includes('planContinuousBeamSegments(model.nodes,model.members,startId,endId,{levelZ:curElev,levelY:curElev,'),
+    'planContinuousBeamSegments endId called with levelZ: curElev, levelY: curElev'
+  );
+  assert(
+    appJs.includes('validateMemberEndpoints(model.nodes,model.members,startId,endId,{levelZ:curElev,levelY:curElev,'),
+    'validateMemberEndpoints called with levelZ: curElev, levelY: curElev'
+  );
+
+  // Defect 3: Roof sheeting orientation in Z-Up
+  assert(
+    appJs.includes('const bayVal = isZUp ? p.y : p.z;'),
+    'Roof sheeting uses p.y for bay slices in Z-up'
+  );
+  assert(
+    appJs.includes('const elev = isZUp ? n.z : n.y;'),
+    'Roof sheeting uses n.z for elevation in Z-up'
+  );
+  assert(
+    appJs.includes('p0.z + 0.02'),
+    'Roof sheeting offsets vertices in +Z for Z-up'
+  );
+}
+
 console.log('PASS: All Sprint 2 Z-up coordinate system tests passed successfully!');

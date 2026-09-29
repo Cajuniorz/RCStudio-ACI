@@ -50,7 +50,10 @@ def validate_draft(data):
 
     Solve always uses the stricter validate() path. Never infer missing values.
     """
-    shape(data, 'schemaVersion name material nodes members nodalLoads memberLoads combinations selfWeight', 'Project')
+    req_fields = 'schemaVersion name material nodes members nodalLoads memberLoads combinations selfWeight'
+    if isinstance(data, dict) and 'coordinateSystem' in data:
+        req_fields += ' coordinateSystem'
+    shape(data, req_fields, 'Project')
     if type(data['schemaVersion']) is not int or data['schemaVersion'] != 1:
         fail('Unsupported schemaVersion')
     if not isinstance(data['name'], str) or len(data['name']) > 120 or type(data['selfWeight']) is not bool:
@@ -103,7 +106,10 @@ def validate(data, draft=False, section_overrides=None):
         return validate_project(data) if draft else prepare(data)
     if draft:
         return validate_draft(data)
-    shape(data, 'schemaVersion name material nodes members nodalLoads memberLoads combinations selfWeight', 'Project')
+    req_fields = 'schemaVersion name material nodes members nodalLoads memberLoads combinations selfWeight'
+    if isinstance(data, dict) and 'coordinateSystem' in data:
+        req_fields += ' coordinateSystem'
+    shape(data, req_fields, 'Project')
     if type(data['schemaVersion']) is not int or data['schemaVersion'] != 1:
         fail('Unsupported schemaVersion')
     if not isinstance(data['name'], str) or not 1 <= len(data['name']) <= 120:
@@ -217,6 +223,7 @@ def section_properties(b, h):
 
 def solve(data):
     source = copy.deepcopy(data)
+    is_z_up = bool(isinstance(data, dict) and data.get('coordinateSystem') == 'z-up')
     overrides, coverage = {}, None
     if isinstance(data, dict) and data.get('schemaVersion') == 2:
         from project_v2 import prepare
@@ -257,7 +264,8 @@ def solve(data):
             if value:
                 dir_name = 'F' + (axis.lower() if is_local else axis.upper())
                 model.add_member_dist_load(load['member'], dir_name, value, value, case=load['case'])
-    is_z_up = (data.get('coordinateSystem') == 'z-up')
+    if not is_z_up and isinstance(data, dict) and data.get('coordinateSystem') == 'z-up':
+        is_z_up = True
     if data['selfWeight']:
         if is_z_up:
             model.add_member_self_weight('FZ', -1, case='D')

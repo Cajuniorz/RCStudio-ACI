@@ -1222,7 +1222,8 @@ function renderGridEditorAxis(axis,lines){
 function openGridEditor(){
  const saved=model.gridLines||{x:[],z:[]};let lines=(saved.x?.length>=2&&saved.z?.length>=2)?{x:clone(saved.x),z:clone(saved.z)}:null;
  if(!lines){
-  const detected=autoDetectGridLines(model.nodes,{levelY:planLevelY});
+  const curElev=planLevelZ??planLevelY;
+  const detected=autoDetectGridLines(model.nodes,{levelZ:curElev,levelY:curElev});
   if(detected.ok){lines=detected.lines;}
   else{
    const layout=buildGridLayout({countX:Number($('gridCountX')?.value||2),countZ:Number($('gridCountZ')?.value||2),spacingX:Number($('gridSpacingX')?.value||4),spacingZ:Number($('gridSpacingZ')?.value||4),startX:Number($('gridStartX')?.value||0),startZ:Number($('gridStartZ')?.value||0),y:Number($('gridLevelY')?.value||0)});
@@ -1271,10 +1272,11 @@ function commitPlanBeamPoint(startId,point){
  const start=model.nodes.find(n=>n.id===startId);if(!start)return status('ไม่พบโหนดเริ่มต้น','error');
  const role=$('planBeamRole')?.value||'beam',props=getActiveMemberProps(role);
  if(props.kind==='beam'&&(!Number.isFinite(props.b)||!Number.isFinite(props.h)||props.b<.01||props.h<.01))return status('กรอกขนาด b และ h ของคานให้มากกว่า 0.01 m','error');
+ const curElev=planLevelZ??planLevelY;
  const isContinuous=$('planContinuous')?.checked??true;
  if(isContinuous){
   const freshNodeId=nextId('N',model.nodes);
-  const res=planContinuousBeamSegments(model.nodes,model.members,startId,point,{levelY:planLevelY,levelTolerance:PLAN_LEVEL_TOLERANCE,allowNewEndNode:true,freshNodeId,memberProps:props,nextMemberIdFn:mems=>nextId('M',mems)});
+  const res=planContinuousBeamSegments(model.nodes,model.members,startId,point,{levelZ:curElev,levelY:curElev,levelTolerance:PLAN_LEVEL_TOLERANCE,allowNewEndNode:true,freshNodeId,memberProps:props,nextMemberIdFn:mems=>nextId('M',mems)});
   if(!res.ok)return status(res.reason,'error');
   const before=revision;
   mutate(()=>{
@@ -1290,7 +1292,7 @@ function commitPlanBeamPoint(startId,point){
   }
  }else{
   const draft=planNodeDraft(model.nodes,point,nextId('N',model.nodes));if(!draft.ok)return status(draft.reason,'error');
-  const validation=validateMemberEndpoints([...model.nodes,draft.node],model.members,startId,draft.node.id,{levelY:planLevelY,levelTolerance:PLAN_LEVEL_TOLERANCE,disallowIntervening:true});if(!validation.ok)return status(validation.reason,'error');
+  const validation=validateMemberEndpoints([...model.nodes,draft.node],model.members,startId,draft.node.id,{levelZ:curElev,levelY:curElev,levelTolerance:PLAN_LEVEL_TOLERANCE,disallowIntervening:true});if(!validation.ok)return status(validation.reason,'error');
   const before=revision;
   mutate(()=>{
    const member={id:nextId('M',model.members),i:startId,j:draft.node.id,...props};
@@ -1304,8 +1306,9 @@ function commitPlanBeam(startId,endId){
  const role=$('planBeamRole')?.value||'beam',props=getActiveMemberProps(role);
  if(props.kind==='beam'&&(!Number.isFinite(props.b)||!Number.isFinite(props.h)||props.b<.01||props.h<.01))return status('กรอกขนาด b และ h ของคานให้มากกว่า 0.01 m','error');
  const isContinuous=$('planContinuous')?.checked??true;
+ const curElev=planLevelZ??planLevelY;
  if(isContinuous){
-  const res=planContinuousBeamSegments(model.nodes,model.members,startId,endId,{levelY:planLevelY,levelTolerance:PLAN_LEVEL_TOLERANCE,memberProps:props,nextMemberIdFn:mems=>nextId('M',mems)});
+  const res=planContinuousBeamSegments(model.nodes,model.members,startId,endId,{levelZ:curElev,levelY:curElev,levelTolerance:PLAN_LEVEL_TOLERANCE,memberProps:props,nextMemberIdFn:mems=>nextId('M',mems)});
   if(!res.ok)return status(res.reason,'error');
   const before=revision;
   mutate(()=>{
@@ -1318,7 +1321,7 @@ function commitPlanBeam(startId,endId){
    if(res.segments.length>1)status(`สร้าง${roleLabel}ต่อเนื่อง ${startId} → ${endId} แบ่งเป็น ${res.segments.length} ช่วง (${res.segments.map(s=>s.id).join(', ')}) · จุดต่อแข็ง Rigid Joint · ต้องวิเคราะห์ใหม่`);
    else status(`เพิ่ม${roleLabel} ${startId} → ${endId} (${res.segments[0].id}) แล้ว · ต้องวิเคราะห์ใหม่`);
   }
-  const curElev=planLevelZ??planLevelY;
+ }else{
   const validation=validateMemberEndpoints(model.nodes,model.members,startId,endId,{levelZ:curElev,levelY:curElev,levelTolerance:PLAN_LEVEL_TOLERANCE,disallowIntervening:true});
   if(!validation.ok)return status(validation.reason,'error');
   const before=revision;
@@ -1930,54 +1933,73 @@ function drawModel(){
   if(showRoofSheeting && showSolid3D){
    const roofMembers = model.members.filter(m => m.kind === 'roof');
    if(roofMembers.length){
+    const isZUp = model.coordinateSystem === 'z-up';
     const roofNodeIds = new Set();
     for(const m of roofMembers){ roofNodeIds.add(m.i); roofNodeIds.add(m.j); }
-    const zSlices = new Map();
+    const slices = new Map();
     for(const nid of roofNodeIds){
      const p = pos.get(nid);
      if(!p) continue;
-     const zKey = Math.round(p.z * 1000) / 1000;
-     if(!zSlices.has(zKey)) zSlices.set(zKey, []);
-     zSlices.get(zKey).push({ id: nid, x: p.x, y: p.y, z: p.z });
+     const bayVal = isZUp ? p.y : p.z;
+     const bayKey = Math.round(bayVal * 1000) / 1000;
+     if(!slices.has(bayKey)) slices.set(bayKey, []);
+     slices.get(bayKey).push({ id: nid, x: p.x, y: p.y, z: p.z });
     }
-    const sortedZ = Array.from(zSlices.keys()).sort((a,b) => a - b);
-    if(sortedZ.length >= 2){
+    const sortedBay = Array.from(slices.keys()).sort((a,b) => a - b);
+    if(sortedBay.length >= 2){
      const profileMap = new Map();
-     for(const zVal of sortedZ){
-      const nodes = zSlices.get(zVal);
+     for(const bayVal of sortedBay){
+      const nodes = slices.get(bayVal);
       const topByX = new Map();
       for(const n of nodes){
        const xKey = Math.round(n.x * 1000) / 1000;
-       if(!topByX.has(xKey) || n.y > topByX.get(xKey).y){
+       const elev = isZUp ? n.z : n.y;
+       if(!topByX.has(xKey) || elev > (isZUp ? topByX.get(xKey).z : topByX.get(xKey).y)){
         topByX.set(xKey, n);
        }
       }
       const sortedX = Array.from(topByX.values()).sort((a,b) => a.x - b.x);
-      profileMap.set(zVal, sortedX);
+      profileMap.set(bayVal, sortedX);
      }
      const vertices = [], ribLines = [];
-     let overallMinX = Infinity, overallMaxX = -Infinity, overallMaxY = -Infinity;
-     for(let i = 0; i < sortedZ.length - 1; i++){
-      const z0 = sortedZ[i], z1 = sortedZ[i+1];
-      const profA = profileMap.get(z0);
-      const profB = profileMap.get(z1);
+     let overallMinX = Infinity, overallMaxX = -Infinity, overallMaxElev = -Infinity;
+     for(let i = 0; i < sortedBay.length - 1; i++){
+      const b0 = sortedBay[i], b1 = sortedBay[i+1];
+      const profA = profileMap.get(b0);
+      const profB = profileMap.get(b1);
       if(!profA || !profB || profA.length < 2 || profA.length !== profB.length) continue;
       for(let k = 0; k < profA.length - 1; k++){
        const p0 = profA[k], p1 = profA[k+1];
        const p3 = profB[k], p2 = profB[k+1];
        overallMinX = Math.min(overallMinX, p0.x, p1.x);
        overallMaxX = Math.max(overallMaxX, p0.x, p1.x);
-       overallMaxY = Math.max(overallMaxY, p0.y, p1.y, p2.y, p3.y);
-       vertices.push(p0.x, p0.y + 0.02, p0.z, p1.x, p1.y + 0.02, p1.z, p2.x, p2.y + 0.02, p2.z);
-       vertices.push(p0.x, p0.y + 0.02, p0.z, p2.x, p2.y + 0.02, p2.z, p3.x, p3.y + 0.02, p3.z);
-       ribLines.push([new THREE.Vector3(p0.x, p0.y + 0.025, p0.z), new THREE.Vector3(p1.x, p1.y + 0.025, p1.z)]);
-       ribLines.push([new THREE.Vector3(p3.x, p3.y + 0.025, p3.z), new THREE.Vector3(p2.x, p2.y + 0.025, p2.z)]);
-       ribLines.push([new THREE.Vector3(p0.x, p0.y + 0.025, p0.z), new THREE.Vector3(p3.x, p3.y + 0.025, p3.z)]);
-       ribLines.push([new THREE.Vector3(p1.x, p1.y + 0.025, p1.z), new THREE.Vector3(p2.x, p2.y + 0.025, p2.z)]);
-       for(const t of [0.33, 0.67]){
-        const r0 = new THREE.Vector3(p0.x, p0.y + 0.028, p0.z).lerp(new THREE.Vector3(p3.x, p3.y + 0.028, p3.z), t);
-        const r1 = new THREE.Vector3(p1.x, p1.y + 0.028, p1.z).lerp(new THREE.Vector3(p2.x, p2.y + 0.028, p2.z), t);
-        ribLines.push([r0, r1]);
+       const elev0 = isZUp ? p0.z : p0.y, elev1 = isZUp ? p1.z : p1.y;
+       const elev2 = isZUp ? p2.z : p2.y, elev3 = isZUp ? p3.z : p3.y;
+       overallMaxElev = Math.max(overallMaxElev, elev0, elev1, elev2, elev3);
+       if(isZUp){
+        vertices.push(p0.x, p0.y, p0.z + 0.02, p1.x, p1.y, p1.z + 0.02, p2.x, p2.y, p2.z + 0.02);
+        vertices.push(p0.x, p0.y, p0.z + 0.02, p2.x, p2.y, p2.z + 0.02, p3.x, p3.y, p3.z + 0.02);
+        ribLines.push([new THREE.Vector3(p0.x, p0.y, p0.z + 0.025), new THREE.Vector3(p1.x, p1.y, p1.z + 0.025)]);
+        ribLines.push([new THREE.Vector3(p3.x, p3.y, p3.z + 0.025), new THREE.Vector3(p2.x, p2.y, p2.z + 0.025)]);
+        ribLines.push([new THREE.Vector3(p0.x, p0.y, p0.z + 0.025), new THREE.Vector3(p3.x, p3.y, p3.z + 0.025)]);
+        ribLines.push([new THREE.Vector3(p1.x, p1.y, p1.z + 0.025), new THREE.Vector3(p2.x, p2.y, p2.z + 0.025)]);
+        for(const t of [0.33, 0.67]){
+         const r0 = new THREE.Vector3(p0.x, p0.y, p0.z + 0.028).lerp(new THREE.Vector3(p3.x, p3.y, p3.z + 0.028), t);
+         const r1 = new THREE.Vector3(p1.x, p1.y, p1.z + 0.028).lerp(new THREE.Vector3(p2.x, p2.y, p2.z + 0.028), t);
+         ribLines.push([r0, r1]);
+        }
+       }else{
+        vertices.push(p0.x, p0.y + 0.02, p0.z, p1.x, p1.y + 0.02, p1.z, p2.x, p2.y + 0.02, p2.z);
+        vertices.push(p0.x, p0.y + 0.02, p0.z, p2.x, p2.y + 0.02, p2.z, p3.x, p3.y + 0.02, p3.z);
+        ribLines.push([new THREE.Vector3(p0.x, p0.y + 0.025, p0.z), new THREE.Vector3(p1.x, p1.y + 0.025, p1.z)]);
+        ribLines.push([new THREE.Vector3(p3.x, p3.y + 0.025, p3.z), new THREE.Vector3(p2.x, p2.y + 0.025, p2.z)]);
+        ribLines.push([new THREE.Vector3(p0.x, p0.y + 0.025, p0.z), new THREE.Vector3(p3.x, p3.y + 0.025, p3.z)]);
+        ribLines.push([new THREE.Vector3(p1.x, p1.y + 0.025, p1.z), new THREE.Vector3(p2.x, p2.y + 0.025, p2.z)]);
+        for(const t of [0.33, 0.67]){
+         const r0 = new THREE.Vector3(p0.x, p0.y + 0.028, p0.z).lerp(new THREE.Vector3(p3.x, p3.y + 0.028, p3.z), t);
+         const r1 = new THREE.Vector3(p1.x, p1.y + 0.028, p1.z).lerp(new THREE.Vector3(p2.x, p2.y + 0.028, p2.z), t);
+         ribLines.push([r0, r1]);
+        }
        }
       }
      }
@@ -1994,11 +2016,15 @@ function drawModel(){
        const lGeo = new THREE.BufferGeometry().setFromPoints([ptA, ptB]);
        group.add(new THREE.Line(lGeo, lineMat));
       }
-      if(Number.isFinite(overallMinX) && Number.isFinite(overallMaxX) && Number.isFinite(overallMaxY)){
+      if(Number.isFinite(overallMinX) && Number.isFinite(overallMaxX) && Number.isFinite(overallMaxElev)){
        const midX = (overallMinX + overallMaxX) / 2;
-       const midZ = (sortedZ[0] + sortedZ[sortedZ.length - 1]) / 2;
+       const midBay = (sortedBay[0] + sortedBay[sortedBay.length - 1]) / 2;
        const badge = labelSprite(`แผ่นมุง Metal Sheet 0.47 mm + ฉนวน PU (DL ~15 kg/m², LL ~30 kg/m²)\nกลไกถ่ายแรง: แผ่นมุง w → แป q (kg/m) → ถ่ายลงโหนดโครงถัก P (kg)`, 0, 52, 12, { bg: 'rgba(12, 74, 110, 0.94)', border: 'rgba(56, 189, 248, 0.8)', color: '#f0f9ff', radius: 6, alwaysOnTop: true });
-       badge.position.set(midX, overallMaxY + 0.45, midZ);
+       if(isZUp){
+        badge.position.set(midX, midBay, overallMaxElev + 0.45);
+       }else{
+        badge.position.set(midX, overallMaxElev + 0.45, midBay);
+       }
        group.add(badge);
       }
      }
@@ -2520,8 +2546,8 @@ function updateDisplayToggles(){
  // every control stays visible: no data-aware hiding, so the row never changes shape
  syncToggleLamps();
 }
-$('view3d').onclick=()=>setViewMode('3d');$('viewPlan').onclick=()=>setViewMode('plan');$('planLevel').onchange=()=>{const next=Number($('planLevel').value);if(!Number.isFinite(next))return;cancelInteraction(false);planLevelY=next;renderPlanControls();if(viewMode==='plan')fitPlan();drawModel();};$('setPlanElevation').onclick=()=>{const input=$('planElevation');if(input.value.trim()===''||!Number.isFinite(Number(input.value)))return status('กรอกระดับ Y เป็นตัวเลขเมตรก่อน','error');const y=Number(input.value);if(Math.abs(y)>10000)return status('ระดับ Y ต้องอยู่ในช่วง ±10000 m','error');cancelInteraction(false);planLevelY=Number(y.toFixed(3));renderPlanControls();if(viewMode==='plan')fitPlan();drawModel();status(`ตั้งระดับวางโหนด Y ${fmt(planLevelY)} m · คลิก วางโหนด แล้วคลิกบนผัง`);};$('planElevation').onkeydown=e=>{if(e.key==='Enter')$('setPlanElevation').click();};$('generatePlanGrid').onclick=createBuildingGrid;$('openGridEditor').onclick=openGridEditor;$('closeGridEditor').onclick=()=> $('gridEditorDialog').close();$('closeGridEditorBottom').onclick=()=> $('gridEditorDialog').close();$('addGridX').onclick=()=>addGridEditorAxis('x');$('addGridZ').onclick=()=>addGridEditorAxis('z');$('buildGridFromEditor').onclick=buildGridFromEditor;
-if($('autoDetectGrids'))$('autoDetectGrids').onclick=()=>{const detected=autoDetectGridLines(model.nodes,{levelY:planLevelY});if(!detected.ok)return status(detected.reason,'error');renderGridEditorAxis('x',detected.lines.x);renderGridEditorAxis('z',detected.lines.z);status(`ตรวจจับแนวกริดจากเสาอาคารสำเร็จ: X ${detected.lines.x.length} แนว, Z ${detected.lines.z.length} แนว`);};
+$('view3d').onclick=()=>setViewMode('3d');$('viewPlan').onclick=()=>setViewMode('plan');$('planLevel').onchange=()=>{const next=Number($('planLevel').value);if(!Number.isFinite(next))return;cancelInteraction(false);planLevelY=next;planLevelZ=next;renderPlanControls();if(viewMode==='plan')fitPlan();drawModel();};$('setPlanElevation').onclick=()=>{const input=$('planElevation');if(input.value.trim()===''||!Number.isFinite(Number(input.value)))return status('กรอกระดับ Y เป็นตัวเลขเมตรก่อน','error');const y=Number(input.value);if(Math.abs(y)>10000)return status('ระดับ Y ต้องอยู่ในช่วง ±10000 m','error');cancelInteraction(false);planLevelY=Number(y.toFixed(3));planLevelZ=planLevelY;renderPlanControls();if(viewMode==='plan')fitPlan();drawModel();status(`ตั้งระดับวางโหนด Y ${fmt(planLevelY)} m · คลิก วางโหนด แล้วคลิกบนผัง`);};$('planElevation').onkeydown=e=>{if(e.key==='Enter')$('setPlanElevation').click();};$('generatePlanGrid').onclick=createBuildingGrid;$('openGridEditor').onclick=openGridEditor;$('closeGridEditor').onclick=()=> $('gridEditorDialog').close();$('closeGridEditorBottom').onclick=()=> $('gridEditorDialog').close();$('addGridX').onclick=()=>addGridEditorAxis('x');$('addGridZ').onclick=()=>addGridEditorAxis('z');$('buildGridFromEditor').onclick=buildGridFromEditor;
+if($('autoDetectGrids'))$('autoDetectGrids').onclick=()=>{const curElev=planLevelZ??planLevelY;const detected=autoDetectGridLines(model.nodes,{levelZ:curElev,levelY:curElev});if(!detected.ok)return status(detected.reason,'error');renderGridEditorAxis('x',detected.lines.x);renderGridEditorAxis('z',detected.lines.z);status(`ตรวจจับแนวกริดจากเสาอาคารสำเร็จ: X ${detected.lines.x.length} แนว, Z ${detected.lines.z.length} แนว`);};
 if($('clearGridsBtn'))$('clearGridsBtn').onclick=()=>{if(!confirm('ต้องการล้างแนวกริดทั้งหมดในผังหรือไม่?'))return;mutate(()=>{model.gridLines={x:[],z:[]};});renderGridEditorAxis('x',[]);renderGridEditorAxis('z',[]);drawModel();status('ล้างแนวกริดในผังแล้ว');};
 if($('applyGridLinesOnly'))$('applyGridLinesOnly').onclick=()=>{const linesX=gridEditorRows('x'),linesZ=gridEditorRows('z');const validX=linesX.length>=2&&linesX.every(l=>l.label&&Number.isFinite(l.value)),validZ=linesZ.length>=2&&linesZ.every(l=>l.label&&Number.isFinite(l.value));if(!validX||!validZ)return status('ต้องมีแนวกริดที่ถูกต้องอย่างน้อยแกนละ 2 แนว','error');linesX.sort((a,b)=>a.value-b.value);linesZ.sort((a,b)=>a.value-b.value);mutate(()=>{model.gridLines={x:linesX,z:linesZ};});$('gridEditorDialog').close();if(viewMode==='plan')fitPlan();drawModel();status(`อัปเดตเฉพาะแนวกริดในผังแล้ว: X ${linesX.length} แนว, Z ${linesZ.length} แนว`);};$('planSnap').onchange=()=>{renderPlanControls();drawModel();status($('planSnap').checked?`เปิดดูดกริด ${fmt(Number($('planGridStep').value),2)} m · Alt+คลิกวางอิสระ`:'ปิดดูดกริด · วางตามเมาส์');};$('planGridStep').onchange=()=>{const input=$('planGridStep'),step=Number(input.value);if(!validPlanGridStep(step)){input.setCustomValidity('กรอกตั้งแต่ 0.05 ถึง 1.00 m เพิ่มครั้งละ 0.05 m');input.reportValidity();return status('ระยะกริดต้องอยู่ระหว่าง 0.05–1.00 m เพิ่มครั้งละ 0.05 m','error');}input.setCustomValidity('');input.value=String(Number(step.toFixed(2)));$('beamHint').textContent=`ระยะดูดกริด ${fmt(step,2)} m`;drawModel();status(`ตั้งระยะดูดกริด ${fmt(step,2)} m · โหนดใหม่จะปัดตามช่วงนี้`);};$('planSelectTool').onclick=()=>setPlanTool('select');$('planNodeTool').onclick=()=>setPlanTool('node');$('planMemberNodeTool').onclick=()=>setPlanTool('memberNode');$('planBeamTool').onclick=()=>setPlanTool('beam');$('planBeamLockX').onclick=()=>setBeamAxisLock('x');if($('planBeamLockY'))$('planBeamLockY').onclick=()=>setBeamAxisLock('y');$('planBeamLockZ').onclick=()=>setBeamAxisLock('z');
 document.addEventListener('keydown',event=>{

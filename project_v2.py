@@ -40,6 +40,8 @@ def core_project(p):
     core={k:copy.deepcopy(p[k]) for k in keys}
     core['schemaVersion']=1
     core['members']=[{k:copy.deepcopy(m[k]) for k in 'id i j b h rotation'.split()} for m in p['members']]
+    if 'coordinateSystem' in p:
+        core['coordinateSystem'] = p['coordinateSystem']
     return core
 
 
