@@ -11,11 +11,12 @@ let model, result=null, designResult=null, revision=0, tab='nodes', selected=nul
 let viewMode='3d',planLevelY=null,activeTool='select',beamDrag=null,beamAxisLock=null,lineSnapHover=null,pointerStart=null;
 let structMode='solid';  // solid | wire - one state, switched by a single click
 let viewScales={deformScale:100,diagramScale:1,lastPeakH:0};
-// member name plate: 84 px canvas (padding wide enough for the halo to show), 34 px font.
-// world size is tuned so the glyphs stand ~0.19 m tall = 30% of the previous 0.63 m (the -70% request)
-const MEMBER_NAME_CANVAS_H=84,MEMBER_NAME_FONT=34,MEMBER_NAME_SCALE=1.35,MEMBER_NAME_PAD=24;
-const MEMBER_NAME_FILL='#FFB020';        // ส้มแสง: luminous amber, same family as the lit lamp
-const MEMBER_NAME_GLOW='#FF9A00';        // halo colour behind the glyphs  // while a scale slider is held, draw the structure without the heavy overlays
+// member name plate: ultra-vibrant electric lightning neon orange with multi-layer aura and pulsating beat
+// font scale reduced by 30% (from 1.35 down to 0.945) and centered directly at member midpoint
+const MEMBER_NAME_CANVAS_H=84,MEMBER_NAME_FONT=34,MEMBER_NAME_SCALE=0.945,MEMBER_NAME_PAD=28;
+const MEMBER_NAME_FILL='#FF4500';        // ส้มแสง ส้มไลท์นิ่ง ส้มนีออนเรืองแสงแท้ (Electric Vivid Neon Orange)
+const MEMBER_NAME_GLOW='#FF1E00';        // รังสีเรืองแสงออร่ารอบตัวอักษร (Hyper-saturated Neon Laser Core)
+let memberNameSprites=[];               // tracked for smooth pulse animation
 const PLAN_LEVEL_TOLERANCE=1e-5;
 const memberDraft={b:.25,h:.45};
 const empty=blankProject;
@@ -651,6 +652,82 @@ function warehouse(spanX=12,bayZ=5,numBaysZ=3,colH=4.5,trussH=1.8,panels=4,cente
 }
 
 
+// Procedural Realistic Aggregate Concrete Texture (เนื้อคอนกรีตสีเทาซีด + มวลรวมหิน-ทราย ละเอียดคมชัด)
+function createConcreteTextures() {
+ const size = 512;
+ const canvasDiff = document.createElement('canvas');
+ canvasDiff.width = canvasDiff.height = size;
+ const ctxD = canvasDiff.getContext('2d');
+
+ const canvasBump = document.createElement('canvas');
+ canvasBump.width = canvasBump.height = size;
+ const ctxB = canvasBump.getContext('2d');
+
+ // 1. Base pale cement matrix (เทาซีด คอนกรีตหล่อแบบ คม ละเอียด)
+ ctxD.fillStyle = '#b8bec5';
+ ctxD.fillRect(0, 0, size, size);
+ ctxB.fillStyle = '#808080';
+ ctxB.fillRect(0, 0, size, size);
+
+ const imgDataD = ctxD.getImageData(0, 0, size, size);
+ const dataD = imgDataD.data;
+ const imgDataB = ctxB.getImageData(0, 0, size, size);
+ const dataB = imgDataB.data;
+
+ // Fine cement noise (รูพรุนและเม็ดทรายคอนกรีตละเอียด)
+ for (let i = 0; i < dataD.length; i += 4) {
+  const n = (Math.random() - 0.5) * 22;
+  dataD[i]     = Math.min(255, Math.max(0, dataD[i] + n));
+  dataD[i + 1] = Math.min(255, Math.max(0, dataD[i + 1] + n));
+  dataD[i + 2] = Math.min(255, Math.max(0, dataD[i + 2] + n));
+  dataB[i]     = Math.min(255, Math.max(0, 128 + n * 2.2));
+  dataB[i + 1] = dataB[i];
+  dataB[i + 2] = dataB[i];
+ }
+ ctxD.putImageData(imgDataD, 0, 0);
+ ctxB.putImageData(imgDataB, 0, 0);
+
+ // 2. Aggregate inclusions: มวลรวมหินย่อย หินเกล็ด และแร่หินหลายเฉด (เทาเข้ม, หินปูนเทา, ตะกอนทราย)
+ const numAggregates = 420;
+ for (let i = 0; i < numAggregates; i++) {
+  const x = Math.random() * size;
+  const y = Math.random() * size;
+  const rad = 1.2 + Math.random() * 4.8;
+  const grayTone = Math.floor(85 + Math.random() * 95);
+  const colorStr = `rgb(${grayTone}, ${grayTone + Math.floor(Math.random()*4)}, ${grayTone + Math.floor(Math.random()*6)})`;
+  
+  ctxD.beginPath();
+  ctxD.arc(x, y, rad, 0, Math.PI * 2);
+  ctxD.fillStyle = colorStr;
+  ctxD.fill();
+
+  // Subtle dark pore edge around stones
+  ctxD.beginPath();
+  ctxD.arc(x, y, rad + 0.6, 0, Math.PI * 2);
+  ctxD.strokeStyle = 'rgba(70, 75, 80, 0.45)';
+  ctxD.lineWidth = 0.8;
+  ctxD.stroke();
+
+  // Bump map for aggregate texture depth
+  ctxB.beginPath();
+  ctxB.arc(x, y, rad, 0, Math.PI * 2);
+  ctxB.fillStyle = grayTone > 130 ? '#aaaaaa' : '#555555';
+  ctxB.fill();
+ }
+
+ const map = new THREE.CanvasTexture(canvasDiff);
+ map.wrapS = map.wrapT = THREE.RepeatWrapping;
+ map.repeat.set(2.5, 2.5);
+
+ const bumpMap = new THREE.CanvasTexture(canvasBump);
+ bumpMap.wrapS = bumpMap.wrapT = THREE.RepeatWrapping;
+ bumpMap.repeat.set(2.5, 2.5);
+
+ return { map, bumpMap };
+}
+
+const concreteTex = createConcreteTextures();
+
 // A local, self-contained viewer. Global Y is up in both renderer and solver.
 const scene=new THREE.Scene();let camera=new THREE.PerspectiveCamera(42,1,.01,10000),controls;
 const renderer=new THREE.WebGLRenderer({antialias:true,alpha:true});
@@ -682,7 +759,27 @@ const ray=new THREE.Raycaster(),pointer=new THREE.Vector2();
 ray.params.Line={threshold:0.18};
 function resizeViewport(){const {width,height}=$('canvas').getBoundingClientRect(),w=Math.max(1,width),h=Math.max(1,height);renderer.setSize(w,h);if(camera.isPerspectiveCamera)camera.aspect=w/h;else{const aspect=w/h;camera.left=-planFrustumHeight*aspect/2;camera.right=planFrustumHeight*aspect/2;camera.top=planFrustumHeight/2;camera.bottom=-planFrustumHeight/2;}camera.updateProjectionMatrix();updatePlanGridOverlay();}
 new ResizeObserver(()=>{resizeViewport();if(model)drawModel();}).observe($('canvas'));
-renderer.setAnimationLoop(()=>{controls.update();updatePlanGridOverlay();renderer.render(scene,camera);});
+renderer.setAnimationLoop(()=>{
+ controls.update();
+ updatePlanGridOverlay();
+ if (memberNameSprites.length) {
+  // rhythmic slow glowing pulse ("บีทอัพช้าๆ": breathing beat cycle ~2.6s)
+  const t = performance.now() * 0.0024;
+  const pulse = 0.5 + 0.5 * Math.sin(t);
+  const scaleMul = 0.94 + 0.12 * Math.sin(t); // subtle organic expansion rhythm
+  for (let i = 0; i < memberNameSprites.length; i++) {
+   const item = memberNameSprites[i];
+   if (!item || !item.sprite) continue;
+   if (item.sprite.material) {
+    item.sprite.material.opacity = 0.82 + 0.18 * pulse;
+   }
+   if (item.baseScaleX) {
+    item.sprite.scale.set(item.baseScaleX * scaleMul, item.baseScaleY * scaleMul, 1);
+   }
+  }
+ }
+ renderer.render(scene,camera);
+});
 function labelSprite(text, width=0, height=44, fontSize=16, options={}){
  const dpr = 2;
  const c = document.createElement('canvas');
@@ -720,25 +817,36 @@ function labelSprite(text, width=0, height=44, fontSize=16, options={}){
   }
  }
 
- ctx.font = `bold ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+ ctx.font = `900 ${fontSize}px "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, sans-serif`;
  ctx.textAlign = 'center';
  ctx.textBaseline = 'middle';
  if (options.glow) {
-  // a soft halo of the same orange makes the name read as a lit sign, not a flat sticker
+  // Electric neon lightning aura: multi-pass intense radioactive glow
   ctx.save();
   ctx.shadowColor = options.glow;
-  ctx.shadowBlur = options.glowBlur ?? 10;
-  ctx.fillStyle = color;
-  ctx.fillText(text, realW / 2, realH / 2);
+  for (const blur of [24, 16, 8]) {
+   ctx.shadowBlur = blur;
+   ctx.fillStyle = options.glow;
+   ctx.fillText(text, realW / 2, realH / 2);
+  }
   ctx.restore();
  }
  if (options.outline) {
-  // a black outline keeps the glyphs readable on top of solids and heatmap colours
+  // crisp dark outline to boost contrast against light or solid beams
   ctx.lineJoin = 'round';
   ctx.miterLimit = 2;
   ctx.lineWidth = options.outlineWidth ?? Math.max(4, fontSize * 0.18);
   ctx.strokeStyle = options.outline;
   ctx.strokeText(text, realW / 2, realH / 2);
+ }
+ if (options.glow) {
+  // Second glow pass directly over outline to create true electric plasma edge
+  ctx.save();
+  ctx.shadowColor = options.glow;
+  ctx.shadowBlur = 10;
+  ctx.fillStyle = color;
+  ctx.fillText(text, realW / 2, realH / 2);
+  ctx.restore();
  }
  ctx.fillStyle = color;
  ctx.fillText(text, realW / 2, realH / 2);
@@ -839,7 +947,7 @@ function computeMarks(){
 function getMemberMark(m){if(!m)return '';if(designResult?.labels?.[m.id])return designResult.labels[m.id];computeMarks();return cachedMemberMarks.get(m.id)||m.id;}
 function getFoundationMark(f){if(!f)return '';if(designResult?.labels?.[f.id])return designResult.labels[f.id];if(designResult?.footings?.[f.id]?.label)return designResult.footings[f.id].label;computeMarks();return cachedFoundationMarks.get(f.id)||f.id;}
 function getSlabMark(s){if(!s)return '';if(designResult?.labels?.[s.id])return designResult.labels[s.id];if(designResult?.slabs?.[s.id]?.label)return designResult.slabs[s.id].label;computeMarks();return cachedSlabMarks.get(s.id)||s.id;}
-function line(points,color,dashed=false){const g=new THREE.BufferGeometry().setFromPoints(points);const material=dashed?new THREE.LineDashedMaterial({color,dashSize:.28,gapSize:.18,transparent:true,opacity:.7}):new THREE.LineBasicMaterial({color});const l=new THREE.Line(g,material);if(dashed)l.computeLineDistances();group.add(l);return l;}
+function line(points,color,dashed=false,opts={}){const g=new THREE.BufferGeometry().setFromPoints(points);const matParams={color};if(opts.depthTest!==undefined)matParams.depthTest=opts.depthTest;if(opts.linewidth!==undefined)matParams.linewidth=opts.linewidth;const material=dashed?new THREE.LineDashedMaterial({color,dashSize:.28,gapSize:.18,transparent:true,opacity:.7,...(opts.depthTest!==undefined?{depthTest:opts.depthTest}:{})}):new THREE.LineBasicMaterial(matParams);const l=new THREE.Line(g,material);if(dashed)l.computeLineDistances();if(opts.renderOrder!==undefined)l.renderOrder=opts.renderOrder;group.add(l);return l;}
 function getMemberLocalAxes(a,b,rotationDeg=0){
  const dx=b.x-a.x,dy=b.y-a.y,dz=b.z-a.z,L=Math.hypot(dx,dy,dz);
  if(L<1e-6)return{x:[1,0,0],y:[0,1,0],z:[0,0,1],L:0};
@@ -1093,6 +1201,7 @@ function drawModel(){
  updateHeatmapLegend();
  $('gridLabelsOverlay').replaceChildren();$('gridLabelsOverlay').hidden=viewMode!=='plan';
  currentPlanGridTags=[];
+ memberNameSprites=[];
  scene.remove(group);group.traverse(o=>{o.geometry?.dispose();if(o.material){o.material.map?.dispose();o.material.dispose();}});group=new THREE.Group();scene.add(group);
  const visibleNodeIds=viewMode==='plan'?new Set(model.nodes.filter(n=>Math.abs(n.y-planLevelY)<=PLAN_LEVEL_TOLERANCE).map(n=>n.id)):null;gridHelper.position.y=viewMode==='plan'?(planLevelY??0):0;
  const pos=new Map(model.nodes.filter(n=>[n.x,n.y,n.z].every(Number.isFinite)).map(n=>[n.id,new THREE.Vector3(n.x,n.y,n.z)]));const active=result?.combinations[$('resultCombo').value];
@@ -1242,8 +1351,22 @@ function drawModel(){
    const boxGeo=new THREE.BoxGeometry(secB,axes.L,secH,1,nSegments,1);
    let memberMat;
    if(cm==='default'){
-    const memberColor=highlight?0xffbe66:m.kind==='roof'?0xe0a75f:m.kind==='column'?0x80d7c7:0x5fcbbb;
-    memberMat=new THREE.MeshStandardMaterial({color:memberColor,metalness:.05,roughness:.85});
+    if(highlight){
+     memberMat=new THREE.MeshStandardMaterial({color:0xffbe66,metalness:.05,roughness:.85});
+    }else if(m.kind==='roof'||m.sectionType==='steel_custom'){
+     memberMat=new THREE.MeshStandardMaterial({color:0xd18f45,metalness:.3,roughness:.6});
+    }else{
+     // เสา และ คาน คสล.: คอนกรีตสีเทาซีด + เทกเจอร์คอนกรีตมวลรวม
+     const concBaseColor = (m.kind === 'column') ? 0xd0d5db : 0xc6ccd3;
+     memberMat=new THREE.MeshStandardMaterial({
+      color: concBaseColor,
+      map: concreteTex.map,
+      bumpMap: concreteTex.bumpMap,
+      bumpScale: 0.035,
+      roughness: 0.92,
+      metalness: 0.02
+     });
+    }
    }else{
     const posAttr=boxGeo.attributes.position;
     const colorArr=new Float32Array(posAttr.count*3);
@@ -1302,13 +1425,22 @@ function drawModel(){
   if(active&&$('diagram3d')?.checked&&viewMode!=='plan'){
    const memRes=active.members[m.id];
    if(memRes&&memRes.samples&&memRes.samples.length>=2){
-    const diagKey=(cm==='Vy'||$('diagramType')?.value==='Vy')?'Vy':'Mz';
-    const diagMax=Math.max(...memRes.samples.map(s=>Math.abs(s[diagKey])),0);
-    if(diagMax>1e-4){
-     const peakH=Math.min(0.65,Math.max(0.18,axes.L*0.22))*diagramScale;
-     viewScales.lastPeakH=Math.max(viewScales.lastPeakH||0,peakH);
-     const dScale=peakH/diagMax;
-     const dirY=new THREE.Vector3(...axes.y);
+     const isVy = (cm === 'Vy' || $('diagramType')?.value === 'Vy');
+     let diagKey = isVy ? 'Vy' : 'Mz';
+     let dirY = new THREE.Vector3(...axes.y);
+     if (!isVy) {
+      const maxMz = Math.max(...memRes.samples.map(s => Math.abs(s.Mz || 0)), 0);
+      const maxMy = Math.max(...memRes.samples.map(s => Math.abs(s.My || 0)), 0);
+      if (maxMy > maxMz * 1.05) {
+       diagKey = 'My';
+       dirY = new THREE.Vector3(...axes.z);
+      }
+     }
+     const diagMax = Math.max(...memRes.samples.map(s => Math.abs(s[diagKey] || 0)), 0);
+     if (diagMax > 1e-4) {
+      const peakH = Math.min(0.65, Math.max(0.18, axes.L * 0.22)) * diagramScale;
+      viewScales.lastPeakH = Math.max(viewScales.lastPeakH || 0, peakH);
+      const dScale = peakH / diagMax;
      const ribbonVerts=[],ribbonColors=[],linePts=[];
      for(let k=0;k<memRes.samples.length;k++){
       const frac=k/(memRes.samples.length-1);
@@ -1332,13 +1464,24 @@ function drawModel(){
      const ribGeo=new THREE.BufferGeometry();
      ribGeo.setAttribute('position',new THREE.Float32BufferAttribute(ribbonVerts,3));
      ribGeo.setAttribute('color',new THREE.Float32BufferAttribute(ribbonColors,3));
-     const ribMat=new THREE.MeshBasicMaterial({vertexColors:true,side:THREE.DoubleSide,transparent:true,opacity:.55,depthWrite:false});
-     group.add(new THREE.Mesh(ribGeo,ribMat));
-     const lineMat=new THREE.LineBasicMaterial({color:diagKey==='Mz'?0x38bdf8:0xfbbf24});
+     const ribMat=new THREE.MeshBasicMaterial({vertexColors:true,side:THREE.DoubleSide,transparent:true,opacity:.65,depthTest:false,depthWrite:false});
+     const ribMesh=new THREE.Mesh(ribGeo,ribMat);
+     ribMesh.renderOrder=900;
+     group.add(ribMesh);
+     const isMomentDiag=(diagKey==='Mz'||diagKey==='My');
+     const frameColor=isMomentDiag?0x39ff14:0xff5500; // Neon Lime for Moment, Electric Orange for Shear
+     const lineMat=new THREE.LineBasicMaterial({color:frameColor,depthTest:false,linewidth:2});
      const lineGeo=new THREE.BufferGeometry().setFromPoints(linePts);
-     group.add(new THREE.Line(lineGeo,lineMat));
-     line([a,linePts[0]],0x64748b);
-     line([b,linePts[linePts.length-1]],0x64748b);
+     const boundaryLine=new THREE.Line(lineGeo,lineMat);
+     boundaryLine.renderOrder=905;
+     group.add(boundaryLine);
+     const tieMat=new THREE.LineBasicMaterial({color:frameColor,depthTest:false});
+     const tieA=new THREE.Line(new THREE.BufferGeometry().setFromPoints([a,linePts[0]]),tieMat);
+     tieA.renderOrder=905;
+     group.add(tieA);
+     const tieB=new THREE.Line(new THREE.BufferGeometry().setFromPoints([b,linePts[linePts.length-1]]),tieMat);
+     tieB.renderOrder=905;
+     group.add(tieB);
      const showDiagValues = !$('diagramValues') || $('diagramValues').checked;
      const isSelectedMem = selected?.kind === 'members' && selected.id === m.id;
      const isInspectedMem = isSelectedMem || ($('resultMember')?.value === m.id);
@@ -1350,7 +1493,7 @@ function drawModel(){
        const av = Math.abs(memRes.samples[k][diagKey]);
        if(av > peakVal){ peakVal = av; kPeak = k; }
       }
-      const uKey = diagKey === 'Mz' ? 'moment' : 'force';
+      const uKey = (diagKey === 'Mz' || diagKey === 'My') ? 'moment' : 'force';
       const numPts = linePts.length;
       let kLabel = kPeak;
       // Joint clearance anti-collision: clamp label point to 22% - 78% of span
@@ -1365,10 +1508,10 @@ function drawModel(){
       }
       const valStr = `${diagKey} = ${fmt(quantity(peakVal, uKey), 1)} ${unitLabel(uKey)}`;
       const labelOpts = isInspectedMem
-       ? { bg: 'rgba(234, 88, 12, 0.95)', border: '#fef08a', color: '#ffffff', radius: 6, alwaysOnTop: true }
-       : { bg: diagKey === 'Mz' ? 'rgba(12, 74, 110, 0.92)' : 'rgba(120, 53, 15, 0.92)',
-           border: diagKey === 'Mz' ? '#38bdf8' : '#fbbf24',
-           color: '#f8fafc', radius: 6 };
+       ? { bg: 'rgba(234, 88, 12, 0.95)', border: '#fef08a', color: '#00FFB2', radius: 6, alwaysOnTop: true }
+       : { bg: (diagKey === 'Mz' || diagKey === 'My') ? 'rgba(8, 28, 44, 0.92)' : 'rgba(44, 18, 5, 0.92)',
+           border: (diagKey === 'Mz' || diagKey === 'My') ? '#39ff14' : '#ff5500',
+           color: '#00FFB2', radius: 6, alwaysOnTop: true };
       const label = labelSprite(valStr, 0, 36, 14, labelOpts);
       label.position.copy(linePts[kLabel]).addScaledVector(dirY, 0.16);
       group.add(label);
@@ -1377,15 +1520,21 @@ function drawModel(){
    }
   }
   if(showMemberNames){
-   // the member name sits on the member itself: large orange glyphs with a black outline, no backplate
+   // the member name sits dead-center on the member: glowing lightning orange glyphs with pulsing beat-up rhythm
    const nameLabel = labelSprite(getMemberMark(m), 0, MEMBER_NAME_CANVAS_H, MEMBER_NAME_FONT, {
-    bg: null, padX: MEMBER_NAME_PAD, color: MEMBER_NAME_FILL, outline: '#000000', outlineWidth: 7,
-    glow: MEMBER_NAME_GLOW, glowBlur: 14, alwaysOnTop: true
+    bg: null, padX: MEMBER_NAME_PAD, color: MEMBER_NAME_FILL, outline: '#000000', outlineWidth: 6,
+    glow: MEMBER_NAME_GLOW, glowBlur: 16, alwaysOnTop: true
    });
    nameLabel.userData={kind:'memberName',member:m.id};
    nameLabel.scale.multiplyScalar(MEMBER_NAME_SCALE);
-   nameLabel.position.copy(a).lerp(b, 0.5).add(new THREE.Vector3(0, (secH / 2) + 0.22, 0));
+   // place directly at the 3D center of the member line (a.lerp(b, 0.5))
+   nameLabel.position.copy(a).lerp(b, 0.5);
    group.add(nameLabel);
+   memberNameSprites.push({
+    sprite: nameLabel,
+    baseScaleX: nameLabel.scale.x,
+    baseScaleY: nameLabel.scale.y
+   });
   }
   if(active&&$('deformed').checked&&deformScale>0){const da=active.nodes[m.i].displacement,db=active.nodes[m.j].displacement;line([a.clone().add(new THREE.Vector3(...da.slice(0,3)).multiplyScalar(deformScale)),b.clone().add(new THREE.Vector3(...db.slice(0,3)).multiplyScalar(deformScale))],0xffb861);}
  }
@@ -1427,7 +1576,12 @@ function drawModel(){
    if(pVal>1e-6){
     const d=v.clone().normalize();
     const arrowLen=0.85;
-    group.add(new THREE.ArrowHelper(d,p.clone().sub(d.clone().multiplyScalar(arrowLen)),arrowLen,0xef4444,0.22,0.12));
+    const ptArr=new THREE.ArrowHelper(d,p.clone().sub(d.clone().multiplyScalar(arrowLen)),arrowLen,0xef4444,0.22,0.12);
+     ptArr.line.material.depthTest=false;
+     ptArr.cone.material.depthTest=false;
+     ptArr.line.renderOrder=910;
+     ptArr.cone.renderOrder=910;
+     group.add(ptArr);
     const isRoofNode = model.members.some(m=>m.kind==='roof'&&(m.i===load.node||m.j===load.node));
     const loadNote = isRoofNode ? ` (${load.case} · ถ่ายจากแป)` : ` (${load.case})`;
     const badge=labelSprite(`P = ${fmt(quantity(pVal,'force'),1)} ${unitLabel('force')}${loadNote}`,0,28,12,{bg:'rgba(153, 27, 27, 0.92)',border:'rgba(248, 113, 113, 0.65)',color:'#fee2e2',radius:5});
@@ -1457,42 +1611,58 @@ function drawModel(){
    if(qVal<1e-6)continue;
    const dirLoad=v.clone().normalize();
    const dirBox=dirLoad.clone().negate();
+   const beamH=m.h||0.35;
+   const baseOffset=(m.kind==='beam'&&showSolid3D)?(beamH*0.5+0.005):0;
+   const baseA=a.clone().addScaledVector(dirBox,baseOffset);
+   const baseB=b.clone().addScaledVector(dirBox,baseOffset);
    const boxH=Math.min(0.65,Math.max(0.35,L*0.12));
-   const topA=a.clone().addScaledVector(dirBox,boxH);
-   const topB=b.clone().addScaledVector(dirBox,boxH);
+   const topA=baseA.clone().addScaledVector(dirBox,boxH);
+   const topB=baseB.clone().addScaledVector(dirBox,boxH);
 
-   // Rectangular wireframe frame lines
-   line([topA,topB],0xf59e0b);
-   line([a,topA],0xf59e0b);
-   line([b,topB],0xf59e0b);
-   line([a,b],0xd97706);
+   // Rectangular wireframe frame lines - see-through
+   line([topA,topB],0xf59e0b,false,{depthTest:false,renderOrder:910,linewidth:2});
+   line([baseA,topA],0xf59e0b,false,{depthTest:false,renderOrder:910});
+   line([baseB,topB],0xf59e0b,false,{depthTest:false,renderOrder:910});
+   line([baseA,baseB],0xd97706,false,{depthTest:false,renderOrder:910});
 
-   // Shaded quad
+   // Shaded quad - see through
    const quadGeo=new THREE.BufferGeometry();
    const quadVerts=[
-    a.x,a.y,a.z, topA.x,topA.y,topA.z, topB.x,topB.y,topB.z,
-    a.x,a.y,a.z, topB.x,topB.y,topB.z, b.x,b.y,b.z
+    baseA.x,baseA.y,baseA.z, topA.x,topA.y,topA.z, topB.x,topB.y,topB.z,
+    baseA.x,baseA.y,baseA.z, topB.x,topB.y,topB.z, baseB.x,baseB.y,baseB.z
    ];
    quadGeo.setAttribute('position',new THREE.Float32BufferAttribute(quadVerts,3));
    quadGeo.computeVertexNormals();
-   const quadMat=new THREE.MeshBasicMaterial({color:0xfbbf24,transparent:true,opacity:0.22,side:THREE.DoubleSide,depthWrite:false});
-   group.add(new THREE.Mesh(quadGeo,quadMat));
+   const quadMat=new THREE.MeshBasicMaterial({color:0xfbbf24,transparent:true,opacity:0.25,side:THREE.DoubleSide,depthTest:false,depthWrite:false});
+   const udlQuadMesh=new THREE.Mesh(quadGeo,quadMat);
+   udlQuadMesh.renderOrder=908;
+   group.add(udlQuadMesh);
 
-   // Downward arrows inside the box
+   // Downward arrows inside the box - see through
    const numArrows=Math.max(4,Math.min(8,Math.round(L*1.5)));
    for(let i=0;i<numArrows;i++){
     const t=(i+0.5)/numArrows;
     const pTop=topA.clone().lerp(topB,t);
-    const pBeam=a.clone().lerp(b,t);
+    const pBeam=baseA.clone().lerp(baseB,t);
     const arrLen=pTop.distanceTo(pBeam);
     const hl=Math.min(arrLen*0.35,0.14);
-    group.add(new THREE.ArrowHelper(dirLoad,pTop,arrLen,0xf59e0b,hl,hl*0.6));
+    const arr=new THREE.ArrowHelper(dirLoad,pTop,arrLen,0xf59e0b,hl,hl*0.6);
+    arr.line.material.depthTest=false;
+    arr.cone.material.depthTest=false;
+    arr.line.renderOrder=910;
+    arr.cone.renderOrder=910;
+    group.add(arr);
    }
 
-   // Badge with load in kg/m and case (centered at t=0.50)
-   const badge=labelSprite(`q = ${fmt(quantity(qVal,'line'),1)} ${unitLabel('line')} (${load.case})`,280,60,22);
-   badge.scale.set(0.7,0.22,1);
-   badge.position.copy(topA).lerp(topB,0.5).addScaledVector(dirBox,0.14);
+   // Badge with load in kg/m and case: Neon Mint font with alwaysOnTop
+   const badge=labelSprite(`q = ${fmt(quantity(qVal,'line'),1)} ${unitLabel('line')} (${load.case})`,0,32,13,{
+    bg:'rgba(44, 28, 5, 0.92)',
+    border:'#f59e0b',
+    color:'#00FFB2', // Neon Mint
+    radius:5,
+    alwaysOnTop:true
+   });
+   badge.position.copy(topA).lerp(topB,0.50).addScaledVector(dirBox,0.15);
    group.add(badge);
   }
  }
@@ -1513,27 +1683,34 @@ function drawModel(){
    if(m.kind==='beam'&&swKNm>0.005){
     const dirLoad=new THREE.Vector3(0,-1,0);
     const dirBox=new THREE.Vector3(0,1,0);
-    const boxH=Math.min(0.40,Math.max(0.18,L*0.08));
-    const topA=a.clone().addScaledVector(dirBox,boxH);
-    const topB=b.clone().addScaledVector(dirBox,boxH);
+    const beamH=m.h||0.35;
+    const baseOffset=showSolid3D ? (beamH*0.5 + 0.005) : 0;
+    const baseA=a.clone().addScaledVector(dirBox,baseOffset);
+    const baseB=b.clone().addScaledVector(dirBox,baseOffset);
+    const boxH=Math.min(0.45,Math.max(0.22,L*0.08));
+    const topA=baseA.clone().addScaledVector(dirBox,boxH);
+    const topB=baseB.clone().addScaledVector(dirBox,boxH);
 
-    // Cyan wireframe lines for self-weight
-    line([topA,topB],0x0284c7);
-    line([a,topA],0x0284c7);
-    line([b,topB],0x0284c7);
+    // Aqua blue wireframe lines for self-weight (dead load) - See-through above and through solid beams
+    line([topA,topB],0x00e5ff,false,{depthTest:false,renderOrder:910,linewidth:2});
+    line([baseA,topA],0x00e5ff,false,{depthTest:false,renderOrder:910});
+    line([baseB,topB],0x00e5ff,false,{depthTest:false,renderOrder:910});
+    line([baseA,baseB],0x00e5ff,true,{depthTest:false,renderOrder:910}); // Base beam contact line dashed
 
-    // Shaded cyan quad
+    // Shaded vibrant Aqua quad - see through
     const quadGeo=new THREE.BufferGeometry();
     const quadVerts=[
-     a.x,a.y,a.z, topA.x,topA.y,topA.z, topB.x,topB.y,topB.z,
-     a.x,a.y,a.z, topB.x,topB.y,topB.z, b.x,b.y,b.z
+     baseA.x,baseA.y,baseA.z, topA.x,topA.y,topA.z, topB.x,topB.y,topB.z,
+     baseA.x,baseA.y,baseA.z, topB.x,topB.y,topB.z, baseB.x,baseB.y,baseB.z
     ];
     quadGeo.setAttribute('position',new THREE.Float32BufferAttribute(quadVerts,3));
     quadGeo.computeVertexNormals();
-    const quadMat=new THREE.MeshBasicMaterial({color:0x38bdf8,transparent:true,opacity:0.18,side:THREE.DoubleSide,depthWrite:false});
-    group.add(new THREE.Mesh(quadGeo,quadMat));
+    const quadMat=new THREE.MeshBasicMaterial({color:0x00e5ff,transparent:true,opacity:0.35,side:THREE.DoubleSide,depthTest:false,depthWrite:false});
+    const swQuadMesh=new THREE.Mesh(quadGeo,quadMat);
+    swQuadMesh.renderOrder=908;
+    group.add(swQuadMesh);
 
-    // Downward arrows
+    // Downward Aqua arrows - see through
     const numArrows=Math.max(3,Math.min(6,Math.round(L*1.2)));
     for(let i=0;i<numArrows;i++){
      const t=(i+0.5)/numArrows;
@@ -1541,25 +1718,38 @@ function drawModel(){
      const pBeam=a.clone().lerp(b,t);
      const arrLen=pTop.distanceTo(pBeam);
      const hl=Math.min(arrLen*0.35,0.11);
-     group.add(new THREE.ArrowHelper(dirLoad,pTop,arrLen,0x0284c7,hl,hl*0.6));
+     const arr=new THREE.ArrowHelper(dirLoad,pTop,arrLen,0x00e5ff,hl,hl*0.6);
+     arr.line.material.depthTest=false;
+     arr.cone.material.depthTest=false;
+     arr.line.renderOrder=910;
+     arr.cone.renderOrder=910;
+     group.add(arr);
     }
 
-    // SW Badge offset to t=0.28 to avoid colliding with uniform load badge at t=0.50
-    if(isSelectedMem || model.members.length < 35){
-     const swVal=quantity(swKNm,'line');
-     const badge=labelSprite(`SW = ${fmt(swVal,1)} ${unitLabel('line')}`,0,28,12,{bg:'rgba(12, 74, 110, 0.90)',border:'rgba(56, 189, 248, 0.65)',color:'#e0f2fe',radius:5});
-     badge.position.copy(topA).lerp(topB,0.28).addScaledVector(dirBox,0.12);
-     group.add(badge);
-    }
+    // SW Badge: always show in Neon Mint (#00FFB2) font with alwaysOnTop priority
+    const swVal=quantity(swKNm,'line');
+    const badge=labelSprite(`SW = ${fmt(swVal,1)} ${unitLabel('line')}`,0,30,13,{
+     bg:'rgba(8, 28, 44, 0.92)',
+     border:'#00e5ff',
+     color:'#00FFB2', // Neon Mint
+     radius:5,
+     alwaysOnTop:true
+    });
+    badge.position.copy(topA).lerp(topB,0.28).addScaledVector(dirBox,0.14);
+    group.add(badge);
    }else if((m.kind==='column'||m.kind==='roof')&&swTotalKN>0.01){
     // Column or roof self-weight badge at midpoint
-    if(isSelectedMem || (m.kind==='column'&&model.members.length<35)){
-     const swVal=quantity(swTotalKN,'force');
-     const mid=a.clone().lerp(b,0.5);
-     const badge=labelSprite(`SW = ${fmt(swVal,1)} ${unitLabel('force')}`,0,26,11,{bg:'rgba(15, 23, 42, 0.88)',border:'rgba(56, 189, 248, 0.5)',color:'#7dd3fc',radius:5});
-     badge.position.copy(mid).add(new THREE.Vector3(0.12,0.1,0.12));
-     group.add(badge);
-    }
+    const swVal=quantity(swTotalKN,'force');
+    const mid=a.clone().lerp(b,0.5);
+    const badge=labelSprite(`SW = ${fmt(swVal,1)} ${unitLabel('force')}`,0,28,12,{
+     bg:'rgba(8, 28, 44, 0.92)',
+     border:'#00e5ff',
+     color:'#00FFB2', // Neon Mint
+     radius:5,
+     alwaysOnTop:true
+    });
+    badge.position.copy(mid).add(new THREE.Vector3(0.12,0.1,0.12));
+    group.add(badge);
    }
   }
 
