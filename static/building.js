@@ -373,3 +373,50 @@ export function getAxisLockFromKey(key){
  if(lower==='x'||lower==='y'||lower==='z')return lower;
  return undefined;
 }
+
+export function projectRayToAxisLine(rayOrigin, rayDir, lineStart, axis) {
+ const u = axis === 'x' ? { x: 1, y: 0, z: 0 } :
+           axis === 'y' ? { x: 0, y: 1, z: 0 } :
+                          { x: 0, y: 0, z: 1 };
+ const w = {
+  x: rayOrigin.x - lineStart.x,
+  y: rayOrigin.y - lineStart.y,
+  z: rayOrigin.z - lineStart.z
+ };
+ const b = rayDir.x * u.x + rayDir.y * u.y + rayDir.z * u.z;
+ const d = rayDir.x * w.x + rayDir.y * w.y + rayDir.z * w.z;
+ const e = u.x * w.x + u.y * w.y + u.z * w.z;
+ const D = 1 - b * b;
+ if (Math.abs(D) < 1e-6) return null;
+ const t = (e - b * d) / D;
+ return {
+  x: lineStart.x + t * u.x,
+  y: lineStart.y + t * u.y,
+  z: lineStart.z + t * u.z,
+  dist: Math.abs(t)
+ };
+}
+
+export function computeEndpointFromDimension(start, currentPoint, axisLock, targetLength) {
+ let dir = { x: currentPoint.x - start.x, y: currentPoint.y - start.y, z: currentPoint.z - start.z };
+ if (axisLock === 'x') {
+  const sign = dir.x >= 0 ? 1 : -1;
+  return { x: start.x + targetLength * sign, y: start.y, z: start.z };
+ } else if (axisLock === 'y') {
+  const sign = dir.y >= 0 ? 1 : -1;
+  return { x: start.x, y: start.y + targetLength * sign, z: start.z };
+ } else if (axisLock === 'z') {
+  const sign = dir.z >= 0 ? 1 : -1;
+  return { x: start.x, y: start.y, z: start.z + targetLength * sign };
+ }
+ const len = Math.hypot(dir.x, dir.y, dir.z);
+ if (len < 1e-6) {
+  return { x: start.x + targetLength, y: start.y, z: start.z };
+ }
+ return {
+  x: start.x + (dir.x / len) * targetLength,
+  y: start.y + (dir.y / len) * targetLength,
+  z: start.z + (dir.z / len) * targetLength
+ };
+}
+

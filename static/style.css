@@ -428,5 +428,67 @@
   to { opacity: 1; transform: translate(-50%, 0) scale(1); }
 }
 
+/* ==========================================================================
+   SketchUp-style Measurement Box (Sprint 3)
+   ========================================================================== */
+.build-measurement-box {
+  position: absolute;
+  bottom: 52px;
+  right: 18px;
+  z-index: 35;
+  background: rgba(15, 23, 42, 0.92);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(56, 189, 248, 0.5);
+  border-radius: 8px;
+  padding: 6px 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #f1f5f9;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 13px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+  transition: all 0.2s ease;
+  user-select: none;
+}
+.build-measurement-box:focus-within {
+  border-color: #38bdf8;
+  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.35), 0 8px 24px rgba(0, 0, 0, 0.7);
+}
+.build-measurement-box .measurement-label {
+  color: #94a3b8;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.build-measurement-box .measurement-input {
+  background: rgba(30, 41, 59, 0.85);
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 4px;
+  color: #38bdf8;
+  font-weight: 700;
+  font-family: inherit;
+  font-size: 14px;
+  width: 95px;
+  padding: 3px 6px;
+  text-align: right;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+.build-measurement-box .measurement-input:focus {
+  border-color: #38bdf8;
+  background: rgba(15, 23, 42, 0.95);
+  box-shadow: 0 0 8px rgba(56, 189, 248, 0.4);
+}
+.build-measurement-box .measurement-unit {
+  color: #64748b;
+  font-size: 12px;
+}
+.build-measurement-box[hidden] {
+  display: none !important;
+}
+
 
 
