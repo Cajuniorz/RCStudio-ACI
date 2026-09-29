@@ -158,44 +158,45 @@ import {warehouseModel} from '../static/building.js';
 const wh=warehouseModel(12,5,3,4.5,1.8,4,false,true);
 assert.equal(wh.nodes.length>0,true);
 
-// Verify tributary scaling: end frames (z=0, z=15) have trib=0.5, interior frames (z=5, z=10) have trib=1.0
-const endNodesZ0=new Set(wh.nodes.filter(n=>n.z===0).map(n=>n.id));
-const endNodesZ15=new Set(wh.nodes.filter(n=>n.z===15).map(n=>n.id));
-const intNodesZ5=new Set(wh.nodes.filter(n=>n.z===5).map(n=>n.id));
+// Verify tributary scaling: end frames (y=0, y=15) have trib=0.5, interior frames (y=5, y=10) have trib=1.0
+const endNodesY0=new Set(wh.nodes.filter(n=>n.y===0).map(n=>n.id));
+const endNodesY15=new Set(wh.nodes.filter(n=>n.y===15).map(n=>n.id));
+const intNodesY5=new Set(wh.nodes.filter(n=>n.y===5).map(n=>n.id));
 
-const endLoadsZ0=wh.nodalLoads.filter(l=>endNodesZ0.has(l.node)&&l.case==='D');
-const intLoadsZ5=wh.nodalLoads.filter(l=>intNodesZ5.has(l.node)&&l.case==='D');
-assert.equal(endLoadsZ0.length>0,true);
-assert.equal(intLoadsZ5.length>0,true);
-// End frame loads should be exactly half of interior frame loads
-assert.equal(endLoadsZ0[0].fy,-1.25);
-assert.equal(intLoadsZ5[0].fy,-2.5);
+const endLoadsY0=wh.nodalLoads.filter(l=>endNodesY0.has(l.node)&&l.case==='D');
+const intLoadsY5=wh.nodalLoads.filter(l=>intNodesY5.has(l.node)&&l.case==='D');
+assert.equal(endLoadsY0.length>0,true);
+assert.equal(intLoadsY5.length>0,true);
+// End frame loads should be exactly half of interior frame loads (downward in -Z)
+assert.equal(endLoadsY0[0].fz,-1.25);
+assert.equal(intLoadsY5[0].fz,-2.5);
 
-// Verify ground tie beams: symmetric on left (x=0) and right (x=12)
+// Verify ground tie beams at Z=0: symmetric on left (x=0) and right (x=12) along Y
 const groundBeams=wh.members.filter(m=>m.kind==='beam'&&m.h===0.40);
 const gbLeft=groundBeams.filter(m=>{
   const ni=wh.nodes.find(n=>n.id===m.i),nj=wh.nodes.find(n=>n.id===m.j);
-  return ni.x===0&&nj.x===0&&ni.y===0&&nj.y===0;
+  return ni.x===0&&nj.x===0&&ni.z===0&&nj.z===0;
 });
 const gbRight=groundBeams.filter(m=>{
   const ni=wh.nodes.find(n=>n.id===m.i),nj=wh.nodes.find(n=>n.id===m.j);
-  return ni.x===12&&nj.x===12&&ni.y===0&&nj.y===0;
+  return ni.x===12&&nj.x===12&&ni.z===0&&nj.z===0;
 });
-assert.equal(gbLeft.length,3,'3 left ground tie beams along Z');
-assert.equal(gbRight.length,3,'3 right ground tie beams along Z');
+assert.equal(gbLeft.length,3,'3 left ground tie beams along Y');
+assert.equal(gbRight.length,3,'3 right ground tie beams along Y');
 
-// Verify cross tie beams across X
+// Verify cross tie beams across X at Z=0
 const gbCross=groundBeams.filter(m=>{
   const ni=wh.nodes.find(n=>n.id===m.i),nj=wh.nodes.find(n=>n.id===m.j);
-  return ni.y===0&&nj.y===0&&Math.abs(nj.x-ni.x)===12;
+  return ni.z===0&&nj.z===0&&Math.abs(nj.x-ni.x)===12;
 });
 assert.equal(gbCross.length,4,'4 cross ground tie beams at column lines');
 
 // Verify grid lines generated
 assert.deepEqual(wh.gridLines.x,[{label:'1',value:0},{label:'2',value:12}]);
-assert.equal(wh.gridLines.z.length,4);
-assert.equal(wh.gridLines.z[0].label,'A');
-assert.equal(wh.gridLines.z[3].label,'D');
+assert.equal(wh.gridLines.y.length,4);
+assert.equal(wh.gridLines.y[0].label,'A');
+assert.equal(wh.gridLines.y[3].label,'D');
+assert.equal(wh.coordinateSystem,'z-up');
 
 console.log('PASS: level grouping, level-specific snapping, same-level/zero/duplicate/intervening checks, manual cross-level endpoints, rejection purity, auto-detect grids, continuous beams, warehouse tributary loading & ground beams.');
 

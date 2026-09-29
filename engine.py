@@ -257,8 +257,12 @@ def solve(data):
             if value:
                 dir_name = 'F' + (axis.lower() if is_local else axis.upper())
                 model.add_member_dist_load(load['member'], dir_name, value, value, case=load['case'])
+    is_z_up = (data.get('coordinateSystem') == 'z-up')
     if data['selfWeight']:
-        model.add_member_self_weight('FY', -1, case='D')
+        if is_z_up:
+            model.add_member_self_weight('FZ', -1, case='D')
+        else:
+            model.add_member_self_weight('FY', -1, case='D')
     for combo in data['combinations']:
         model.add_load_combo(combo['name'], {c: combo[c] for c in CASES})
     try:
@@ -283,7 +287,7 @@ def solve(data):
               'modelHash': hashlib.sha256(json.dumps(source, sort_keys=True, allow_nan=False).encode()).hexdigest(),
               'assumptions': ['Linear elastic, first order, rigid joints; concrete rectangles or user-supplied steel section properties',
                               'No slab stiffness/soil/RC capacity, cracking, creep, P-Delta, seismic or code checks',
-                              'Loads and combination factors are user inputs; Y is vertical',
+                              'Loads and combination factors are user inputs; Z is vertical (SketchUp standard)',
                               'Member forces and deflections use local axes; node outputs use global axes',
                               'Concrete rectangle J uses a Saint-Venant approximation; steel custom A/Iy/Iz/J are user-supplied directly'],
               'sections': sections, 'combinations': {}}
@@ -321,7 +325,10 @@ def solve(data):
                     else:
                         q += q_vec
             if data['selfWeight']:
-                q[1] -= sections[m['id']]['A']*densities[m['id']]*combo['D']
+                if is_z_up:
+                    q[2] -= sections[m['id']]['A']*densities[m['id']]*combo['D']
+                else:
+                    q[1] -= sections[m['id']]['A']*densities[m['id']]*combo['D']
             apply((a+b)/2, q*np.linalg.norm(b-a), np.zeros(3))
         node_results, member_results = {}, {}
         for key, n in model.nodes.items():

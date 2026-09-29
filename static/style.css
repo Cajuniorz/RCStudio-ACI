@@ -382,5 +382,51 @@
   background: #182029;
 }
 
+/* Axis Lock Badge (Sprint 2 - SketchUp Style Arrow Key Locking) */
+.axis-lock-badge {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 35;
+  padding: 6px 16px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.65);
+  pointer-events: none;
+  user-select: none;
+  animation: badgePop 0.15s ease-out;
+}
+.axis-lock-badge[hidden] {
+  display: none !important;
+}
+.axis-lock-badge.lock-x {
+  background: rgba(220, 38, 38, 0.94);
+  color: #fff;
+  border: 1.5px solid #f87171;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+.axis-lock-badge.lock-y {
+  background: rgba(22, 163, 74, 0.94);
+  color: #fff;
+  border: 1.5px solid #4ade80;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+.axis-lock-badge.lock-z {
+  background: rgba(37, 99, 235, 0.94);
+  color: #fff;
+  border: 1.5px solid #60a5fa;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+@keyframes badgePop {
+  from { opacity: 0; transform: translate(-50%, -6px) scale(0.95); }
+  to { opacity: 1; transform: translate(-50%, 0) scale(1); }
+}
+
 
 
