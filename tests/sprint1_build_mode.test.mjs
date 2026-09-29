@@ -83,6 +83,7 @@ assert(appJs.includes('openShortcutManager'), 'openShortcutManager missing');
 assert(appJs.includes('closeShortcutManager'), 'closeShortcutManager missing');
 assert(appJs.includes('resetShortcuts'), 'resetShortcuts missing');
 assert(appJs.includes('renderShortcutTable'), 'renderShortcutTable missing');
+assert(appJs.includes('inDialog'), 'Dialog suppression in global keydown listener missing');
 
 // Check OrbitControls configuration
 assert(appJs.includes('controls.mouseButtons={LEFT:-1,MIDDLE:THREE.MOUSE.ROTATE,RIGHT:-1}'), 'Build mode mouse buttons not configured correctly');
@@ -136,7 +137,7 @@ function eventToKeyCombo(event) {
 function matchesShortcut(event, shortcutStr) {
   if (!shortcutStr) return false;
   if (shortcutStr === ' ' || shortcutStr.toLowerCase() === 'space') {
-    return (event.key === ' ' || event.code === 'Space') && !event.ctrlKey && !event.altKey && !event.metaKey;
+    return (event.key === ' ' || event.code === 'Space') && !event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey;
   }
   const str = shortcutStr.trim();
   if (str.toLowerCase() === 'delete') {
@@ -150,22 +151,94 @@ function matchesShortcut(event, shortcutStr) {
 // Test key formats
 assert(formatShortcutDisplay(' ') === 'Space', 'Space display format failed');
 assert(formatShortcutDisplay('l') === 'L', 'L display format failed');
+assert(formatShortcutDisplay('n') === 'N', 'N display format failed');
+assert(formatShortcutDisplay('r') === 'R', 'R display format failed');
+assert(formatShortcutDisplay('p') === 'P', 'P display format failed');
+assert(formatShortcutDisplay('j') === 'J', 'J display format failed');
+assert(formatShortcutDisplay('q') === 'Q', 'Q display format failed');
+assert(formatShortcutDisplay('v') === 'V', 'V display format failed');
+assert(formatShortcutDisplay('d') === 'D', 'D display format failed');
 assert(formatShortcutDisplay('Ctrl+a') === 'Ctrl+A', 'Ctrl+a display format failed');
 assert(formatShortcutDisplay('Ctrl+e') === 'Ctrl+E', 'Ctrl+e display format failed');
 assert(formatShortcutDisplay('Delete') === 'Delete', 'Delete display format failed');
+assert(formatShortcutDisplay('Ctrl+Shift+z') === 'Ctrl+Shift+Z', 'Ctrl+Shift+z display format failed');
+assert(formatShortcutDisplay('') === '—', 'Empty shortcut format failed');
+assert(formatShortcutDisplay(null) === '—', 'Null shortcut format failed');
 
-// Test matchesShortcut
-assert(matchesShortcut({ key: ' ', code: 'Space', ctrlKey: false, altKey: false, metaKey: false }, ' '), 'Space shortcut matching failed');
-assert(matchesShortcut({ key: 'l', ctrlKey: false, altKey: false, metaKey: false, shiftKey: false }, 'l'), 'l shortcut matching failed');
-assert(matchesShortcut({ key: 'L', ctrlKey: false, altKey: false, metaKey: false, shiftKey: false }, 'l'), 'L case-insensitive matching failed');
-assert(matchesShortcut({ key: 'a', ctrlKey: true, altKey: false, metaKey: false, shiftKey: false }, 'Ctrl+a'), 'Ctrl+a matching failed');
-assert(matchesShortcut({ key: 'A', ctrlKey: true, altKey: false, metaKey: false, shiftKey: false }, 'Ctrl+a'), 'Ctrl+A matching failed');
-assert(matchesShortcut({ key: 'e', ctrlKey: true, altKey: false, metaKey: false, shiftKey: false }, 'Ctrl+e'), 'Ctrl+e matching failed');
-assert(matchesShortcut({ key: 'Delete', ctrlKey: false, altKey: false, metaKey: false, shiftKey: false }, 'Delete'), 'Delete matching failed');
-assert(matchesShortcut({ key: 'Backspace', ctrlKey: false, altKey: false, metaKey: false, shiftKey: false }, 'Delete'), 'Backspace matching delete failed');
+// Test eventToKeyCombo
+assert(eventToKeyCombo({ key: 'Control' }) === null, 'Standalone Control should return null');
+assert(eventToKeyCombo({ key: 'Shift' }) === null, 'Standalone Shift should return null');
+assert(eventToKeyCombo({ key: 'Alt' }) === null, 'Standalone Alt should return null');
+assert(eventToKeyCombo({ key: 'Meta' }) === null, 'Standalone Meta should return null');
+assert(eventToKeyCombo({ key: ' ', code: 'Space' }) === ' ', 'Space key combo failed');
+assert(eventToKeyCombo({ key: 'L' }) === 'l', 'Uppercase single key should lowercase');
+assert(eventToKeyCombo({ key: 'p', ctrlKey: true, shiftKey: true }) === 'Ctrl+Shift+p', 'Multi-modifier key combo failed');
+
+// Test matchesShortcut across all 12 default actions
+const defaultMap = {
+  Select: ' ',
+  Line: 'l',
+  Node: 'n',
+  Slab: 'r',
+  Wall: 'p',
+  Join: 'j',
+  Pull: 'q',
+  Toggle2D3D: 'v',
+  ToggleDiagram: 'd',
+  CycleDiagram: 'Ctrl+e',
+  Analyze: 'Ctrl+a',
+  Delete: 'Delete'
+};
+
+assert(matchesShortcut({ key: ' ', code: 'Space', ctrlKey: false, altKey: false, metaKey: false }, defaultMap.Select), 'Space shortcut matching failed');
+assert(matchesShortcut({ key: 'l', ctrlKey: false, altKey: false, metaKey: false, shiftKey: false }, defaultMap.Line), 'l shortcut matching failed');
+assert(matchesShortcut({ key: 'L', ctrlKey: false, altKey: false, metaKey: false, shiftKey: false }, defaultMap.Line), 'L case-insensitive matching failed');
+assert(matchesShortcut({ key: 'n', ctrlKey: false, altKey: false, metaKey: false, shiftKey: false }, defaultMap.Node), 'n shortcut matching failed');
+assert(matchesShortcut({ key: 'r', ctrlKey: false, altKey: false, metaKey: false, shiftKey: false }, defaultMap.Slab), 'r shortcut matching failed');
+assert(matchesShortcut({ key: 'p', ctrlKey: false, altKey: false, metaKey: false, shiftKey: false }, defaultMap.Wall), 'p shortcut matching failed');
+assert(matchesShortcut({ key: 'j', ctrlKey: false, altKey: false, metaKey: false, shiftKey: false }, defaultMap.Join), 'j shortcut matching failed');
+assert(matchesShortcut({ key: 'q', ctrlKey: false, altKey: false, metaKey: false, shiftKey: false }, defaultMap.Pull), 'q shortcut matching failed');
+assert(matchesShortcut({ key: 'v', ctrlKey: false, altKey: false, metaKey: false, shiftKey: false }, defaultMap.Toggle2D3D), 'v shortcut matching failed');
+assert(matchesShortcut({ key: 'd', ctrlKey: false, altKey: false, metaKey: false, shiftKey: false }, defaultMap.ToggleDiagram), 'd shortcut matching failed');
+assert(matchesShortcut({ key: 'e', ctrlKey: true, altKey: false, metaKey: false, shiftKey: false }, defaultMap.CycleDiagram), 'Ctrl+e matching failed');
+assert(matchesShortcut({ key: 'E', ctrlKey: true, altKey: false, metaKey: false, shiftKey: false }, defaultMap.CycleDiagram), 'Ctrl+E case-insensitive matching failed');
+assert(matchesShortcut({ key: 'a', ctrlKey: true, altKey: false, metaKey: false, shiftKey: false }, defaultMap.Analyze), 'Ctrl+a matching failed');
+assert(matchesShortcut({ key: 'A', ctrlKey: true, altKey: false, metaKey: false, shiftKey: false }, defaultMap.Analyze), 'Ctrl+A matching failed');
+assert(matchesShortcut({ key: 'Delete', ctrlKey: false, altKey: false, metaKey: false, shiftKey: false }, defaultMap.Delete), 'Delete matching failed');
+assert(matchesShortcut({ key: 'Backspace', ctrlKey: false, altKey: false, metaKey: false, shiftKey: false }, defaultMap.Delete), 'Backspace matching delete failed');
 
 // Negative matching tests
 assert(!matchesShortcut({ key: 'l', ctrlKey: true, altKey: false, metaKey: false, shiftKey: false }, 'l'), 'Ctrl+L should not match plain l');
 assert(!matchesShortcut({ key: 'a', ctrlKey: false, altKey: false, metaKey: false, shiftKey: false }, 'Ctrl+a'), 'Plain a should not match Ctrl+a');
+assert(!matchesShortcut({ key: 'e', ctrlKey: false, altKey: false, metaKey: false, shiftKey: false }, 'Ctrl+e'), 'Plain e should not match Ctrl+e');
+assert(!matchesShortcut({ key: 'l', altKey: true, ctrlKey: false, metaKey: false, shiftKey: false }, 'l'), 'Alt+L should not match plain l');
+assert(!matchesShortcut({ key: 'Delete', ctrlKey: true, altKey: false, metaKey: false, shiftKey: false }, 'Delete'), 'Ctrl+Delete should not match plain Delete');
+assert(!matchesShortcut({ key: ' ', code: 'Space', ctrlKey: false, altKey: false, metaKey: false, shiftKey: true }, ' '), 'Shift+Space should not match plain Space');
+
+// Context Menu Clamping Logic Test
+function clampContextMenu(clientX, clientY, windowWidth = 1920, windowHeight = 1080) {
+  const width = 230;
+  const height = 370;
+  let left = clientX;
+  let top = clientY;
+  if (left + width > windowWidth - 10) {
+    left = windowWidth - width - 10;
+  }
+  if (top + height > windowHeight - 10) {
+    top = windowHeight - height - 10;
+  }
+  return {
+    left: Math.max(10, left),
+    top: Math.max(10, top)
+  };
+}
+
+const clampedBottomRight = clampContextMenu(1900, 1000, 1920, 1080);
+assert(clampedBottomRight.left === 1920 - 230 - 10, 'Context menu right clamping failed');
+assert(clampedBottomRight.top === 1080 - 370 - 10, 'Context menu bottom clamping failed');
+
+const clampedLeftTop = clampContextMenu(2, 2, 1920, 1080);
+assert(clampedLeftTop.left === 10, 'Context menu left clamping failed');
+assert(clampedLeftTop.top === 10, 'Context menu top clamping failed');
 
 console.log('PASS: All Sprint 1 tests passed successfully!');

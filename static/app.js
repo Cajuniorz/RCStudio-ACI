@@ -2355,8 +2355,9 @@ document.addEventListener('keydown',event=>{
   if(listeningShortcutAction)stopListeningShortcut();
   return;
  }
- const activeTag=document.activeElement?.tagName;
- if(['INPUT','SELECT','TEXTAREA'].includes(activeTag)||document.activeElement?.isContentEditable){
+ const activeTag = document.activeElement?.tagName;
+ const inDialog = activeTag === 'DIALOG' || Boolean(document.activeElement?.closest('dialog')) || Boolean(document.querySelector('dialog[open]'));
+ if (['INPUT', 'SELECT', 'TEXTAREA', 'DIALOG'].includes(activeTag) || inDialog || document.activeElement?.isContentEditable) {
   return;
  }
  if(listeningShortcutAction)return;
@@ -2804,7 +2805,7 @@ function eventToKeyCombo(event) {
 function matchesShortcut(event, shortcutStr) {
   if (!shortcutStr) return false;
   if (shortcutStr === ' ' || shortcutStr.toLowerCase() === 'space') {
-    return (event.key === ' ' || event.code === 'Space') && !event.ctrlKey && !event.altKey && !event.metaKey;
+    return (event.key === ' ' || event.code === 'Space') && !event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey;
   }
   const str = shortcutStr.trim();
   if (str.toLowerCase() === 'delete') {
