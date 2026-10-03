@@ -1281,7 +1281,7 @@ def design_staircase(waist_th_m=0.15, span_ln_m=4.0, width_m=1.2, riser_m=0.175,
 
 # ─── MEMBER LABELING ───────────────────────────────────────────
 
-def label_members(members, node_map=None):
+def label_members(members, node_map=None, z_up=False):
     """Group members by role and section size → assign B1/C1/TC1/BC1/W1/P1/RAF1/OK1/AS1/DANG1/HIP1/ST1 labels.
 
     members: list of dicts with 'id', 'kind', 'b', 'h', 'sectionType', 'i', 'j'
@@ -1318,9 +1318,10 @@ def label_members(members, node_map=None):
             if node_map and m.get('i') in node_map and m.get('j') in node_map:
                 ni = node_map[m['i']]
                 nj = node_map[m['j']]
+                # dy = vertical rise, dz = second plan axis (Z-up models: vertical is 'z', plan is x/y)
                 dx = abs(nj['x'] - ni['x'])
-                dy = abs(nj['y'] - ni['y'])
-                dz = abs(nj['z'] - ni['z'])
+                dy = abs(nj['z' if z_up else 'y'] - ni['z' if z_up else 'y'])
+                dz = abs(nj['y' if z_up else 'z'] - ni['y' if z_up else 'z'])
                 if dz > 0.1 and dx < 0.1 and dy < 0.1:
                     prefix = 'P'  # Purlin along Z
                 elif dy > 0.05 and dx < 0.1 and dz > 0.1:
@@ -1367,6 +1368,11 @@ def design_all(model, analysis_result, design_basis):
 
     Returns design result dict.
     """
+    z_up = (model.get('coordinateSystem') == 'z-up')
+    v_key = 'z' if z_up else 'y'          # vertical axis of node coordinates
+    p_key = 'y' if z_up else 'z'          # second plan axis
+    r_vert = 2 if z_up else 1             # vertical reaction index in [FX,FY,FZ,MX,MY,MZ]
+    r_m1, r_m2 = (3, 4) if z_up else (3, 5)  # overturning moments about the two horizontal axes
     fc = design_basis['fc_mpa']
     fy = design_basis['fy_mpa']
     fyt = design_basis['fyt_mpa']
@@ -1379,7 +1385,7 @@ def design_all(model, analysis_result, design_basis):
     member_map = {m['id']: m for m in model['members']}
 
     # Label members
-    labels = label_members(model['members'], node_map)
+    labels = label_members(model['members'], node_map, z_up=z_up)
 
     # Collect envelope forces from all combinations
     member_envelopes = {}
@@ -1413,15 +1419,15 @@ def design_all(model, analysis_result, design_basis):
                 node_envelopes[nid] = {'fy_max': 0, 'mx_max': 0, 'mz_max': 0}
             env = node_envelopes[nid]
             rxn = ndata['reaction']
-            env['fy_max'] = max(env['fy_max'], abs(rxn[1]))  # FY reaction
-            env['mx_max'] = max(env['mx_max'], abs(rxn[3]))
-            env['mz_max'] = max(env['mz_max'], abs(rxn[5]))
+            env['fy_max'] = max(env['fy_max'], abs(rxn[r_vert]))  # vertical reaction (FY Y-up / FZ Z-up)
+            env['mx_max'] = max(env['mx_max'], abs(rxn[r_m1]))
+            env['mz_max'] = max(env['mz_max'], abs(rxn[r_m2]))
 
     # Group footings by label
     footing_labels = {}
     f_groups = {}
     for f in model.get('foundations', []):
-        key = (round(f.get('bx', 1) * 1000), round(f.get('bz', 1) * 1000), round(f.get('depth', 0.4) * 1000), f.get('pileCount', 0), f.get('type', 'isolated'))
+        key = (round(f.get('bx', 1) * 1000), round((f.get('by') if z_up and f.get('by') else f.get('bz', 1)) * 1000), round(f.get('depth', 0.4) * 1000), f.get('pileCount', 0), f.get('type', 'isolated'))
         f_groups.setdefault(key, []).append(f['id'])
     f_counter = 0
     for key, fids in sorted(f_groups.items()):
@@ -1515,7 +1521,7 @@ def design_all(model, analysis_result, design_basis):
                 gov_muy = max(gov_muy, abs(env.get('My_max', 0)), abs(env.get('My_min', 0)))
                 ni, nj = node_map.get(m['i']), node_map.get(m['j'])
                 if ni and nj:
-                    gov_lu_mm = max(gov_lu_mm, abs(nj['y'] - ni['y']) * 1000)
+                    gov_lu_mm = max(gov_lu_mm, abs(nj[v_key] - ni[v_key]) * 1000)
             if gov_lu_mm <= 0:
                 gov_lu_mm = 3000
 
@@ -1544,7 +1550,7 @@ def design_all(model, analysis_result, design_basis):
             continue
 
         bx = rep.get('bx', 1.0)
-        bz = rep.get('bz', 1.0)
+        bz = (rep.get('by') if z_up and rep.get('by') else rep.get('bz', 1.0))
         depth = rep.get('depth', 0.4)
         qa = rep.get('qa')
 
@@ -1563,6 +1569,12 @@ def design_all(model, analysis_result, design_basis):
             gov_pu_total = max(gov_pu_total, pu_m)
             gov_mux_total = max(gov_mux_total, mux_m)
             gov_muz_total = max(gov_muz_total, muz_m)
+
+        if gov_pu_total <= 0:
+            for f in f_list:
+                footing_designs[f['id']] = {'status': 'SKIP', 'label': lbl,
+                    'note': 'ไม่พบแรงปฏิกิริยาแนวดิ่งที่โหนดฐานราก — ตรวจ restraint/โหนดของฐานราก ห้ามถือว่าผ่าน'}
+            continue
 
         col_bx = 300
         col_bz = 300
@@ -1627,7 +1639,7 @@ def design_all(model, analysis_result, design_basis):
             pts = [node_map[nid] for nid in s_nodes if nid in node_map]
             if len(pts) >= 4:
                 dx1 = abs(pts[1]['x'] - pts[0]['x'])
-                dz1 = abs(pts[3]['z'] - pts[0]['z'])
+                dz1 = abs(pts[3][p_key] - pts[0][p_key])
                 if dx1 > 0 and dz1 > 0:
                     span_s = min(dx1, dz1)
                     span_l = max(dx1, dz1)

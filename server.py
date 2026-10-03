@@ -10,6 +10,23 @@ from design_beam25 import design as design_beam
 from design_rc25 import design_all as rc_design_all
 
 ROOT = Path(__file__).resolve().parent
+DEFAULT_BASIS = {'fc_mpa': 23.5, 'fy_mpa': 392, 'fyt_mpa': 235, 'cover_mm': 40, 'agg_mm': 20, 'stirrup_mm': 9}
+
+
+def clean_basis(raw):
+    """Reject non-numeric / non-finite / non-positive design-basis values instead of designing with them."""
+    if raw is None:
+        return dict(DEFAULT_BASIS)
+    if not isinstance(raw, dict):
+        raise ModelError('designBasis must be an object')
+    basis = dict(raw)
+    for key in ('fc_mpa', 'fy_mpa', 'fyt_mpa', 'cover_mm', 'agg_mm', 'stirrup_mm', 'fy_steel_mpa'):
+        if key in basis or key in DEFAULT_BASIS:
+            value = basis.get(key, DEFAULT_BASIS.get(key))
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or value != value or value in (float('inf'), float('-inf')) or value <= 0:
+                raise ModelError(f'designBasis.{key}: finite positive number required')
+            basis[key] = value
+    return basis
 
 
 class StudioHTTPServer(ThreadingHTTPServer):
@@ -52,7 +69,7 @@ class Handler(SimpleHTTPRequestHandler):
         super().do_GET()
 
     def do_POST(self):
-        if not self.allowed() or self.headers.get('Content-Type') != 'application/json':
+        if not self.allowed() or self.headers.get('Content-Type', '').split(';')[0].strip().lower() != 'application/json':
             return self.reply(403, {'error': 'Local JSON request required'})
         if self.path not in ('/api/analyze', '/api/validate', '/api/save', '/api/export', '/api/design-beam', '/api/design-beam-export', '/api/design-all', '/api/export-pdf'):
             return self.reply(404, {'error': 'Not found'})
@@ -87,20 +104,14 @@ class Handler(SimpleHTTPRequestHandler):
                     json.dump(payload, stream, ensure_ascii=False, indent=2, allow_nan=False)
                 return self.reply(200, {'saved': True, 'path': str(target), 'filename': name})
             if self.path == '/api/design-all':
-                design_basis = data.get('designBasis', {
-                    'fc_mpa': 23.5, 'fy_mpa': 392, 'fyt_mpa': 235,
-                    'cover_mm': 40, 'agg_mm': 20, 'stirrup_mm': 9,
-                })
+                design_basis = clean_basis(data.get('designBasis') if isinstance(data, dict) else None)
                 model_data = {k: v for k, v in data.items() if k != 'designBasis'}
                 analysis = solve(model_data)
                 design_result = rc_design_all(model_data, analysis, design_basis)
                 return self.reply(200, {'analysis': analysis, 'design': design_result})
             if self.path == '/api/export-pdf':
                 from generate_pdf_report import generate_complete_calculation_report
-                design_basis = data.get('designBasis', {
-                    'fc_mpa': 23.5, 'fy_mpa': 392, 'fyt_mpa': 235,
-                    'cover_mm': 40, 'agg_mm': 20, 'stirrup_mm': 9,
-                })
+                design_basis = clean_basis(data.get('designBasis') if isinstance(data, dict) else None)
                 model_data = {k: v for k, v in data.items() if k != 'designBasis'}
                 analysis = solve(model_data)
                 design_result = rc_design_all(model_data, analysis, design_basis)

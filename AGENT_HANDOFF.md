@@ -1,4 +1,4 @@
-# AGENT_HANDOFF — RCStudio-ACI (v0.9.1)
+# AGENT_HANDOFF — RCStudio-ACI (v0.9.2)
 
 เอกสารส่งต่องานสำหรับ AI Agent / นักพัฒนาคนถัดไป **อ่านทั้งไฟล์ก่อนแก้โค้ดทุกครั้ง**
 
@@ -28,7 +28,13 @@
 5. **ขีดจำกัดโมเดล:** `nodes ≤ 500`, `members ≤ 1000`, `model.name ≤ 120` ตัวอักษร (`mutate()` ใน `app.js` จะ rollback เงียบๆ ถ้าเกิน)
 6. **Z-Up เท่านั้น:** generator ใหม่ต้องสร้างเป็น Z-Up หรือเรียก `migrateToZUp`
 7. **Verification Gate ก่อน commit:** `node --test` (35 ผ่าน) และ `python -m unittest discover -s tests` (77 ผ่าน) ต้องผ่านทั้งหมด
-8. **Handoff:** แก้อะไรเพิ่มให้อัปเดตไฟล์นี้ (ส่วน 2 และ 6) ก่อนส่งต่อ
+8. **Handoff:** แก้อะไรเพิ่มให้อัปเดตไฟล์นี้ (ส่วน 2, 6, 8) ก่อนส่งต่อ
+9. **Coordinate-Safe Backend:** โค้ด Python ที่อ่านพิกัดโหนด / reaction / ขนาดฐานราก ต้องแตกกิ่งตาม `model['coordinateSystem']` (`z-up`: แนวดิ่ง = `z`, reaction ดิ่ง = index 2, โมเมนต์ราบ = index 3,4, ฐานราก `bx,by`; `y-up`: แนวดิ่ง = `y`, index 1, โมเมนต์ 3,5, `bx,bz`) ห้ามฮาร์ดโค้ดแกน `y`/index 1 เป็น "แนวดิ่ง" และทุกการแก้ต้องมีเทสต์ **ทั้งสองระบบ** (ดู `tests/test_zup_design.py`)
+10. **Fail-Safe ด้านความปลอดภัย:** ผลออกแบบต้องไม่ "PASS" เมื่ออินพุตเป็น 0/ว่าง/หาย (เช่น ไม่มี reaction ดิ่งที่ฐานราก) → ให้คืน `SKIP`/`FAIL` พร้อมข้อความไทยบอกสาเหตุ ผล "ผ่าน" ที่มาจากอินพุตศูนย์ถือเป็นบั๊กระดับ Critical
+11. **ห้าม Fallback เงียบ:** ค่า default ที่ใช้แทนข้อมูลที่หายไป (เช่น `lu=3000`, `span=4.0`) ต้องแสดงใน `note`/warning ของผลลัพธ์ ไม่ใช่แทนค่าแล้วเงียบ (ดูรายการค้างในส่วน 8)
+12. **ขั้นตอนแก้โค้ดความปลอดภัยสูง** (`engine.py`, `design_rc25.py`, `design_beam25.py`, `project_v2.py`, `server.py`): (ก) เขียนเทสต์ที่ล้มก่อนแก้ (ข) แก้เล็กที่สุด (ค) ยืนยัน Y-up เดิมไม่เปลี่ยนผล (ง) บันทึกบั๊กในส่วน 6 พร้อมต้นเหตุ
+13. **Input จาก client ไม่น่าเชื่อถือ:** ทุก endpoint ต้อง validate ชนิด/ช่วง/finite ก่อนใช้ (ดู `clean_basis()` ใน `server.py`) ห้ามส่งต่อ dict จาก client เข้า solver/designer ตรงๆ
+14. **ห้ามแก้ส่วนที่ผ่านการตรวจแล้วโดยไม่จำเป็น:** ฟังก์ชันออกแบบตามสูตร ACI (`design_beam_section`, `design_column_section`, `design_footing`, ...) แก้ได้เฉพาะเมื่อมีเอกสารอ้างอิงมาตรฐานและเทสต์เทียบมือ ห้าม refactor เชิงสไตล์
 
 ## 4. ข้อควรระวัง
 - Windows: การ kill task ของ server อาจทิ้ง child process ค้างที่พอร์ต 8766 → `netstat -ano | findstr 8766` แล้ว `taskkill /F /PID <pid>`
@@ -36,6 +42,9 @@
 - ฟิลด์ตัวเลขที่ backend ต้องการ ต้องเป็น finite number (ห้ามส่ง object/null)
 - `git config core.autocrlf=true`: ไฟล์เป็น CRLF การ patch ด้วยข้อความหลายบรรทัดอาจไม่ match ให้แก้ผ่านสคริปต์ Python
 - ไฟล์ใน `projects/` เป็นผลรันทดสอบ ไม่ต้อง commit
+- `static/reports/` สะสมไฟล์ PDF/HTML ทุกครั้งที่ออกรายงาน ควรล้างเป็นระยะ (ยังไม่มีระบบลบอัตโนมัติ)
+- Python runtime ถูกฮาร์ดโค้ดที่ `H:\structure anlysis\...` ถ้าไดรฟ์ H: ไม่อยู่ เซิร์ฟเวอร์จะไม่ขึ้น
+- ผล UI "ผ่าน" ไม่ได้แปลว่าปลอดภัย ผลทั้งหมดเป็นเครื่องช่วย ต้องมีวิศวกรผู้ได้รับใบอนุญาตตรวจสอบ
 
 ## 5. ข้อห้าม
 - ห้ามเปลี่ยนหน่วยภายใน (m–kN–MPa) การแปลงทำที่ชั้นแสดงผลเท่านั้น
@@ -56,6 +65,18 @@
 | 7 | Floor SDL badge แสดง 0 kg/m² | อ่านฟิลด์ `.sdl_kgm2` แทน `.density_kgm2` | `item?.density_kgm2 ?? item?.sdl_kgm2` |
 | 8 | เครื่องมือดันให้หน้าเว็บต้องเลื่อน / เมนูซ้อนทับ | dialog อยู่ใน flow, layout ล้น viewport | ย้ายเครื่องมือเป็น overlay, คง 100vh |
 | 9 | กล้องหมุนอ้อมไกลเมื่อ orbit | pivot ไม่ใช่จุดที่ผู้ใช้สนใจ | ปรับ pivot / Build mode ใช้ middle-drag orbit |
+| 10 | ฐานรากใน Z-up ออกแบบด้วย Pu=0 แต่ขึ้น PASS (**Critical**) | `design_all` อ่าน `reaction[1]` (FY) และ `rxn[5]` แบบ Y-up | เลือก index ตาม `coordinateSystem` (ดิ่ง=2, โมเมนต์=3,4) + fail-safe SKIP เมื่อ Pu≤0 |
+| 11 | ความยาวไร้ค้ำยันเสาใน Z-up ตกไปใช้ค่า default 3000 mm เงียบๆ | ใช้ `abs(nj['y']-ni['y'])` เป็นความสูงเสา | ใช้แกนดิ่งตามระบบพิกัด (`v_key`) |
+| 12 | ช่วงพื้น Z-up ถูกมองเป็นสี่เหลี่ยมจัตุรัส (ด้านยาวหาย) / label หลังคาผิด | ใช้ `['z']` เป็นแกนราบที่สอง และ `dy` เป็นความสูงแบบ Y-up | ใช้แกนราบ/ดิ่งตามระบบพิกัด, `label_members(..., z_up=)` |
+| 13 | `/api/design-all` รับ `designBasis` ติดลบ/ข้อความ/NaN แล้วออกแบบต่อ; Content-Type ที่มี `; charset` ถูกปฏิเสธ | ไม่มี validation ใน `server.py` | เพิ่ม `clean_basis()` และผ่อน Content-Type ให้เทียบเฉพาะ media type |
+
+## 8. รายการเสี่ยงที่ยังค้าง (พบจากการตรวจโค้ด 0.9.2 — ยังไม่แก้)
+- `design_rc25.py`: fallback เงียบ `lu=3000 mm`, `span=4.0 m`, `fy_steel=245` เมื่อข้อมูลขาด (ละเมิดกฎ 11)
+- `design_rc25.py`: จัดกลุ่มพื้นด้วย `(s.get('dead') or 1.0)` ทำให้ dead=0 ถูกแทนด้วย 1.0
+- `design_rc25.py`: ออกแบบแบบ "กลุ่มตาม label" ใช้ค่า governing ของกลุ่ม — ตรวจให้แน่ว่ากลุ่มคาน/เสาที่ต่างชั้น/ต่างโหลดไม่ถูกสรุปด้วย rep (ตัวแทน) ตัวแรกในส่วนที่ใช้ค่า `rep.get(...)`
+- `server.py`: ไม่มีการลบไฟล์ใน `static/reports/` และ `/api/export-pdf` สร้างไฟล์ใหม่ทุกครั้ง
+- `static/app.js` ~265 KB ไฟล์เดียว ความเสี่ยงชนกันเมื่อ agent หลายตัวแก้พร้อมกัน → ให้แยกฟีเจอร์ใหม่ไปโมดูลใหม่
+- ไฟล์ scratch ใน root (`scratch_*.py`, `scratch_*.png`, `scratch_warehouse.json`) ถูก track อยู่ ควรย้ายออก/ลบเมื่อยืนยันแล้ว
 
 ## 7. งานแนะนำถัดไป
 Auto-load จากแรงลม/แผ่นดินไหว (มยผ. 1311/1301), ออกแบบพื้นและฐานราก, P-Delta, undo สำหรับ wizard, เทสต์ E2E อัตโนมัติ
