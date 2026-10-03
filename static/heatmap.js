@@ -4,7 +4,18 @@
 //
 // key: 'resultant' = |N,Vy,Vz| (kN), 'N' | 'Vy' | 'Vz' (kN), 'Mz' | 'My' (kN·m)
 
-const KEYS = new Set(['resultant', 'N', 'Vy', 'Vz', 'Mz', 'My']);
+// 'M' / 'V' = governing bending / shear plane: max(|Mz|,|My|) and max(|Vy|,|Vz|). A beam under gravity bends about
+// local z in Y-up models but about local y in Z-up models, so a single-axis key would paint it as 'no force'.
+const COMPOUND = { M: ['Mz', 'My'], V: ['Vy', 'Vz'] };
+const KEYS = new Set(['resultant', 'N', 'Vy', 'Vz', 'Mz', 'My', 'M', 'V']);
+const compoundAt = (key, get) => {
+ let best = null;
+ for (const c of COMPOUND[key]) {
+  const v = get(c);
+  if (Number.isFinite(v) && (best === null || Math.abs(v) > best)) best = Math.abs(v);
+ }
+ return best;
+};
 
 const sampleMagnitude = s => (Number.isFinite(s?.N) && Number.isFinite(s?.Vy) && Number.isFinite(s?.Vz))
  ? Math.hypot(s.N, s.Vy, s.Vz) : null;
@@ -12,6 +23,7 @@ const sampleMagnitude = s => (Number.isFinite(s?.N) && Number.isFinite(s?.Vy) &&
 const sampleValue = (s, key) => {
  if (!s) return null;
  if (key === 'resultant') return sampleMagnitude(s);
+ if (COMPOUND[key]) return compoundAt(key, c => s[c]);
  const v = s[key];
  return Number.isFinite(v) ? Math.abs(v) : null;
 };
@@ -53,6 +65,7 @@ export function stationValueKN(memberResult, t, key = 'resultant') {
      a.Vz + (b.Vz - a.Vz) * alpha
     );
    }
+   if (COMPOUND[key]) return compoundAt(key, c => a[c] + (b[c] - a[c]) * alpha);
    return Math.abs(a[key] + (b[key] - a[key]) * alpha);
   }
  }

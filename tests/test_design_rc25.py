@@ -323,8 +323,9 @@ class TestGoverningGroupDesign(unittest.TestCase):
             'combinations': {
                 'U1': {
                     'members': {
-                        'M1': {'samples': [{'Mz': 90.0, 'My': 0, 'Vy': 45.0, 'Vz': 0, 'N': 0, 'T': 0}]},
-                        'M2': {'samples': [{'Mz': 20.0, 'My': 0, 'Vy': 15.0, 'Vz': 0, 'N': 0, 'T': 0}]},
+                        # PyNite sign: sagging (tension at bottom) is NEGATIVE - verified against the solver
+                        'M1': {'samples': [{'Mz': -90.0, 'My': 0, 'Vy': 45.0, 'Vz': 0, 'N': 0, 'T': 0}]},
+                        'M2': {'samples': [{'Mz': -20.0, 'My': 0, 'Vy': 15.0, 'Vz': 0, 'N': 0, 'T': 0}]},
                     },
                     'nodes': {},
                 }

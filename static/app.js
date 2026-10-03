@@ -1825,7 +1825,7 @@ function promptJoinBeams(){
  }
  const chain=findContinuousBeamChain(model.members,beamIds,model.nodes);
  if(!chain||!chain.valid){
-  status('คานที่เลือกไม่ได้เชื่อมต่อกัน กรุณาเลือกคานที่มีโหนดร่วมกัน','error');
+  status(chain?.reason?`รวมคานไม่ได้: ${chain.reason}`:'คานที่เลือกไม่ได้เชื่อมต่อกัน กรุณาเลือกคานที่มีโหนดร่วมกัน','error');
   return;
  }
  currentJoinChain=chain;
@@ -1858,9 +1858,12 @@ function executeJoinBeams(chain){
   status('ต้องเลือกคานที่ต่อเนื่องกันอย่างน้อย 2 ชิ้นขึ้นไป','error');
   return false;
  }
+ // unify to the GOVERNING section (largest h, then b) - never silently shrink a deeper beam to the first one picked
+ const governing=[...chain.members].sort((p,q)=>((q.h||0.45)-(p.h||0.45))||((q.b||0.25)-(p.b||0.25)))[0];
  const primary=chain.members[0];
- const b=primary.b||0.25;
- const h=primary.h||0.45;
+ const b=governing.b||0.25;
+ const h=governing.h||0.45;
+ const changed=chain.members.filter(m=>(m.b||0.25)!==b||(m.h||0.45)!==h).map(m=>m.id);
  const groupTag=`CB_${primary.id}`;
 
  mutate(()=>{
@@ -1877,7 +1880,7 @@ function executeJoinBeams(chain){
   else dlg.open=false;
  }
  currentJoinChain=null;
- status(`รวมคาน ${chain.members.map(m=>m.id).join(', ')} เป็นคานต่อเนื่อง ${groupTag} (${fmt(b*100,0)}×${fmt(h*100,0)} cm) สำเร็จ`);
+ status(`รวมคาน ${chain.members.map(m=>m.id).join(', ')} เป็นคานต่อเนื่อง ${groupTag} (${fmt(b*100,0)}×${fmt(h*100,0)} cm)${changed.length?` · ปรับหน้าตัดของ ${changed.join(', ')} ให้เท่าคานที่ใหญ่สุด`:''} · หมายเหตุ: ความต่อเนื่องของโมเมนต์มาจากโหนดร่วมในโมเดลอยู่แล้ว ป้ายกลุ่มนี้ไม่เปลี่ยนผลวิเคราะห์`);
  return true;
 }
 
@@ -2226,7 +2229,7 @@ function drawModel(){
  }
  const cm = $('colorMode')?.value || 'default';
  const scaleMode = $('colorScale')?.value || 'group';
- const heatKey = cm === 'load' ? 'resultant' : (['Mz', 'Vy', 'N'].includes(cm) ? cm : null);
+ const heatKey = cm === 'load' ? 'resultant' : (cm === 'Mz' ? 'M' : cm === 'Vy' ? 'V' : cm === 'N' ? 'N' : null);
  const heatResults = active?.members;
  const heatGlobal = heatKey ? rangeKN(model.members, heatResults, heatKey) : null;
  const heatGroups = heatKey ? rangeByGroupKN(model.members, heatResults, heatKey, memberGroupOf) : null;
@@ -2331,7 +2334,7 @@ function drawModel(){
     const marker=new THREE.Mesh(new THREE.SphereGeometry(.11,12,8),new THREE.MeshBasicMaterial({color:0xffffff,depthTest:false}));
     marker.position.copy(at);marker.userData={kind:'members',id:m.id,forcePeak:true};marker.renderOrder=12;group.add(marker);
     if(highlight||maxColumnPeak?.id===m.id){
-     const text=`${m.id} · ค่าสูงสุด ${fmt(quantity(peak.value,heatKey==='Mz'?'moment':'force'),1)} ${unitLabel(heatKey==='Mz'?'moment':'force')} · จาก i ${fmt(peak.x,2)} m`;
+     const text=`${m.id} · ค่าสูงสุด ${fmt(quantity(peak.value,heatKey==='M'?'moment':'force'),1)} ${unitLabel(heatKey==='M'?'moment':'force')} · จาก i ${fmt(peak.x,2)} m`;
      const badge=labelSprite(text,0,34,13,{bg:'rgba(30,41,59,.95)',border:'#ffffff',color:'#ffffff',radius:6,alwaysOnTop:true});
      badge.position.copy(at).add(new THREE.Vector3(.38,.2,.2));group.add(badge);
     }
@@ -2341,10 +2344,18 @@ function drawModel(){
   if(active&&$('diagram3d')?.checked&&viewMode!=='plan'){
    const memRes=active.members[m.id];
    if(memRes&&memRes.samples&&memRes.samples.length>=2){
-     const isVy = (cm === 'Vy' || $('diagramType')?.value === 'Vy');
+      const isVy = (cm === 'Vy' || ['Vy','Vz'].includes($('diagramType')?.value));
      let diagKey = isVy ? 'Vy' : 'Mz';
      let dirY = new THREE.Vector3(...axes.y);
-     if (!isVy) {
+     if (isVy) {
+      // shear acts in the plane of bending: Vy (Y-up beams) or Vz (Z-up beams) - draw the larger one
+      const maxVy = Math.max(...memRes.samples.map(s => Math.abs(s.Vy || 0)), 0);
+      const maxVz = Math.max(...memRes.samples.map(s => Math.abs(s.Vz || 0)), 0);
+      if (maxVz > maxVy * 1.05) {
+      diagKey = 'Vz';
+      dirY = new THREE.Vector3(...axes.z);
+      }
+     } else {
       const maxMz = Math.max(...memRes.samples.map(s => Math.abs(s.Mz || 0)), 0);
       const maxMy = Math.max(...memRes.samples.map(s => Math.abs(s.My || 0)), 0);
       if (maxMy > maxMz * 1.05) {
@@ -3531,7 +3542,8 @@ function getMemberDC(m, active) {
    const b = m.b || 0.25, h = m.h || 0.45;
    const d = h - 0.05;
    const phiMn = 0.9 * (0.01 * b * d) * fy * (0.9 * d);
-   return Math.min(2.0, maxMz / Math.max(1, phiMn));
+   // bending plane depends on the coordinate system (Mz Y-up, My Z-up): use the governing one, never just Mz
+   return Math.min(2.0, Math.max(maxMz, maxMy) / Math.max(1, phiMn));
   } else {
    const A = m.A || 1.4e-3;
    const fy_s = (model.designBasis?.fy_steel_mpa || 245) * 1000;
@@ -3575,14 +3587,14 @@ function getMemberStationRGB(m, t, cm, range, active, key) {
 function getHeatmapColorForMember(mid, mode) {
  const m = model.members.find(x => x.id === mid);
  const act = result?.combinations?.[$('resultCombo')?.value];
- const key = mode === 'load' ? 'resultant' : mode;
- if (!m || !['Mz', 'Vy', 'N', 'resultant'].includes(key)) return 0x5fcbbb;
+ const key = mode === 'load' ? 'resultant' : (mode === 'Mz' ? 'M' : mode === 'Vy' ? 'V' : mode);
+ if (!m || !['M', 'V', 'N', 'resultant'].includes(key)) return 0x5fcbbb;
  const range = rangeKN(model.members, act?.members, key) || { min: 0, max: 1 };
  const rgb = getMemberStationRGB(m, 0.5, mode, range, act, key);
  return new THREE.Color(rgb[0], rgb[1], rgb[2]).getHex();
 }
 
-const HEAT_TITLES = {load: 'แรงภายในรวมตามตำแหน่ง |N,Vy,Vz|', Mz: 'โมเมนต์ดัด Mz', Vy: 'แรงเฉือน Vy', N: 'แรงตามแกน N'};
+const HEAT_TITLES = {load: 'แรงภายในรวมตามตำแหน่ง |N,Vy,Vz|', Mz: 'โมเมนต์ดัดสูงสุด max(|Mz|,|My|)', Vy: 'แรงเฉือนสูงสุด max(|Vy|,|Vz|)', N: 'แรงตามแกน N'};
 const HEAT_ORDER = ['column', 'beam', 'roof'];
 
 function legendRow(label, text) {
@@ -3623,7 +3635,7 @@ function updateHeatmapLegend() {
   rowsEl.replaceChildren(legendRow('D/C', '0 ปลอดภัย – 1.0 วิกฤต – >1.0 ไม่ผ่าน'));
   return;
  }
- const key = cm === 'load' ? 'resultant' : cm;
+ const key = cm === 'load' ? 'resultant' : (cm === 'Mz' ? 'M' : cm === 'Vy' ? 'V' : cm);
  const unitKind = cm === 'Mz' ? 'moment' : 'force';
  const act = result?.combinations?.[$('resultCombo')?.value];
  const global = rangeKN(model.members, act?.members, key);

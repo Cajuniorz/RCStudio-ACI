@@ -56,5 +56,49 @@ class ZUpDesign(unittest.TestCase):
         self.assertTrue(zup['R1'].startswith('TC'), zup)
 
 
+# ── Bugs 14-16: beam orientation, top/bottom steel and shear plane (see AGENT_HANDOFF.md section 6) ──────────
+from engine import solve  # noqa: E402
+
+W, SPAN, B, H, E_KPA = 10.0, 6.0, 0.3, 0.5, 25000e3
+
+
+def simple_beam(z_up):
+    q = {'qx': 0, 'qy': 0, 'qz': 0}
+    q['qz' if z_up else 'qy'] = -W
+    return {
+        'schemaVersion': 2, 'canonicalUnits': 'm-kN-MPa', 'displayUnits': {'system': 'thai', 'force': 'kgf'},
+        'name': 'ss', **({'coordinateSystem': 'z-up'} if z_up else {}),
+        'material': {'E': 25000, 'nu': 0.2, 'density': 24}, 'steel': {'E': 200000, 'nu': 0.3, 'density': 77},
+        'nodes': [{'id': 'N1', 'x': 0.0, 'y': 0.0, 'z': 0.0, 'restraints': [True, True, True, True, False, False]},
+                  {'id': 'N2', 'x': SPAN, 'y': 0.0, 'z': 0.0, 'restraints': [False, True, True, False, False, False]}],
+        'members': [{'id': 'B1', 'i': 'N1', 'j': 'N2', 'b': B, 'h': H, 'rotation': 0, 'kind': 'beam',
+                     'sectionType': 'rc_rect', 'A': None, 'Iy': None, 'Iz': None, 'J': None,
+                     'roofType': 'custom', 'behavior': 'frame'}],
+        'nodalLoads': [], 'memberLoads': [{'member': 'B1', 'case': 'D', **q}],
+        'combinations': [{'name': 'D', 'D': 1.0, 'L': 0.0, 'W': 0.0}], 'selfWeight': False, 'slabs': [], 'foundations': [],
+    }
+
+
+class BeamOrientationAndSigns(unittest.TestCase):
+    def solved(self, z_up):
+        m = simple_beam(z_up)
+        return m, solve(m)
+
+    def test_deflection_uses_depth_h_in_both_coordinate_systems(self):
+        expected_mm = 5 * W * SPAN ** 4 / (384 * E_KPA * (B * H ** 3 / 12)) * 1000   # depth = h = 0.50 m
+        for z_up, key in ((True, 'dz'), (False, 'dy')):
+            _, res = self.solved(z_up)
+            mid = res['combinations']['D']['members']['B1']['samples'][20]
+            self.assertAlmostEqual(abs(mid[key]) * 1000, expected_mm, delta=0.02, msg=f'z_up={z_up}')
+
+    def test_beam_design_puts_sagging_moment_on_bottom_steel_and_uses_shear(self):
+        for z_up in (True, False):
+            m, res = self.solved(z_up)
+            r = d.design_all(m, res, BASIS)['members']['B1']
+            self.assertAlmostEqual(r['flexure']['bottom']['mu'], W * SPAN ** 2 / 8, places=1, msg=f'z_up={z_up}')
+            self.assertEqual(r['flexure']['top']['mu'], 0, msg=f'z_up={z_up}')
+            self.assertAlmostEqual(r['shear']['vu'], W * SPAN / 2, places=1, msg=f'z_up={z_up}')
+
+
 if __name__ == '__main__':
     unittest.main()

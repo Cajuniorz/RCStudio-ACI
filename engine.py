@@ -241,6 +241,11 @@ def solve(data):
     sections, densities = {}, {}
     for m in data['members']:
         props = overrides[m['id']]['section'] if m['id'] in overrides else section_properties(m['b'], m['h'])
+        if is_z_up and m['id'] not in overrides:
+            # Z-up: PyNite's local z of a beam/column points up (or sideways for a column), so section depth h
+            # must lie along local z (this is also how the 3D view draws it). Without this swap the
+            # concrete beam is analysed lying on its side (b is used as the depth): 2.8x too flexible for 25x45.
+            props = {**props, 'Iy': props['Iz'], 'Iz': props['Iy']}
         material_name = 'Concrete'
         densities[m['id']] = mat['density']
         if m['id'] in overrides:
@@ -303,7 +308,8 @@ def solve(data):
                               'No slab stiffness/soil/RC capacity, cracking, creep, P-Delta, seismic or code checks',
                               'Loads and combination factors are user inputs; Z is vertical (SketchUp standard)',
                               'Member forces and deflections use local axes; node outputs use global axes',
-                              'Concrete rectangle J uses a Saint-Venant approximation; steel custom A/Iy/Iz/J are user-supplied directly'],
+                              'Z-up concrete rectangles: depth h along local z, width b along local y (Iy=b*h^3/12); Y-up legacy: depth h along local y',
+                               'Concrete rectangle J uses a Saint-Venant approximation; steel custom A/Iy/Iz/J are user-supplied directly'],
               'sections': sections, 'combinations': {}}
     if coverage is not None:
         result['coverage'] = coverage

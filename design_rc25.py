@@ -1484,9 +1484,12 @@ def design_all(model, analysis_result, design_basis):
             gov_span_mm = 0
             for m in m_list:
                 env = member_envelopes.get(m['id'], {})
-                gov_mu_pos = max(gov_mu_pos, abs(env.get('Mz_max', 0)))
-                gov_mu_neg = max(gov_mu_neg, abs(env.get('Mz_min', 0)))
-                gov_vu = max(gov_vu, abs(env.get('Vy_max', 0)))
+                # Bending plane of a beam: Y-up -> about local z (Mz, Vy); Z-up -> about local y (My, Vz).
+                # PyNite sign: sagging (tension at bottom) is NEGATIVE, hogging (tension at top) is POSITIVE.
+                bm, bv = ('My', 'Vz') if z_up else ('Mz', 'Vy')
+                gov_mu_pos = max(gov_mu_pos, abs(min(env.get(bm + '_min', 0), 0)))   # sagging -> bottom steel
+                gov_mu_neg = max(gov_mu_neg, abs(max(env.get(bm + '_max', 0), 0)))   # hogging -> top steel
+                gov_vu = max(gov_vu, abs(env.get(bv + '_max', 0)))
                 ni, nj = node_map.get(m['i']), node_map.get(m['j'])
                 if ni and nj:
                     span_m = math.hypot(nj['x'] - ni['x'], nj['y'] - ni['y'], nj['z'] - ni['z'])
@@ -1517,8 +1520,10 @@ def design_all(model, analysis_result, design_basis):
                 if abs(env.get('N_max', 0)) > pu_m:
                     pu_m = abs(env.get('N_max', 0))
                 gov_pu = max(gov_pu, pu_m)
-                gov_mux = max(gov_mux, abs(env.get('Mz_max', 0)), abs(env.get('Mz_min', 0)))
-                gov_muy = max(gov_muy, abs(env.get('My_max', 0)), abs(env.get('My_min', 0)))
+                # mux = bending in the h direction (Y-up: about local z; Z-up: about local y, since h lies along local z)
+                mh, mb = ('My', 'Mz') if z_up else ('Mz', 'My')
+                gov_mux = max(gov_mux, abs(env.get(mh + '_max', 0)), abs(env.get(mh + '_min', 0)))
+                gov_muy = max(gov_muy, abs(env.get(mb + '_max', 0)), abs(env.get(mb + '_min', 0)))
                 ni, nj = node_map.get(m['i']), node_map.get(m['j'])
                 if ni and nj:
                     gov_lu_mm = max(gov_lu_mm, abs(nj[v_key] - ni[v_key]) * 1000)

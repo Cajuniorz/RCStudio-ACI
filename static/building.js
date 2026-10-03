@@ -420,9 +420,14 @@ export function computeEndpointFromDimension(start, currentPoint, axisLock, targ
  };
 }
 
-export function findContinuousBeamChain(members, selectedIds, nodes) {
+// A continuous beam = straight, connected run of BEAMS (each node shared by at most 2 selected members).
+// Returns { valid:true, members, sharedNodes } or null; { valid:false, reason } when the selection is rejected.
+// Rejected on purpose (they used to be accepted and silently had their section overwritten):
+//  - non-beam members (columns, roof members); - T/cross junctions; - disconnected pieces; - bends (not collinear).
+export function findContinuousBeamChain(members, selectedIds, nodes, collinearTol = 0.02) {
  const selectedMembers = members.filter(m => selectedIds.includes(m.id));
  if (selectedMembers.length < 2) return null;
+ if (selectedMembers.some(m => m.kind && m.kind !== 'beam')) return { valid: false, reason: 'ต้องเลือกเฉพาะคานเท่านั้น (ไม่รวมเสา/โครงหลังคา)' };
 
  const nodeConnections = new Map();
  for (const m of selectedMembers) {
@@ -432,8 +437,36 @@ export function findContinuousBeamChain(members, selectedIds, nodes) {
   nodeConnections.get(m.j).push(m);
  }
 
- const sharedNodes = [...nodeConnections.entries()].filter(([nodeId, mems]) => mems.length >= 2);
+ const sharedNodes = [...nodeConnections.entries()].filter(([, mems]) => mems.length >= 2);
  if (sharedNodes.length === 0) return null;
+ if (sharedNodes.some(([, mems]) => mems.length > 2)) return { valid: false, reason: 'พบจุดต่อมากกว่า 2 คาน (ตัวที/กากบาท) ไม่ใช่คานต่อเนื่องแนวเดียว' };
+
+ // every selected member must belong to ONE connected run
+ const seen = new Set([selectedMembers[0].id]);
+ const queue = [selectedMembers[0]];
+ while (queue.length) {
+  const cur = queue.pop();
+  for (const nid of [cur.i, cur.j]) {
+   for (const nb of nodeConnections.get(nid) || []) if (!seen.has(nb.id)) { seen.add(nb.id); queue.push(nb); }
+  }
+ }
+ if (seen.size !== selectedMembers.length) return { valid: false, reason: 'คานที่เลือกบางตัวไม่ได้ต่อถึงกัน' };
+
+ // collinearity (needs node coordinates; skipped only when nodes are not supplied)
+ if (Array.isArray(nodes)) {
+  const byId = new Map(nodes.map(n => [n.id, n]));
+  let ref = null;
+  for (const m of selectedMembers) {
+   const a = byId.get(m.i), b = byId.get(m.j);
+   if (!a || !b) return { valid: false, reason: `ไม่พบโหนดของ ${m.id}` };
+   const dx = b.x - a.x, dy = b.y - a.y, dz = (b.z || 0) - (a.z || 0), L = Math.hypot(dx, dy, dz);
+   if (L < 1e-9) return { valid: false, reason: `${m.id} ยาวเป็นศูนย์` };
+   const d = [dx / L, dy / L, dz / L];
+   if (!ref) { ref = d; continue; }
+   const cross = Math.hypot(ref[1] * d[2] - ref[2] * d[1], ref[2] * d[0] - ref[0] * d[2], ref[0] * d[1] - ref[1] * d[0]);
+   if (cross > collinearTol) return { valid: false, reason: 'คานไม่อยู่ในแนวเส้นตรงเดียวกัน (มีการหักมุม)' };
+  }
+ }
 
  return {
   valid: true,
