@@ -351,7 +351,7 @@ export function migrateToZUp(model){
  if(Array.isArray(clone.foundations)){
   for(const f of clone.foundations){
    if(f&&typeof f==='object'){
-    if(f.bz!==undefined&&f.by===undefined)f.by=f.bz;
+    if(f.bz!==undefined&&(f.by===undefined||f.by===null))f.by=f.bz;
    }
   }
  }

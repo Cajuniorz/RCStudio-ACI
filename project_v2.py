@@ -105,6 +105,11 @@ def validate_project(p, draft=True):
         m_keys.discard('roofRole')
         m_keys.discard('role')
         m_keys.discard('continuousGroup')
+        m_keys.discard('hasWall')
+        m_keys.discard('wallHeight')
+        m_keys.discard('wallDensity')
+        m_keys.discard('wallLoad')
+        m_keys.discard('wallMaterial')
         if m_keys != set(MEMBER_FIELDS.split()):
             fail(f'Member v2: required fields: {MEMBER_FIELDS}; unknown fields are not supported')
         if m.get('continuousGroup') is not None and (not isinstance(m['continuousGroup'], str) or len(m['continuousGroup']) > 64):

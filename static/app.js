@@ -4,6 +4,7 @@ import {stationValueKN,rangeKN,rangeByGroupKN,memberRangeKN,peakStation,memberGr
 import {unit,toDisplay,toCanonical} from './units.js';
 import {catalogs,memberRecord,slabRecord,foundationRecord,blankProject,roofSeatElevation,warehouseModel,getMemberLocalAxes,migrateToZUp,ARROW_AXIS_LOCKS,getAxisLockFromKey,projectRayToAxisLine,computeEndpointFromDimension,findContinuousBeamChain,calculateWallUDL,classifyConnectedMembers,find3DSnapPoint} from './building.js';
 import {groupLevels,nearestPlanNode,validateMemberEndpoints,planNodeDraft,snapPlanPoint,splitBeamAtDistance,nearestBeamOnPlan,validPlanGridStep,buildGridLayout,buildGridLayoutFromLines,planGridModel,constrainPlanPoint,autoDetectGridLines,planContinuousBeamSegments} from './plan.js';
+import {THAI_WALL_MATERIALS,THAI_FLOOR_SDL,THAI_ROOF_MATERIALS,THAI_LIVE_LOADS,THAI_CONCRETE_PRESETS,THAI_REBAR_GRADES,computeWallUDL_KNm,computeFloorDeadLoad_KNm2,kgm2ToKNm2,kscToMpa,mpaToKsc} from './thai_standards.js';
 
 const $=id=>document.getElementById(id), clone=x=>JSON.parse(JSON.stringify(x));
 const KEY='rcstudio-v1', dofs=['DX','DY','DZ','RX','RY','RZ'];
@@ -374,13 +375,29 @@ function generateFullBuilding(opts = {}) {
  const slabType = opts.slabType ?? 'two_way';
  const hasStaircase = opts.hasStaircase ?? true;
  const footingType = opts.footingType ?? 'pile_cap';
+ const hasExteriorWalls = opts.hasExteriorWalls ?? false;
+ const wallUDL = opts.wallUDL ?? 2.47;
+ const wallMaterialKey = opts.wallMaterialKey ?? 'aac_75';
+ const rawDead = opts.floorSDL;
+ const slabDead = typeof rawDead === 'number' ? rawDead : (typeof rawDead?.sdlKNm2 === 'number' ? rawDead.sdlKNm2 : (Number(rawDead) || 1.0));
+ const rawLive = opts.floorLL;
+ const slabLive = typeof rawLive === 'number' ? rawLive : (Number(rawLive) || 2.0);
 
  const p = empty();
+ delete p.coordinateSystem;
  const roofStyleNames = { gable: 'ทรงจั่ว', hip: 'ทรงปั้นหยา', lean_to: 'ทรงโมเดิร์น' };
- const slabTypeNames = { two_way: 'พื้นสองทาง', one_way: 'พื้นทางเดียว' };
- p.name = `อาคาร คสล. ${floors} ชั้น (${roofStyleNames[roofStyle]||'จั่ว'} + ${slabTypeNames[slabType]||'พื้นสองทาง'} + บันได คสล. + เสาเข็ม)`;
+ const wallNotice = hasExteriorWalls ? ` + ผนัง ${THAI_WALL_MATERIALS[wallMaterialKey]?.shortName || 'ภายนอก'}` : '';
+ p.name = `อาคาร คสล. ${floors} ชั้น (${roofStyleNames[roofStyle]||'จั่ว'}${wallNotice})`;
  p.selfWeight = true;
- p.designBasis = { fc_mpa: 23.5, fy_mpa: 392, fyt_mpa: 235, cover_mm: 40, agg_mm: 20, stirrup_mm: 9, fy_steel_mpa: 245 };
+ p.designBasis = {
+  fc_mpa: opts.fc_mpa ?? 23.5,
+  fy_mpa: opts.fy_mpa ?? 392,
+  fyt_mpa: opts.fyt_mpa ?? 235,
+  cover_mm: opts.cover_mm ?? 40,
+  agg_mm: opts.agg_mm ?? 20,
+  stirrup_mm: opts.stirrup_mm ?? 9,
+  fy_steel_mpa: 245
+ };
  p.combinations = [{ name: 'U1', D: 1.4, L: 0, W: 0 }, { name: 'U2', D: 1.2, L: 1.6, W: 0 }, { name: 'Service', D: 1.0, L: 1.0, W: 0 }];
  p.stairs = [];
 
@@ -401,14 +418,14 @@ function generateFullBuilding(opts = {}) {
    if (footingType === 'pile_cap') {
     p.foundations.push({
      ...foundationRecord('F' + (p.foundations.length + 1)),
-     type: 'pile_cap', nodes: [baseNode], bx: 1.4, bz: 1.4, depth: 0.5, embedment: 1.2,
+     type: 'pile_cap', nodes: [baseNode], bx: 1.4, by: 1.4, bz: 1.4, depth: 0.5, embedment: 1.2,
      qa: 200, pileCount: 4, pileCapacity: 250, pileLength: 12.0, mode: 'ideal_support',
      note: 'ฐานหัวเสาเข็ม 4 ต้น ∅0.25m ลึก 12m'
     });
    } else {
     p.foundations.push({
      ...foundationRecord('F' + (p.foundations.length + 1)),
-     type: 'isolated', nodes: [baseNode], bx: 1.5, bz: 1.5, depth: 0.45, embedment: 1.0,
+     type: 'isolated', nodes: [baseNode], bx: 1.5, by: 1.5, bz: 1.5, depth: 0.45, embedment: 1.0,
      qa: 150, pileCount: 0, mode: 'ideal_support', note: 'ฐานแผ่เดี่ยว คสล. 1.5×1.5 m'
     });
    }
@@ -444,6 +461,10 @@ function generateFullBuilding(opts = {}) {
     beamsX.set(`${ix},${iz},${f}`, mid);
     if (isRoof && (iz === 0 || iz === nz)) {
      p.memberLoads.push({ member: mid, case: 'D', axes: 'local', qx: 0, qy: -0.8, qz: 0 });
+    } else if (!isRoof && hasExteriorWalls && (iz === 0 || iz === nz)) {
+     p.memberLoads.push({ member: mid, case: 'D', axes: 'local', qx: 0, qy: -wallUDL, qz: 0 });
+     const memObj = p.members.find(m => m.id === mid);
+     if (memObj) { memObj.hasWall = true; memObj.wallLoad = wallUDL; memObj.wallMaterial = wallMaterialKey; }
     }
    }
   }
@@ -454,6 +475,10 @@ function generateFullBuilding(opts = {}) {
     beamsZ.set(`${ix},${iz},${f}`, mid);
     if (isRoof && (ix === 0 || ix === nx)) {
      p.memberLoads.push({ member: mid, case: 'D', axes: 'local', qx: 0, qy: -0.8, qz: 0 });
+    } else if (!isRoof && hasExteriorWalls && (ix === 0 || ix === nx)) {
+     p.memberLoads.push({ member: mid, case: 'D', axes: 'local', qx: 0, qy: -wallUDL, qz: 0 });
+     const memObj = p.members.find(m => m.id === mid);
+     if (memObj) { memObj.hasWall = true; memObj.wallLoad = wallUDL; memObj.wallMaterial = wallMaterialKey; }
     }
    }
   }
@@ -481,8 +506,8 @@ function generateFullBuilding(opts = {}) {
       type: 'two_way',
       thickness: 0.12,
       weightMode: 'volume',
-      dead: 1.0,
-      live: 2.0,
+      dead: slabDead,
+      live: slabLive,
       mode: 'two_way_load',
       support1: sup1,
       support2: sup2,
@@ -497,8 +522,8 @@ function generateFullBuilding(opts = {}) {
       type: 'one_way',
       thickness: 0.12,
       weightMode: 'volume',
-      dead: 1.0,
-      live: 2.0,
+      dead: slabDead,
+      live: slabLive,
       mode: 'one_way_load',
       support1: sup1,
       support2: sup2,
@@ -1753,13 +1778,17 @@ function commitBuildSlab(p1,p2,startNode=null,endNode=null){
  return slab;
 }
 
-function commitBuildWall(memberId,heightM=2.8,densityKgm2=180){
- const mem=model.members.find(m=>m.id===memberId);
- if(!mem){
-  status(`ไม่พบชิ้นส่วนคาน ${memberId} สำหรับสร้างผนัง`,'error');
+function commitBuildWall(memberId, heightM = null, densityKgm2 = null) {
+ const mem = model.members.find(m => m.id === memberId);
+ if (!mem) {
+  status(`ไม่พบชิ้นส่วนคาน ${memberId} สำหรับสร้างผนัง`, 'error');
   return null;
  }
- const w=calculateWallUDL(heightM,densityKgm2);
+ const defaultH = num($('wallHeightCalcInput')?.value) || num($('gh')?.value) || 2.8;
+ const defaultD = num($('wallDensityCalcInput')?.value) || 180;
+ if (heightM === null) heightM = defaultH;
+ if (densityKgm2 === null) densityKgm2 = defaultD;
+ const w = calculateWallUDL(heightM, densityKgm2);
  mutate(()=>{
   model.memberLoads.push({
    member:mem.id,
@@ -3222,7 +3251,16 @@ function render(){
  $('projectName').value=model.name;$('unitSystem').value=model.displayUnits.system;$('forceUnit').value=model.displayUnits.force;$('forceUnit').disabled=model.displayUnits.system==='si';$('unitSummary').textContent=`พิกัด m · หน้าตัด ${unitLabel('section')} · แรง ${unitLabel('force')} · โหลด ${unitLabel('line')} · ${unitLabel('stress')}`;
  for(const [id,material,key,q]of [['E','material','E','stress'],['nu','material','nu','none'],['density','material','density','density'],['steelE','steel','E','stress'],['steelNu','steel','nu','none'],['steelDensity','steel','density','density']])$(id).value=editValue(model[material][key],q);
  for(const [id,text,q]of [['ELabel','E คอนกรีต','stress'],['densityLabel','นน.คอนกรีต','density'],['steelELabel','E เหล็ก','stress'],['steelDensityLabel','นน.เหล็ก','density'],['memberBLabel','b ตาม local z','section'],['memberHLabel','h ตาม local y','section']])$(id).textContent=text+' ('+unitLabel(q)+')';
-  $('selfWeight').checked=model.selfWeight;for(const id of ['memberI','memberJ'])options($(id),model.nodes.map(n=>n.id),$(id).value);$('undo').disabled=!history.length;window.__rc_model=model;window.__rc_result=result;window.__rc_scene=scene;window.__rc_getRGB=getMemberStationRGB;renderPlanControls();renderResults();drawModel();renderSelection();renderTable();
+   $('selfWeight').checked=model.selfWeight;for(const id of ['memberI','memberJ'])options($(id),model.nodes.map(n=>n.id),$(id).value);$('undo').disabled=!history.length;
+   if(model.designBasis){
+    if($('designFc')&&model.designBasis.fc_mpa)$('designFc').value=model.designBasis.fc_mpa;
+    if($('designFy')&&model.designBasis.fy_mpa)$('designFy').value=model.designBasis.fy_mpa;
+    if($('designFyt')&&model.designBasis.fyt_mpa)$('designFyt').value=model.designBasis.fyt_mpa;
+    if($('designCover')&&model.designBasis.cover_mm)$('designCover').value=model.designBasis.cover_mm;
+    if($('designAgg')&&model.designBasis.agg_mm)$('designAgg').value=model.designBasis.agg_mm;
+    if($('designStirrup')&&model.designBasis.stirrup_mm)$('designStirrup').value=model.designBasis.stirrup_mm;
+   }
+   window.__rc_model=model;window.__rc_result=result;window.__rc_scene=scene;window.__rc_getRGB=getMemberStationRGB;renderPlanControls();renderResults();drawModel();renderSelection();renderTable();
 }
 async function api(path,data){const response=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});const body=await response.json();if(!response.ok)throw new Error(body.error||'คำขอไม่สำเร็จ');return body;}
 $('projectName').onchange=()=>mutate(()=>model.name=$('projectName').value);
@@ -3230,6 +3268,20 @@ for(const [id,material,key,q]of [['E','material','E','stress'],['nu','material',
 $('selfWeight').onchange=()=>mutate(()=>model.selfWeight=$('selfWeight').checked);
 for(const [id,key]of [['memberB','b'],['memberH','h']])$(id).onchange=()=>{memberDraft[key]=canonical(num($(id).value),'section');};
 for(const id of ['unitSystem','forceUnit'])$(id).onchange=()=>{model.displayUnits={system:$('unitSystem').value,force:$('forceUnit').value};persist();render();};
+for(const id of ['designFc','designFy','designFyt','designCover','designAgg','designStirrup']){
+ if($(id)){
+  $(id).onchange=()=>{
+   if(!model.designBasis)model.designBasis={};
+   model.designBasis.fc_mpa=num($('designFc').value)||23.5;
+   model.designBasis.fy_mpa=num($('designFy').value)||392;
+   model.designBasis.fyt_mpa=num($('designFyt').value)||235;
+   model.designBasis.cover_mm=num($('designCover').value)||40;
+   model.designBasis.agg_mm=num($('designAgg').value)||20;
+   model.designBasis.stirrup_mm=num($('designStirrup').value)||9;
+   persist();
+  };
+ }
+}
 if ($('generate')) $('generate').onclick=()=>{cancelInteraction();const values=['gx','gz','nx','nz','gh','nf'].map(id=>Number($(id).value)),[sx,sz,nx,nz,height,floors]=values;if(values.some(v=>!Number.isFinite(v)||v<=0)||![nx,nz,floors].every(Number.isInteger)||nx>4||nz>4||floors>3||(nx+1)*(nz+1)*(floors+1)>100)return status('สูงสุด 4×4 ช่วง, 3 ชั้น, 100 โหนด','error');if(model.nodes.length&&!confirm('แทนโมเดลปัจจุบันด้วยกริดใหม่? ย้อนกลับได้ด้วย Undo'))return;mutate(()=>{const units=model.displayUnits;model=grid(sx,sz,nx,nz,height,floors);model.displayUnits=units;selected=null;});fit();};
 $('example').onclick=async()=>{cancelInteraction();if(model.nodes.length&&!confirm('เปิดตัวอย่างครบอาคารแทนโมเดลปัจจุบัน? ย้อนกลับได้ด้วย Undo'))return;const rev=revision;try{const response=await fetch('demo-v02.json');const p=await response.json();await api('/api/validate',p);if(revision!==rev)return status('โมเดลเปลี่ยนระหว่างเปิดตัวอย่าง กรุณาเปิดอีกครั้ง');mutate(()=>{model=p;selected=null;});fit();status('ตัวอย่างเพื่อทดสอบ: พื้นทางเดียว + ฐานรองรับสมมติ + หลังคา frame เหล็ก ไม่ใช่แบบก่อสร้าง');}catch(e){status(e.message,'error');}};
 $('new').onclick=()=>{cancelInteraction();if(model.nodes.length&&!confirm('สร้างโมเดลว่าง? ย้อนกลับได้ด้วย Undo'))return;mutate(()=>{const units=model.displayUnits;model=empty();model.displayUnits=units;selected=null;});};
@@ -3632,10 +3684,26 @@ if ($('btnGenerateFullBuilding')) $('btnGenerateFullBuilding').onclick = () => {
   const nz = parseInt($('nz')?.value) || 1;
   const height = num($('gh')?.value) || 3.0;
   const floors = parseInt($('nf')?.value) || 3;
+  const hasExteriorWalls = $('bldExtWallCheck')?.checked ?? false;
+  const wallMaterialKey = $('bldExtWallSelect')?.value || 'aac_75';
+  const wallDensity = THAI_WALL_MATERIALS[wallMaterialKey]?.density_kgm2 || 90;
+  const wallUDL = computeWallUDL_KNm(height, wallDensity);
+  const sdlObj = computeFloorDeadLoad_KNm2($('activeFloorFinish')?.value || 'tile_screed', $('activeCeiling')?.value || 'ceiling_gypsum_mep');
+  const floorSDL = typeof sdlObj === 'number' ? sdlObj : (sdlObj?.sdlKNm2 ?? Number(sdlObj) ?? 1.0);
+  const occType = $('occupancyType')?.value || 'residential';
+  const floorLL = (THAI_LIVE_LOADS[occType]?.ll_kgm2 || THAI_LIVE_LOADS[occType]?.live_kgm2 || 150) * 0.00980665;
+  const fc = num($('designFc')?.value) || 23.5;
+  const fy = num($('designFy')?.value) || 392;
+  const fyt = num($('designFyt')?.value) || 235;
+  const cover = num($('designCover')?.value) || 40;
+  const agg = num($('designAgg')?.value) || 20;
+  const stirrup = num($('designStirrup')?.value) || 9;
 
   model = generateFullBuilding({
    sx, sz, nx, nz, height, floors,
-   roofStyle, overhang, slabType, hasStaircase, footingType
+   roofStyle, overhang, slabType, hasStaircase, footingType,
+   hasExteriorWalls, wallUDL, wallMaterialKey, floorSDL, floorLL,
+   fc_mpa: fc, fy_mpa: fy, fyt_mpa: fyt, cover_mm: cover, agg_mm: agg, stirrup_mm: stirrup
   });
   model.displayUnits = units;
   selected = null;
@@ -3643,7 +3711,8 @@ if ($('btnGenerateFullBuilding')) $('btnGenerateFullBuilding').onclick = () => {
  fit();
  const rLabel = $('bldRoofStyle')?.selectedOptions?.[0]?.text || 'หลังคา';
  const sLabel = $('bldSlabType')?.selectedOptions?.[0]?.text || 'พื้น';
- status(`สร้างอาคารครบองค์ (${rLabel} + ${sLabel} + บันได) สำเร็จ · พร้อมวิเคราะห์และออกแบบ ACI 318-25`);
+ const wLabel = $('bldExtWallCheck')?.checked ? ' + ผนังรอบนอก' : '';
+ status(`สร้างอาคารครบองค์ (${rLabel} + ${sLabel}${wLabel} + บันได) สำเร็จ · พร้อมวิเคราะห์และออกแบบ ACI 318-25`);
 };
 
 if ($('btn3Story')) $('btn3Story').onclick = () => {
@@ -4193,6 +4262,155 @@ document.addEventListener('pointerdown', event => {
 setMode(currentMode);
 updateUIWithShortcuts();
 
+// Initialize Pre-Design Setup Hub
+const setupHub = initSetupHub();
+
+function initSetupHub() {
+  const navBtns = document.querySelectorAll('.setup-nav-btn');
+  const panels = {
+    'setup-project': $('panelSetupProject'),
+    'setup-materials': $('panelSetupMaterials'),
+    'setup-grids': $('panelSetupGrids'),
+    'setup-wizard': $('panelSetupWizard')
+  };
+
+  const switchTab = (target) => {
+    navBtns.forEach(b => {
+      b.classList.toggle('active', b.dataset.tab === target);
+    });
+    Object.entries(panels).forEach(([key, panel]) => {
+      if (panel) {
+        if (key === target) {
+          panel.hidden = false;
+          panel.classList.add('active');
+        } else {
+          panel.hidden = true;
+          panel.classList.remove('active');
+        }
+      }
+    });
+  };
+
+  navBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      switchTab(btn.dataset.tab);
+    });
+  });
+
+  // Occupancy & Live Load
+  function updateOccupancyBadge() {
+    const val = $('occupancyType')?.value || 'residential';
+    const info = THAI_LIVE_LOADS[val];
+    if (info && $('occupancyLLBadge')) {
+      const llVal = info.ll_kgm2 ?? info.live_kgm2 ?? 150;
+      const knm2 = (llVal * 0.00980665).toFixed(2);
+      $('occupancyLLBadge').textContent = `${llVal} kg/m² (${knm2} kN/m²)`;
+    }
+  }
+  if ($('occupancyType')) {
+    $('occupancyType').addEventListener('change', updateOccupancyBadge);
+    updateOccupancyBadge();
+  }
+
+  // Concrete Preset
+  if ($('concretePresetSelect')) {
+    $('concretePresetSelect').addEventListener('change', () => {
+      const val = $('concretePresetSelect').value;
+      const preset = THAI_CONCRETE_PRESETS[val];
+      if (preset && $('designFc')) {
+        $('designFc').value = preset.fc_mpa;
+        $('designFc').dispatchEvent(new Event('change'));
+      }
+    });
+  }
+
+  // Rebar Presets
+  if ($('rebarMainSelect')) {
+    $('rebarMainSelect').addEventListener('change', () => {
+      const val = $('rebarMainSelect').value;
+      const grade = THAI_REBAR_GRADES[val];
+      if (grade && $('designFy')) {
+        $('designFy').value = grade.fy_mpa;
+        $('designFy').dispatchEvent(new Event('change'));
+      }
+    });
+  }
+  if ($('rebarStirrupSelect')) {
+    $('rebarStirrupSelect').addEventListener('change', () => {
+      const val = $('rebarStirrupSelect').value;
+      const grade = THAI_REBAR_GRADES[val];
+      if (grade) {
+        if ($('designFyt')) {
+          $('designFyt').value = grade.fyt_mpa;
+          $('designFyt').dispatchEvent(new Event('change'));
+        }
+        if (grade.stirrup_mm && $('designStirrup')) {
+          $('designStirrup').value = grade.stirrup_mm;
+          $('designStirrup').dispatchEvent(new Event('change'));
+        }
+      }
+    });
+  }
+
+  // Live Wall UDL Calculation
+  function updateWallCalc() {
+    const h = Number($('wallHeightCalcInput')?.value) || 2.8;
+    const d = Number($('wallDensityCalcInput')?.value) || 90;
+    const udl = computeWallUDL_KNm(h, d);
+    const kgm = Math.round(h * d);
+    if ($('wallUDLResult')) {
+      $('wallUDLResult').textContent = `${udl.toFixed(2)} kN/m (${kgm} kg/m)`;
+    }
+  }
+  if ($('activeExtWall')) {
+    $('activeExtWall').addEventListener('change', () => {
+      const val = $('activeExtWall').value;
+      const mat = THAI_WALL_MATERIALS[val];
+      if (mat && $('wallDensityCalcInput')) {
+        $('wallDensityCalcInput').value = mat.density_kgm2;
+        updateWallCalc();
+      }
+    });
+  }
+  if ($('wallHeightCalcInput')) $('wallHeightCalcInput').addEventListener('input', updateWallCalc);
+  if ($('wallDensityCalcInput')) $('wallDensityCalcInput').addEventListener('input', updateWallCalc);
+  updateWallCalc();
+
+  // Live Floor SDL Calculation
+  function updateFloorSDLCalc() {
+    const fVal = $('activeFloorFinish')?.value || 'tile_screed';
+    const cVal = $('activeCeiling')?.value || 'ceiling_gypsum_mep';
+    const sdl_knm2 = computeFloorDeadLoad_KNm2(fVal, cVal);
+    const finishKg = THAI_FLOOR_SDL[fVal]?.density_kgm2 ?? THAI_FLOOR_SDL[fVal]?.sdl_kgm2 ?? 60;
+    const ceilingKg = THAI_FLOOR_SDL[cVal]?.density_kgm2 ?? THAI_FLOOR_SDL[cVal]?.sdl_kgm2 ?? (cVal === 'none' ? 0 : 30);
+    const totalKg = finishKg + ceilingKg;
+    if ($('floorSDLResult')) {
+      $('floorSDLResult').textContent = `${totalKg} kg/m² (${sdl_knm2.toFixed(2)} kN/m²)`;
+    }
+  }
+  if ($('activeFloorFinish')) $('activeFloorFinish').addEventListener('change', updateFloorSDLCalc);
+  if ($('activeCeiling')) $('activeCeiling').addEventListener('change', updateFloorSDLCalc);
+  updateFloorSDLCalc();
+
+  // Reset Button
+  if ($('resetMaterialsToStd')) {
+    $('resetMaterialsToStd').addEventListener('click', () => {
+      if ($('activeExtWall')) $('activeExtWall').value = 'aac_75';
+      if ($('activeIntWall')) $('activeIntWall').value = 'aac_75';
+      if ($('wallHeightCalcInput')) $('wallHeightCalcInput').value = '2.8';
+      if ($('wallDensityCalcInput')) $('wallDensityCalcInput').value = '90';
+      if ($('activeFloorFinish')) $('activeFloorFinish').value = 'tile_screed';
+      if ($('activeCeiling')) $('activeCeiling').value = 'ceiling_gypsum_mep';
+      if ($('activeRoofCovering')) $('activeRoofCovering').value = 'metal_sheet_pu';
+      updateWallCalc();
+      updateFloorSDLCalc();
+      status('รีเซ็ตค่าน้ำหนักวัสดุเป็นมาตรฐานกฎกระทรวง ฉบับที่ 6 เรียบร้อย');
+    });
+  }
+
+  return { switchTab, updateOccupancyBadge, updateWallCalc, updateFloorSDLCalc };
+}
+
 window.app = {
  getModel: () => model,
  structMode: applyStructMode,
@@ -4218,6 +4436,7 @@ window.app = {
  executeJoinBeams: executeJoinBeams,
  promptJoinBeams: promptJoinBeams,
  openPullNodeMenu: openPullNodeMenu,
- closePullNodeMenu: closePullNodeMenu
+ closePullNodeMenu: closePullNodeMenu,
+ switchSetupTab: (t) => setupHub?.switchTab(t)
 };
 

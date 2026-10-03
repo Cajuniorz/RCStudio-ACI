@@ -720,6 +720,125 @@ dialog:not([open]),
   font-size: 10.5px;
 }
 
+/* ==========================================================================
+   Pre-Design Setup Hub (Sidebar 4-Stage Workflow)
+   ========================================================================== */
+.setup-nav {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+  background: #181d24;
+  padding: 4px;
+  border-radius: 8px;
+  border: 1px solid #364453;
+  margin-bottom: 14px;
+}
+.setup-nav-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 8px 4px;
+  color: #9eb0c1;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  transition: all 0.15s ease;
+  line-height: 1.1;
+  text-align: center;
+}
+.setup-nav-btn:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: #fff;
+  border-color: #4a637d;
+}
+.setup-nav-btn.active {
+  background: #2b3542;
+  color: #FF9A33;
+  border-color: #FF7A00;
+  font-weight: 700;
+  box-shadow: 0 0 10px rgba(255, 122, 0, 0.25);
+}
+.setup-tab-icon {
+  font-size: 14px;
+}
+.setup-tab-label {
+  font-size: 10px;
+}
+
+.setup-panel {
+  display: none;
+  animation: fadeInPanel 0.18s ease-out;
+}
+.setup-panel.active {
+  display: block;
+}
+@keyframes fadeInPanel {
+  from { opacity: 0; transform: translateY(3px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.setup-card {
+  background: #272c34;
+  border: 1px solid #364453;
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 12px;
+}
+.setup-section-title {
+  color: #FF9A33;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  margin: 0 0 10px 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.badge-thai {
+  background: rgba(255, 122, 0, 0.18);
+  color: #FF9A33;
+  border: 1px solid rgba(255, 122, 0, 0.35);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 9.5px;
+  font-weight: 600;
+}
+.live-calc-box {
+  background: #191e24;
+  border: 1px solid #364453;
+  border-radius: 6px;
+  padding: 10px;
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.live-calc-label {
+  font-size: 10.5px;
+  color: #9eb0c1;
+}
+.live-calc-val {
+  font-size: 15px;
+  font-weight: 700;
+  color: #38bdf8;
+  font-family: Consolas, monospace;
+}
+.setup-subtext {
+  font-size: 10px;
+  color: #8f9aa6;
+  margin-top: 5px;
+  line-height: 1.4;
+}
+.aside-footer-tools {
+  border-top: 1px solid #364453;
+  padding-top: 12px;
+  margin-top: 16px;
+}
+
 
 
 

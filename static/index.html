@@ -5,35 +5,283 @@
 <div class="scope">รุ่น 0.8.5 · วางโหนดอิสระในผัง 2D · วิเคราะห์ + ออกแบบ ACI 318-25 (USD) · ผลงานยังต้องตรวจโหลด/วิธีออกแบบโดยวิศวกร</div>
 <main>
 <aside>
-<div class="fields units"><label>ระบบหน่วย<select id="unitSystem"><option value="thai">เมตริกไทย</option><option value="si">SI</option></select></label><label>แรง / โมเมนต์<select id="forceUnit"><option value="kgf">kg / kg·m</option><option value="tf">tf / tf·m</option></select></label></div><p id="unitSummary" class="hint"></p>
-<p><a href="beam-design.html" style="color:#FF9A33">ตรวจคานเฉพาะกำลังดัด · ACI 318-25 →</a></p><div class="section-head"><span>01 / สร้างโมเดล</span><button id="example">ตัวอย่างอาคาร</button></div>
-<details open><summary>🏛️ สร้างอาคารครบองค์ (หลังคา + พื้น + บันได + ฐานราก)</summary>
-<div class="fields">
-<label>สไตล์หลังคา<select id="bldRoofStyle"><option value="gable">ทรงจั่ว (Gable - อกไก่ ดั้ง ชายคา)</option><option value="hip">ทรงปั้นหยา (Hip - ตะเฆ่สัน 4 ด้าน)</option><option value="lean_to">ทรงโมเดิร์น (Modern Lean-to / เพิงหมาแหงน)</option></select></label>
-<label>ระยะยื่นชายคา (m)<input id="bldOverhang" value="0.9" type="number" min="0.4" max="2.0" step="0.1"></label>
-<label>ประเภทพื้น คสล.<select id="bldSlabType"><option value="two_way">พื้นสองทาง (Two-Way Slab 4 คาน)</option><option value="one_way">พื้นทางเดียว (One-Way Slab 2 คาน)</option></select></label>
-<label>ฐานราก<select id="bldFooting"><option value="pile_cap">ฐานรากเสาเข็ม 4 ต้น ∅0.25m ลึก 12m</option><option value="isolated">ฐานแผ่เดี่ยว 1.5×1.5 m</option></select></label>
-<label>ช่วง X (m)<input id="gx" value="4.5" type="number" min="1" step="0.5"></label>
-<label>ช่วง Z (m)<input id="gz" value="4.0" type="number" min="1" step="0.5"></label>
-<label>จำนวนช่วง X<input id="nx" value="2" type="number" min="1" max="4"></label>
-<label>จำนวนช่วง Z<input id="nz" value="1" type="number" min="1" max="4"></label>
-<label>สูงต่อชั้น (m)<input id="gh" value="3.0" type="number" min="2" step="0.1"></label>
-<label>จำนวนชั้น<input id="nf" value="3" type="number" min="1" max="3"></label>
+<!-- Pre-Design Setup Navigation Tabs -->
+<nav class="setup-nav" id="setupNav">
+  <button type="button" class="setup-nav-btn active" data-tab="setup-project" id="tabBtnProject" title="1. ตั้งค่าโครงการ & เกณฑ์ออกแบบ">⚙️ โครงการ</button>
+  <button type="button" class="setup-nav-btn" data-tab="setup-materials" id="tabBtnMaterials" title="2. แคตตาล็อกวัสดุก่อสร้างไทย & น้ำหนัก">🧱 วัสดุไทย</button>
+  <button type="button" class="setup-nav-btn" data-tab="setup-grids" id="tabBtnGrids" title="3. กริด & ระดับชั้น">📐 ผังกริด</button>
+  <button type="button" class="setup-nav-btn" data-tab="setup-wizard" id="tabBtnWizard" title="4. ตัวช่วยสร้างโมเดลอาคาร 3D">🏛️ สร้างอาคาร</button>
+</nav>
+
+<!-- Tab 1: Project & Design Basis -->
+<div id="panelSetupProject" class="setup-panel active">
+  <div class="setup-section-title"><span>⚙️ ระบบหน่วย & โครงการ</span></div>
+  <div class="fields units">
+    <label>ระบบหน่วย<select id="unitSystem"><option value="thai">เมตริกไทย</option><option value="si">SI</option></select></label>
+    <label>แรง / โมเมนต์<select id="forceUnit"><option value="kgf">kg / kg·m</option><option value="tf">tf / tf·m</option></select></label>
+  </div>
+  <p id="unitSummary" class="hint"></p>
+
+  <div class="setup-section-title"><span>📋 ประเภทอาคาร & Live Load (กฎกระทรวง ฉบับที่ 6)</span></div>
+  <div class="setup-card">
+    <label>การใช้งานอาคาร
+      <select id="occupancyType">
+        <option value="residential" selected>ที่พักอาศัย / ห้องนอน / บ้านเดี่ยว (150 kg/m²)</option>
+        <option value="office">สำนักงาน / ธนาคาร (250 kg/m²)</option>
+        <option value="commercial_school">อาคารพาณิชย์ / ร้านค้า / ห้องเรียน (300 kg/m²)</option>
+        <option value="assembly_stairs">ภัตตาคาร / หอประชุม / บันได / ทางเดิน (400 kg/m²)</option>
+        <option value="warehouse_parking">ที่จอดรถยนต์ / คลังสินค้าเบา (400 kg/m²)</option>
+        <option value="heavy_warehouse">คลังสินค้าทั่วไป / โรงงาน (500 kg/m²)</option>
+        <option value="roof_inaccessible">หลังคาไม่ได้ใช้สอย (30 kg/m²)</option>
+        <option value="roof_deck">ดาดฟ้าคอนกรีตใช้สอย (100 kg/m²)</option>
+        <option value="custom">กำหนดเอง (Custom Live Load)</option>
+      </select>
+    </label>
+    <div class="live-calc-box">
+      <span>น้ำหนักบรรทุกจรพื้น (LL):</span>
+      <span id="occupancyLLBadge" class="live-calc-val">150 kg/m² (1.47 kN/m²)</span>
+    </div>
+  </div>
+
+  <div class="setup-section-title"><span>🧱 ฐานออกแบบ คสล. (ACI 318-25 / ว.ส.ท.)</span></div>
+  <div class="setup-card">
+    <label>พรีเซ็ตกำลังอัดคอนกรีต f′c
+      <select id="concretePresetSelect">
+        <option value="180">180 ksc (17.7 MPa) · งานบ้านทั่วไป/คานคอดิน</option>
+        <option value="210">210 ksc (20.6 MPa) · มาตรฐานบ้านพักอาศัย</option>
+        <option value="240" selected>240 ksc (23.5 MPa) · อาคารพาณิชย์ / มาตรฐาน ACI</option>
+        <option value="280">280 ksc (27.5 MPa) · โครงสร้างรับแรงสูง</option>
+        <option value="320">320 ksc (31.4 MPa) · อาคารขนาดใหญ่</option>
+        <option value="350">350 ksc (34.3 MPa) · เสาเข็ม/อัดแรง</option>
+        <option value="custom">กำหนดเอง (Custom MPa)</option>
+      </select>
+    </label>
+    <div class="fields">
+      <label><span id="fcLabel">f′c (MPa)</span><input id="designFc" type="number" step="any" value="23.5"></label>
+      <label>ระยะหุ้ม Cover (mm)<input id="designCover" type="number" value="40" step="1"></label>
+    </div>
+
+    <label>เหล็กยืนหลัก (Main Rebar)
+      <select id="rebarMainSelect">
+        <option value="SD40" selected>SD40 (fy = 392 MPa / 4,000 ksc) · ข้ออ้อยยอดนิยม</option>
+        <option value="SD50">SD50 (fy = 490 MPa / 5,000 ksc) · กำลังสูง</option>
+        <option value="SR24">SR24 (fy = 235 MPa / 2,400 ksc) · ผิวเรียบ</option>
+        <option value="custom">กำหนดเอง (Custom fy)</option>
+      </select>
+    </label>
+    <div class="fields">
+      <label><span id="fyLabel">fy เหล็กยืน</span><input id="designFy" type="number" step="any" value="392"></label>
+      <label>มวลรวมหิน (mm)<input id="designAgg" type="number" value="20" step="1"></label>
+    </div>
+
+    <label>เหล็กปลอก (Stirrups)
+      <select id="rebarStirrupSelect">
+        <option value="RB9_SR24" selected>RB9 / SR24 (fyt = 235 MPa) · ปลอกมาตรฐาน</option>
+        <option value="RB6_SR24">RB6 / SR24 (fyt = 235 MPa) · คานเล็ก/แผงพื้น</option>
+        <option value="DB10_SD30">DB10 / SD30 (fyt = 295 MPa) · ปลอกรับแรงเฉือนสูง</option>
+        <option value="DB10_SD40">DB10 / SD40 (fyt = 392 MPa) · ปลอกต้านแผ่นดินไหว</option>
+        <option value="custom">กำหนดเอง (Custom fyt)</option>
+      </select>
+    </label>
+    <div class="fields">
+      <label><span id="fytLabel">fyt ปลอก</span><input id="designFyt" type="number" step="any" value="235"></label>
+      <label>ขนาดปลอก ∅ (mm)<input id="designStirrup" type="number" value="9" step="1"></label>
+    </div>
+  </div>
+
+  <p><a href="beam-design.html" style="color:#FF9A33">ตรวจคานเฉพาะกำลังดัด · ACI 318-25 →</a></p>
+
+  <details><summary>คุณสมบัติวัสดุยืดหยุ่นขั้นสูง (Elastic Modulus)</summary>
+    <div class="fields">
+      <label><span id="ELabel">E คอนกรีต</span><input id="E" type="number" step="any"></label>
+      <label>Poisson ν<input id="nu" type="number" step="any"></label>
+      <label><span id="densityLabel">หน่วยน้ำหนักคอนกรีต</span><input id="density" type="number" step="any"></label>
+    </div>
+    <div class="fields">
+      <label><span id="steelELabel">E เหล็ก</span><input id="steelE" type="number" step="any"></label>
+      <label>ν เหล็ก<input id="steelNu" type="number" step="any"></label>
+      <label><span id="steelDensityLabel">หน่วยน้ำหนักเหล็ก</span><input id="steelDensity" type="number" step="any"></label>
+    </div>
+    <label class="check"><input type="checkbox" id="selfWeight" checked>รวมนน.ตัวเองสมาชิก ใน D</label>
+  </details>
 </div>
-<label class="check" style="margin:4px 0 8px"><input type="checkbox" id="bldStairs" checked>มีบันได คสล. (ขึ้นโมเดลได้ · ยังบล็อกการวิเคราะห์จนกว่าจะถ่ายโหลดครบ)</label>
-<button id="btnGenerateFullBuilding" class="wide primary" style="background:#0284c7;border-color:#0284c7;color:#fff;font-weight:bold">🏛️ สร้างอาคารครบองค์ 3D</button>
-<p class="hint">สร้างครบ: อะเส (AS) · ดั้ง (DANG) · จันทันยื่นชายคาเป็นเชิงชาย (RAF) · ตะเฆ่สัน (HIP) · อกไก่ (OK) · แป (P) · บันได (ST) · พื้นสองทาง/ทางเดียว · ฐานรากเสาเข็ม</p>
-</details>
-<details><summary>สร้างอาคารโรงงาน + โครงถักเหล็ก (Truss)</summary><div class="fields"><label>ความกว้าง X (m)<input id="txSpan" value="12" type="number" min="4" max="40" step="1"></label><label>ระยะช่วง Z (m)<input id="tzBay" value="5" type="number" min="2" max="12" step="0.5"></label><label>จำนวนช่วง Z<input id="tzNum" value="3" type="number" min="1" max="10"></label><label>สูงเสา (m)<input id="tColH" value="4.5" type="number" min="2" max="15" step="0.5"></label><label>สูงจั่วถัก (m)<input id="tTrussH" value="1.8" type="number" min="0.5" max="6" step="0.1"></label><label>ช่องถัก/ครึ่งช่วง<input id="tPanels" value="4" type="number" min="2" max="8"></label></div><label class="check"><input type="checkbox" id="tCenterCol">มีเสากลาง</label><label class="check"><input type="checkbox" id="tGroundBeams" checked>มีคานคอดิน คสล. (Ground Tie Beams สมมาตรรอบอาคาร)</label><button id="generateWarehouse" class="wide primary">สร้างโครงสร้างโรงงาน + โครงถัก 3D</button><p class="hint">เสา คสล. + โครงหลังคาเหล็กถัก + แป + คานรัดหัวเสา + คานคอดิน พร้อมแรงกระทำและจุดรองรับ</p></details>
-<details><summary>วัสดุและน้ำหนักตัวเอง</summary><div class="fields"><label><span id="ELabel">E คอนกรีต</span><input id="E" type="number" step="any"></label><label>Poisson ν<input id="nu" type="number" step="any"></label><label><span id="densityLabel">หน่วยน้ำหนักคอนกรีต</span><input id="density" type="number" step="any"></label></div><div class="fields"><label><span id="steelELabel">E เหล็ก</span><input id="steelE" type="number" step="any"></label><label>ν เหล็ก<input id="steelNu" type="number" step="any"></label><label><span id="steelDensityLabel">หน่วยน้ำหนักเหล็ก</span><input id="steelDensity" type="number" step="any"></label></div><label class="check"><input type="checkbox" id="selfWeight">รวมนน.ตัวเองสมาชิก ใน D</label><p class="hint">ค่าวัสดุเริ่มต้นเป็นตัวอย่าง ต้องตรวจค่าของโครงการ · ใช้หน้าตัดเต็ม · E ไม่ใช่กำลังอัด f′c</p></details>
-<details><summary>เพิ่มโหนด</summary><div class="fields"><label>X (m)<input id="nodeX" type="number" value="0" step="0.1"></label><label>Y สูง (m)<input id="nodeY" type="number" value="3" step="0.1"></label><label>Z (m)<input id="nodeZ" type="number" value="0" step="0.1"></label></div><button id="addNode" class="wide">+ เพิ่มโหนด</button><button id="btnPullNodeSidebar" class="wide secondary" type="button" title="ดึง/ยืด สมาชิกที่เชื่อมต่อกับโหนดที่เลือก (Q)">⬆️ ดึง/ยืดโหนด (Q)</button></details>
-<details><summary>เชื่อมคาน / เสา / หลังคา</summary><div class="fields"><label>ประเภท<select id="memberKind"><option value="beam">คาน</option><option value="column">เสา</option><option value="roof">โครงหลังคาเหล็ก</option></select></label><label>โหนด i<select id="memberI"></select></label><label>โหนด j<select id="memberJ"></select></label><label><span id="memberBLabel">b</span><input id="memberB" type="number" value="25" step="any"></label><label><span id="memberHLabel">h</span><input id="memberH" type="number" value="45" step="any"></label><label>หมุนแกน (°)<input id="memberRot" type="number" value="0" step="15"></label></div><button id="addMember" class="wide">+ เชื่อมสมาชิก</button><button id="btnJoinBeamsSidebar" class="wide secondary" type="button" title="รวมคานที่เลือกและต่อเนื่องกันเป็นชุดเดียวกัน (J)">🔗 รวมคานต่อเนื่อง (J)</button><p class="hint">หลังคาเหล็กต้องกรอก A / Iy / Iz / J ในตารางหลังคา ตามข้อมูลหน้าตัดจริง</p></details>
-<details open><summary>เพิ่มองค์ประกอบอาคาร</summary><button id="addSlab" class="wide">+ พื้น</button><button id="addFoundation" class="wide">+ ฐานราก / เสาเข็ม</button><p class="hint">กรอกโหนดขอบพื้นเรียงรอบรูป และโหนดที่ฐานรากรองรับ โดยคั่นด้วยจุลภาค</p></details>
-<details><summary>📐 กริดอาคาร + โครงชั้น (1–2–3 / A–B–C)</summary><div class="fields"><label>จำนวนแนว X<input id="gridCountX" type="number" min="2" max="20" step="1" value="5"></label><label>ระยะช่วง X (m)<input id="gridSpacingX" type="number" min="0.05" max="1000" step="0.05" value="4.5"></label><label>จุดเริ่ม X (m)<input id="gridStartX" type="number" step="0.05" value="0"></label><label>จำนวนแนว Z<input id="gridCountZ" type="number" min="2" max="20" step="1" value="5"></label><label>ระยะช่วง Z (m)<input id="gridSpacingZ" type="number" min="0.05" max="1000" step="0.05" value="4"></label><label>จุดเริ่ม Z (m)<input id="gridStartZ" type="number" step="0.05" value="0"></label><label>ระดับ Y (m)<input id="gridLevelY" type="number" step="0.05" value="0"></label></div><label class="check"><input id="gridBeamsX" type="checkbox" checked>สร้างคานตามแนว X</label><label class="check"><input id="gridBeamsZ" type="checkbox" checked>สร้างคานตามแนว Z</label><button id="generatePlanGrid" class="wide primary">สร้างกริด + โหนดตัด + คานที่เลือก</button><button id="openGridEditor" class="wide">แก้แนวกริดทีละช่วง…</button><p class="hint">สร้างชื่อกริด 1,2,3… และ A,B,C… พร้อมโหนดที่จุดตัด คานที่สร้างใช้หน้าตัด b/h ปัจจุบัน · สร้างเฉพาะชั้น Y ที่ระบุ ไม่สร้างเสาหรือฐานราก · Undo ได้</p></details>
-<details><summary>ฐานออกแบบ ACI 318-25</summary><div class="fields"><label><span id="fcLabel">f′c</span><input id="designFc" type="number" step="any"></label><label><span id="fyLabel">fy เหล็กยืน</span><input id="designFy" type="number" step="any"></label><label><span id="fytLabel">fyt ปลอก</span><input id="designFyt" type="number" step="any"></label><label>Cover (mm)<input id="designCover" type="number" value="40" step="1"></label><label>มวลรวม (mm)<input id="designAgg" type="number" value="20" step="1"></label><label>ปลอก ∅ (mm)<input id="designStirrup" type="number" value="9" step="1"></label></div><p class="hint">ค่ากำลังวัสดุสำหรับออกแบบ RC · ปรับได้ตามข้อมูลโครงการ · ACI 318-25 SI (MPa)</p></details>
-<div class="section-head"><span>02 / ตรวจโมเดล</span></div><div id="selection" class="selection">คลิกโหนดหรือสมาชิกในภาพเพื่อเลือก</div>
-<p class="hint">แกน Y ขึ้นบน · โครงข้อแข็งเชิงเส้น<br>เส้นตัดกันไม่ได้ต่อกันอัตโนมัติ ต้องแบ่งสมาชิกและใช้โหนดร่วม · ฐานรากใช้จุดรองรับที่ผู้ใช้กำหนด</p>
-<button id="fit" class="wide">จัดภาพให้พอดี</button><button id="undo" class="wide">↶ ย้อนการแก้ไข</button>
+
+<!-- Tab 2: Thai Materials & Loads Library -->
+<div id="panelSetupMaterials" class="setup-panel" hidden>
+  <div class="setup-section-title"><span>🧱 1. แคตตาล็อกผนัง & น้ำหนักลงคาน (Wall Loads)</span></div>
+  <div class="setup-card">
+    <label>ผนังภายนอกอาคาร (Exterior Wall)
+      <select id="activeExtWall">
+        <option value="aac_75" selected>อิฐมวลเบา 7.5 cm ฉาบ 2 ด้าน (90 kg/m²)</option>
+        <option value="aac_100">อิฐมวลเบา 10 cm ฉาบ 2 ด้าน (120 kg/m²)</option>
+        <option value="mon_half">อิฐมอญครึ่งแผ่น ฉาบ 2 ด้าน (180 kg/m²)</option>
+        <option value="mon_full">อิฐมอญเต็มแผ่น ฉาบ 2 ด้าน (360 kg/m²)</option>
+        <option value="cblock_70">คอนกรีตบล็อก 7 cm ฉาบ 2 ด้าน (150 kg/m²)</option>
+        <option value="glass_curtain">ผนังกระจก / อลูมิเนียม (40 kg/m²)</option>
+      </select>
+    </label>
+    <label>ผนังภายในกั้นห้อง (Interior Wall)
+      <select id="activeIntWall">
+        <option value="aac_75" selected>อิฐมวลเบา 7.5 cm ฉาบ 2 ด้าน (90 kg/m²)</option>
+        <option value="gypsum_light">ผนังเบายิปซัมบอร์ด 2 ด้าน (30 kg/m²)</option>
+        <option value="mon_half">อิฐมอญครึ่งแผ่น ฉาบ 2 ด้าน (180 kg/m²)</option>
+      </select>
+    </label>
+
+    <div style="font-size:10px;color:#94a3b8;margin-top:4px;">🧮 คำนวณน้ำหนักผนังลงคานสด (Wall UDL):</div>
+    <div class="fields">
+      <label>สูงผนัง (m)<input type="number" id="wallHeightCalcInput" value="2.8" step="0.1" min="1" max="10"></label>
+      <label>น้ำหนักผนัง (kg/m²)<input type="number" id="wallDensityCalcInput" value="90" step="5" min="10"></label>
+    </div>
+    <div class="live-calc-box">
+      <span>โหลดลงคาน (UDL):</span>
+      <span id="wallUDLResult" class="live-calc-val">2.47 kN/m (252 kg/m)</span>
+    </div>
+  </div>
+
+  <div class="setup-section-title"><span>🔲 2. ผิวพื้น & ฝ้าเพดาน (Superimposed DL)</span></div>
+  <div class="setup-card">
+    <label>วัสดุตกแต่งผิวพื้น (Floor Finish)
+      <select id="activeFloorFinish">
+        <option value="tile_screed" selected>ปูกระเบื้อง/แกรนิตโต้ + ปูนทราย 3-5cm (60 kg/m²)</option>
+        <option value="wood_parquet">ไม้ปาร์เกต์ / ลามิเนต / SPC + ปูนปรับระดับ (35 kg/m²)</option>
+        <option value="bare_polished">คอนกรีตขัดมันเปลือย (0 kg/m²)</option>
+      </select>
+    </label>
+    <label>ฝ้าเพดานและงานระบบ (Ceiling & M&E)
+      <select id="activeCeiling">
+        <option value="ceiling_gypsum_mep" selected>ฝ้ายิปซัมฉาบเรียบ + งานระบบท่อ (30 kg/m²)</option>
+        <option value="ceiling_gypsum">ฝ้ายิปซัมฉาบเรียบ 9mm (15 kg/m²)</option>
+        <option value="ceiling_tbar">ฝ้าเพดานทีบาร์ (10 kg/m²)</option>
+        <option value="none">ไม่มีฝ้าเพดานเปลือยโครง (0 kg/m²)</option>
+      </select>
+    </label>
+    <div class="live-calc-box">
+      <span>น้ำหนักเพิ่มผิวพื้น (SDL):</span>
+      <span id="floorSDLResult" class="live-calc-val">90 kg/m² (0.88 kN/m²)</span>
+    </div>
+  </div>
+
+  <div class="setup-section-title"><span>🏠 3. วัสดุมุงหลังคา (Roof Materials)</span></div>
+  <div class="setup-card">
+    <label>วัสดุมุงหลังคาหลัก
+      <select id="activeRoofCovering">
+        <option value="metal_sheet_pu" selected>เมทัลชีท 0.35-0.47mm + ฉนวน PU (12 kg/m²)</option>
+        <option value="cpac_monier">กระเบื้องคอนกรีต ซีแพคโมเนีย (52 kg/m²)</option>
+        <option value="corrugated_fiber">กระเบื้องลอนคู่ไฟเบอร์ซีเมนต์ (16 kg/m²)</option>
+      </select>
+    </label>
+  </div>
+
+  <button type="button" id="resetMaterialsToStd" class="wide secondary">↺ รีเซ็ตค่าน้ำหนักวัสดุตามกฎกระทรวง</button>
+</div>
+
+<!-- Tab 3: Grid & Story Setup -->
+<div id="panelSetupGrids" class="setup-panel" hidden>
+  <div class="setup-section-title"><span>📐 ผังกริดอาคาร (Grid Lines 1-N / A-N)</span></div>
+  <div class="setup-card">
+    <div class="fields">
+      <label>จำนวนแนว X<input id="gridCountX" type="number" min="2" max="20" step="1" value="3"></label>
+      <label>ช่วงเสา X (m)<input id="gridSpacingX" type="number" min="0.05" max="1000" step="0.05" value="4.5"></label>
+      <label>จุดเริ่ม X (m)<input id="gridStartX" type="number" step="0.05" value="0"></label>
+      <label>จำนวนแนว Z<input id="gridCountZ" type="number" min="2" max="20" step="1" value="2"></label>
+      <label>ช่วงเสา Z (m)<input id="gridSpacingZ" type="number" min="0.05" max="1000" step="0.05" value="4.0"></label>
+      <label>จุดเริ่ม Z (m)<input id="gridStartZ" type="number" step="0.05" value="0"></label>
+      <label>ระดับ Y/Z (m)<input id="gridLevelY" type="number" step="0.05" value="0"></label>
+    </div>
+    <label class="check"><input id="gridBeamsX" type="checkbox" checked>สร้างคานตามแนว X</label>
+    <label class="check"><input id="gridBeamsZ" type="checkbox" checked>สร้างคานตามแนว Z</label>
+    <button id="generatePlanGrid" class="wide primary">สร้างกริด + โหนดตัด + คาน</button>
+    <button id="openGridEditor" class="wide secondary">📐 แก้แนวกริดทีละช่วง (Grid Editor)…</button>
+  </div>
+</div>
+
+<!-- Tab 4: Detailed Building Wizard -->
+<div id="panelSetupWizard" class="setup-panel" hidden>
+  <div class="section-head" style="margin-bottom:6px"><span>01 / สร้างโมเดลอาคาร</span><button id="example">ตัวอย่างอาคาร</button></div>
+  <details open><summary>🏛️ สร้างอาคารครบองค์ (หลังคา + ผนัง + พื้น + บันได + ฐานราก)</summary>
+    <div class="fields">
+      <label>สไตล์หลังคา<select id="bldRoofStyle"><option value="gable">ทรงจั่ว (Gable)</option><option value="hip">ทรงปั้นหยา (Hip)</option><option value="lean_to">ทรงโมเดิร์น (Lean-to)</option></select></label>
+      <label>ระยะยื่นชายคา (m)<input id="bldOverhang" value="0.9" type="number" min="0.4" max="2.0" step="0.1"></label>
+      <label>ประเภทพื้น คสล.<select id="bldSlabType"><option value="two_way">พื้นสองทาง (Two-Way 4 คาน)</option><option value="one_way">พื้นทางเดียว (One-Way 2 คาน)</option></select></label>
+      <label>ฐานราก<select id="bldFooting"><option value="pile_cap">ฐานรากเสาเข็ม 4 ต้น ∅0.25m ลึก 12m</option><option value="isolated">ฐานแผ่เดี่ยว 1.5×1.5 m</option></select></label>
+      <label>ช่วง X (m)<input id="gx" value="4.5" type="number" min="1" step="0.5"></label>
+      <label>ช่วง Z (m)<input id="gz" value="4.0" type="number" min="1" step="0.5"></label>
+      <label>จำนวนช่วง X<input id="nx" value="2" type="number" min="1" max="4"></label>
+      <label>จำนวนช่วง Z<input id="nz" value="1" type="number" min="1" max="4"></label>
+      <label>สูงต่อชั้น (m)<input id="gh" value="3.0" type="number" min="2" step="0.1"></label>
+      <label>จำนวนชั้น<input id="nf" value="3" type="number" min="1" max="3"></label>
+    </div>
+
+    <div class="setup-card" style="margin:8px 0">
+      <label class="check"><input type="checkbox" id="bldExtWallCheck" checked><b>ใส่ผนังรอบนอกอาคารอัตโนมัติ</b> (ถ่ายน้ำหนักลงคาน)</label>
+      <label style="margin:0 0 0 20px;font-size:11px;">ประเภทผนัง:
+        <select id="bldExtWallSelect" style="margin-top:3px;">
+          <option value="aac_75" selected>อิฐมวลเบา 7.5 cm (90 kg/m² · เบา แข็งแรง)</option>
+          <option value="aac_100">อิฐมวลเบา 10 cm (120 kg/m²)</option>
+          <option value="mon_half">อิฐมอญครึ่งแผ่น (180 kg/m² · คลาสสิก)</option>
+          <option value="cblock_70">คอนกรีตบล็อก 7 cm (150 kg/m²)</option>
+        </select>
+      </label>
+      <label class="check" style="margin-top:4px"><input type="checkbox" id="bldStairs" checked>มีบันได คสล. (ขึ้นโมเดลได้)</label>
+    </div>
+
+    <button id="btnGenerateFullBuilding" class="wide primary" style="background:#0284c7;border-color:#0284c7;color:#fff;font-weight:bold">🏛️ สร้างอาคารครบองค์ 3D</button>
+    <p class="hint">สร้างครบ: เสา · คาน · โครงหลังคา (อะเส ดั้ง จันทัน ตะเฆ่ อกไก่ แป) · พื้นสองทาง/ทางเดียวพร้อมโหลด · ผนังรอบนอกถ่ายลงคานจริง · ฐานราก</p>
+  </details>
+
+  <details><summary>สร้างอาคารโรงงาน + โครงถักเหล็ก (Truss)</summary>
+    <div class="fields">
+      <label>ความกว้าง X (m)<input id="txSpan" value="12" type="number" min="4" max="40" step="1"></label>
+      <label>ระยะช่วง Z (m)<input id="tzBay" value="5" type="number" min="2" max="12" step="0.5"></label>
+      <label>จำนวนช่วง Z<input id="tzNum" value="3" type="number" min="1" max="10"></label>
+      <label>สูงเสา (m)<input id="tColH" value="4.5" type="number" min="2" max="15" step="0.5"></label>
+      <label>สูงจั่วถัก (m)<input id="tTrussH" value="1.8" type="number" min="0.5" max="6" step="0.1"></label>
+      <label>ช่องถัก/ครึ่งช่วง<input id="tPanels" value="4" type="number" min="2" max="8"></label>
+    </div>
+    <label class="check"><input type="checkbox" id="tCenterCol">มีเสากลาง</label>
+    <label class="check"><input type="checkbox" id="tGroundBeams" checked>มีคานคอดิน คสล. (Ground Tie Beams)</label>
+    <button id="generateWarehouse" class="wide primary">สร้างโครงสร้างโรงงาน + โครงถัก 3D</button>
+  </details>
+</div>
+
+<!-- Bottom Utility & Manual Elements Tools -->
+<div class="aside-footer-tools">
+  <details><summary>🛠️ เครื่องมือใส่ชิ้นส่วนเอง (Manual Modeling)</summary>
+    <div style="margin:8px 0 4px;font-weight:600;font-size:11px;color:#FF9A33;">1. โหนด (Node)</div>
+    <div class="fields">
+      <label>X (m)<input id="nodeX" type="number" value="0" step="0.1"></label>
+      <label>Y สูง (m)<input id="nodeY" type="number" value="3" step="0.1"></label>
+      <label>Z (m)<input id="nodeZ" type="number" value="0" step="0.1"></label>
+    </div>
+    <button id="addNode" class="wide">+ เพิ่มโหนด</button>
+    <button id="btnPullNodeSidebar" class="wide secondary" type="button" title="ดึง/ยืด สมาชิกที่เชื่อมต่อกับโหนดที่เลือก (Q)">⬆️ ดึง/ยืดโหนด (Q)</button>
+
+    <div style="margin:8px 0 4px;font-weight:600;font-size:11px;color:#FF9A33;">2. สมาชิก (Member)</div>
+    <div class="fields">
+      <label>ประเภท<select id="memberKind"><option value="beam">คาน</option><option value="column">เสา</option><option value="roof">โครงหลังคาเหล็ก</option></select></label>
+      <label>โหนด i<select id="memberI"></select></label>
+      <label>โหนด j<select id="memberJ"></select></label>
+      <label><span id="memberBLabel">b</span><input id="memberB" type="number" value="25" step="any"></label>
+      <label><span id="memberHLabel">h</span><input id="memberH" type="number" value="45" step="any"></label>
+      <label>หมุนแกน (°)<input id="memberRot" type="number" value="0" step="15"></label>
+    </div>
+    <button id="addMember" class="wide">+ เชื่อมสมาชิก</button>
+    <button id="btnJoinBeamsSidebar" class="wide secondary" type="button" title="รวมคานที่เลือกและต่อเนื่องกันเป็นชุดเดียวกัน (J)">🔗 รวมคานต่อเนื่อง (J)</button>
+
+    <div style="margin:8px 0 4px;font-weight:600;font-size:11px;color:#FF9A33;">3. พื้น & ฐานราก</div>
+    <div style="display:flex;gap:6px">
+      <button id="addSlab" class="wide">+ พื้น</button>
+      <button id="addFoundation" class="wide">+ ฐานราก</button>
+    </div>
+  </details>
+
+  <div class="section-head" style="margin-top:12px"><span>02 / ตรวจโมเดล</span></div>
+  <div id="selection" class="selection">คลิกโหนดหรือสมาชิกในภาพเพื่อเลือก</div>
+  <p class="hint">ระบบแกน Z ขึ้นบน (SketchUp Style) · ฐานรากใช้จุดรองรับที่ผู้ใช้กำหนด</p>
+  <button id="fit" class="wide">จัดภาพให้พอดี</button>
+  <button id="undo" class="wide">↶ ย้อนการแก้ไข</button>
+</div>
 </aside>
 <section class="workspace"><div class="viewport"><div id="canvas"></div><div id="gridLabelsOverlay" aria-hidden="true"></div><div id="axisLockBadge" class="axis-lock-badge" hidden></div><div id="buildMeasurementBox" class="build-measurement-box" hidden><span class="measurement-label">ระยะ (Length):</span><input type="text" id="buildMeasurementInput" class="measurement-input" placeholder="0.000" autocomplete="off" /><span class="measurement-unit">m</span></div><div id="buildToolPalette" class="build-tool-palette" hidden><button type="button" id="toolBuildSelect" class="build-palette-btn active" data-tool="select" title="เลือก (Space)"><span class="palette-icon">🖱️</span><span class="palette-label">เลือก</span><kbd class="palette-kbd">Space</kbd></button><button type="button" id="toolBuildLine" class="build-palette-btn" data-tool="line" title="เส้น / คาน (L)"><span class="palette-icon">📏</span><span class="palette-label">เส้น</span><kbd class="palette-kbd">L</kbd></button><button type="button" id="toolBuildNode" class="build-palette-btn" data-tool="node" title="โหนด (N)"><span class="palette-icon">📍</span><span class="palette-label">โหนด</span><kbd class="palette-kbd">N</kbd></button><button type="button" id="toolBuildSlab" class="build-palette-btn" data-tool="slab" title="พื้น (R)"><span class="palette-icon">🔲</span><span class="palette-label">พื้น</span><kbd class="palette-kbd">R</kbd></button><button type="button" id="toolBuildWall" class="build-palette-btn" data-tool="wall" title="ผนัง (P)"><span class="palette-icon">🧱</span><span class="palette-label">ผนัง</span><kbd class="palette-kbd">P</kbd></button><button type="button" id="toolBuildJoin" class="build-palette-btn" data-tool="join" title="เชื่อม (J)"><span class="palette-icon">🔗</span><span class="palette-label">เชื่อม</span><kbd class="palette-kbd">J</kbd></button><button type="button" id="toolBuildPull" class="build-palette-btn" data-tool="pull" title="ดึง / Extrude (Q)"><span class="palette-icon">⬆️</span><span class="palette-label">ดึง</span><kbd class="palette-kbd">Q</kbd></button><div class="build-palette-divider"></div><button type="button" id="toolBuildSettings" class="build-palette-btn" title="ตั้งค่าคีย์ลัด (Shortcut Manager)"><span class="palette-icon">⚙️</span><span class="palette-label">คีย์ลัด</span></button></div><div id="snapTooltipOverlay" class="snap-tooltip-overlay" hidden></div><div class="viewtop"><div class="viewModes"><button id="view3d" class="active" type="button">3D</button><button id="viewPlan" type="button">ผัง 2D</button><select id="planLevel" aria-label="ระดับชั้น" hidden></select><input id="planElevation" type="number" step="0.001" aria-label="ระดับอิสระ Z (เมตร)" placeholder="Z (m)" title="ระดับวางโหนดอิสระ (เมตร)" hidden><button id="setPlanElevation" type="button" title="ตั้งระดับวางโหนดอิสระ" hidden>ตั้ง Z</button><select id="colorMode" aria-label="โหมดแสดงสี 3D"><option value="default">สีโครงสร้างปกติ</option><option value="utilization">อัตราการรับแรง (D/C Heatmap)</option><option value="Mz">โมเมนต์ดัด Mz (ไล่เฉดสี)</option><option value="Vy">แรงเฉือน Vy (ไล่เฉดสี)</option><option value="N">แรงตามแกน N (ไล่เฉดสี)</option><option value="load">แรงภายในรวมตามตำแหน่ง |N,Vy,Vz| (ไล่เฉดสี)</option></select><select id="colorScale" aria-label="สเกลสี" title="ช่วงของสี: รวมทั้งโมเดล / แยกตามประเภทชิ้นส่วน (เสา คาน หลังคา-แป) / ตามชิ้นส่วนที่เลือก"><option value="global">สเกล: รวมทั้งโมเดล</option><option value="group" selected>สเกล: แยกตามประเภท</option><option value="member">สเกล: ชิ้นส่วนที่เลือก</option></select></div><span id="stats" class="pill"></span></div><div id="heatmapLegend" class="heatmap-legend" hidden><span id="legendTitle" class="legend-title">อัตราการรับแรง (D/C Ratio)</span><div id="legendRows" class="legend-rows"></div></div><div class="viewbottom"><span id="viewHint">ลากหมุน · ล้อเมาส์ซูม · คลิกเลือก</span><div id="planTools" class="planTools" hidden><button id="planSelectTool" class="active" type="button">เลือก</button><button id="planNodeTool" type="button">วางโหนด</button><button id="planMemberNodeTool" type="button" title="คลิกคานเพื่อวางโหนดบนแนวคานและแบ่งคานจริง">วางบนเส้นคาน</button><label class="plan-snap" title="เลือกช่วงกริด 0.05–1.00 เมตร เพิ่มครั้งละ 0.05 เมตร"><input id="planSnap" type="checkbox" checked>ดูดกริด <input id="planGridStep" type="number" min="0.05" max="1" step="0.05" value="1" aria-label="ระยะกริดเป็นเมตร" title="ระยะกริด 0.05–1.00 m เพิ่มครั้งละ 0.05 m"><span>m</span></label><button id="planBeamTool" type="button">วาดคาน</button><select id="planBeamRole" title="เลือกประเภทชิ้นส่วนที่วาด" class="plan-role-select"><option value="beam">คาน คสล.</option><option value="AS">เหล็กอะเส (AS)</option><option value="rafter">เหล็กจันทัน (RAF)</option><option value="purlin">แป (Purlin)</option><option value="ridge">อกไก่ (OK)</option></select><label class="plan-continuous" title="วาดลากผ่านหลายเสา/โหนด จะสร้างเป็นคานต่อเนื่องที่ใช้โหนดร่วมกันอัตโนมัติ"><input id="planContinuous" type="checkbox" checked>คานต่อเนื่อง</label><button id="planBeamLockX" type="button" title="ล็อกแนว X: คงค่า Y ของโหนดเริ่ม">X ล็อก</button><button id="planBeamLockY" type="button" title="ล็อกแนว Y: คงค่า X ของโหนดเริ่ม">Y ล็อก</button><button id="planBeamLockZ" type="button" style="display:none" hidden>Z ล็อก</button><span id="beamHint"></span></div><button type="button" id="structModeButton" title="กดเพื่อสลับการแสดงโครงสร้าง: โครงสร้าง 3D (Solid) ↔ เส้นแกน &amp; โหนด">โครงสร้าง 3D (Solid)</button><label id="roofSheetingToggle" title="แสดงแผ่นมุงหลังคา (Roofing Sheeting: Metal Sheet + ฉนวน)"><input id="showRoofSheeting" type="checkbox" checked>แผ่นมุงหลังคา</label><label id="pointLoadsToggle" title="แสดงแรงกระทำที่โหนด (Point Loads)"><input id="showPointLoads" type="checkbox" checked>พอยนต์โหลด</label><label id="uniformLoadsToggle" title="แสดงแรงกระจายสม่ำเสมอ (Uniform Distributed Loads)"><input id="showUniformLoads" type="checkbox" checked>โหลดยูนิฟอร์ม</label><label id="selfWeightToggle" title="แสดงน้ำหนักตัวเองของวัสดุ (Material Self-Weight)"><input id="showSelfWeight" type="checkbox" checked>นน.ตัววัสดุ (SW)</label><label id="memberNameToggle" title="แสดงชื่อเมมเบอร์บนตัวชิ้นส่วน (เช่น B1, C1) ตัวใหญ่ สีส้มขอบดำ"><input id="memberNames" type="checkbox" checked>ชื่อเมมเบอร์</label><label id="labelToggle"><input id="labels" type="checkbox" checked>ชื่อโหนด</label><span class="combo-pill" id="diagram3dCombo" title="แผนภาพ 3D (Diagram) + ขนาด · เมื่อปิดจะปรับค่าไม่ได้"><label class="combo-head" id="diagram3dToggle" title="เปิด/ปิดแผนภาพ 3D"><input id="diagram3d" type="checkbox">แผนภาพ 3D (Diagram)</label><button type="button" class="step" id="diagramScaleDown" title="ลดขนาดแผนภาพ" aria-label="ลดขนาดแผนภาพ">−</button><input id="diagramScaleInput" class="combo-value" type="number" min="0.1" max="3" step="0.05" value="1" aria-label="ขนาดแผนภาพ (พิมพ์ค่าได้)"><button type="button" class="step" id="diagramScaleUp" title="เพิ่มขนาดแผนภาพ" aria-label="เพิ่มขนาดแผนภาพ">+</button></span><label id="diagramValuesToggle" title="แสดงตัวเลขค่าวิกฤตบนแผนภาพ 3D"><input id="diagramValues" type="checkbox" checked>ตัวเลขบนแผนภาพ</label><span class="combo-pill" id="deformedCombo" title="การเคลื่อนที่โหนด + ตัวคูณ · เมื่อปิดจะปรับค่าไม่ได้"><label class="combo-head" id="deformedToggle" title="เปิด/ปิดการเคลื่อนที่โหนด"><input id="deformed" type="checkbox">การเคลื่อนที่โหนด</label><button type="button" class="step" id="deformScaleDown" title="ลดตัวคูณการแอ่นตัว" aria-label="ลดตัวคูณการแอ่นตัว">−</button><input id="deformScaleInput" class="combo-value" type="number" min="1" max="1000" step="5" value="100" aria-label="ตัวคูณการแอ่นตัว (พิมพ์ค่าได้)"><button type="button" class="step" id="deformScaleUp" title="เพิ่มตัวคูณการแอ่นตัว" aria-label="เพิ่มตัวคูณการแอ่นตัว">+</button></span></div></div>
 <div class="data-panel"><nav id="tabs"><button data-tab="nodes" class="active">โหนด</button><button data-tab="slabs">พื้น</button><button data-tab="beams">คาน</button><button data-tab="columns">เสา</button><button data-tab="foundations">ฐานราก</button><button data-tab="roof">โครงหลังคา</button><button data-tab="nodalLoads">แรงที่โหนด</button><button data-tab="memberLoads">แรงกระจาย</button><button data-tab="combinations">ชุดน้ำหนัก</button><button data-tab="coverage">สถานะ / ที่มาโหลด</button><button data-tab="results">ผลวิเคราะห์</button><button data-tab="design" class="design-tab">ออกแบบ ACI</button></nav><div id="tableActions"></div><div id="table"></div></div></section>
