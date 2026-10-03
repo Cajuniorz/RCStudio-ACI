@@ -475,6 +475,41 @@ export function findContinuousBeamChain(members, selectedIds, nodes, collinearTo
  };
 }
 
+// Continuous column stack: vertical columns at the same plan coordinate (X, Y) stacked across floors.
+export function findContinuousColumnStack(members, memberId, nodes, planTol = 0.05) {
+ const nodeMap = new Map((nodes || []).map(n => [n.id, n]));
+ const target = (members || []).find(m => m.id === memberId);
+ if (!target || target.kind !== 'column') return target ? [target] : [];
+
+ const ni = nodeMap.get(target.i), nj = nodeMap.get(target.j);
+ if (!ni || !nj) return [target];
+ const isVert = Math.hypot(nj.x - ni.x, nj.y - ni.y) < planTol;
+ if (!isVert) return [target];
+
+ const targetX = (ni.x + nj.x) / 2;
+ const targetY = (ni.y + nj.y) / 2;
+
+ const colStack = (members || []).filter(m => {
+  if (m.kind !== 'column') return false;
+  const a = nodeMap.get(m.i), b = nodeMap.get(m.j);
+  if (!a || !b) return false;
+  const vMatch = Math.hypot(b.x - a.x, b.y - a.y) < planTol;
+  if (!vMatch) return false;
+  const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+  return Math.hypot(mx - targetX, my - targetY) < planTol;
+ });
+
+ colStack.sort((m1, m2) => {
+  const a1 = nodeMap.get(m1.i), b1 = nodeMap.get(m1.j);
+  const a2 = nodeMap.get(m2.i), b2 = nodeMap.get(m2.j);
+  const z1 = Math.min(a1 ? (a1.z ?? a1.y ?? 0) : 0, b1 ? (b1.z ?? b1.y ?? 0) : 0);
+  const z2 = Math.min(a2 ? (a2.z ?? a2.y ?? 0) : 0, b2 ? (b2.z ?? b2.y ?? 0) : 0);
+  return z1 - z2;
+ });
+
+ return colStack.length ? colStack : [target];
+}
+
 export function calculateWallUDL(heightM = 2.8, densityKgm2 = 180) {
  const wKNm = (densityKgm2 * heightM * 9.80665) / 1000;
  return Number(wKNm.toFixed(2));

@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 import {OrbitControls} from './vendor/OrbitControls.js';
-import {stationValueKN,rangeKN,rangeByGroupKN,memberRangeKN,peakStation,memberGroupOf,GROUP_LABELS} from './heatmap.js';
+import {stationValueKN,stationSignedKN,isSignedKey,rangeKN,rangeByGroupKN,memberRangeKN,peakStation,memberGroupOf,GROUP_LABELS} from './heatmap.js';
 import {unit,toDisplay,toCanonical} from './units.js';
-import {catalogs,memberRecord,slabRecord,foundationRecord,blankProject,roofSeatElevation,warehouseModel,getMemberLocalAxes,migrateToZUp,ARROW_AXIS_LOCKS,getAxisLockFromKey,projectRayToAxisLine,computeEndpointFromDimension,findContinuousBeamChain,calculateWallUDL,classifyConnectedMembers,find3DSnapPoint} from './building.js';
+import {catalogs,memberRecord,slabRecord,foundationRecord,blankProject,roofSeatElevation,warehouseModel,getMemberLocalAxes,migrateToZUp,ARROW_AXIS_LOCKS,getAxisLockFromKey,projectRayToAxisLine,computeEndpointFromDimension,findContinuousBeamChain,findContinuousColumnStack,calculateWallUDL,classifyConnectedMembers,find3DSnapPoint} from './building.js';
 import {groupLevels,nearestPlanNode,validateMemberEndpoints,planNodeDraft,snapPlanPoint,splitBeamAtDistance,nearestBeamOnPlan,validPlanGridStep,buildGridLayout,buildGridLayoutFromLines,planGridModel,constrainPlanPoint,autoDetectGridLines,planContinuousBeamSegments} from './plan.js';
 import {THAI_WALL_MATERIALS,THAI_FLOOR_SDL,THAI_ROOF_MATERIALS,THAI_LIVE_LOADS,THAI_CONCRETE_PRESETS,THAI_REBAR_GRADES,computeWallUDL_KNm,computeFloorDeadLoad_KNm2,kgm2ToKNm2,kscToMpa,mpaToKsc} from './thai_standards.js';
 
@@ -2239,7 +2239,18 @@ function drawModel(){
   if (cm === 'utilization') return { min: 0, max: 1 };
   if (!heatKey) return null;
   // member scale focuses one member: every other member is dimmed, never re-scaled silently
-  if (scaleMode === 'member') return { focus: true, id: selectedMember?.id ?? null, min: heatSelected?.min ?? 0, max: heatSelected?.max ?? 1 };
+  if (scaleMode === 'member') {
+   if (selectedMember && selectedMember.kind === 'column') {
+    const colStack = findContinuousColumnStack(model.members, selectedMember.id, model.nodes);
+    const stackIds = new Set(colStack.map(c => c.id));
+    if (stackIds.has(m.id)) {
+     const stackRange = rangeKN(colStack, active?.members, heatKey);
+     return { focus: true, ids: stackIds, id: m.id, min: stackRange?.min ?? 0, max: stackRange?.max ?? 1 };
+    }
+    return { focus: true, ids: stackIds, id: selectedMember.id, min: heatSelected?.min ?? 0, max: heatSelected?.max ?? 1 };
+   }
+   return { focus: true, id: selectedMember?.id ?? null, min: heatSelected?.min ?? 0, max: heatSelected?.max ?? 1 };
+  }
   if (scaleMode === 'group' && heatGroups) return heatGroups[memberGroupOf(m)] || heatGlobal;
   return heatGlobal;
  };
@@ -2260,6 +2271,13 @@ function drawModel(){
  const showMemberNames=!$('memberNames')||$('memberNames').checked;
  const columnPeaks=heatKey&&active?.members?model.members.filter(m=>m.kind==='column').map(m=>({id:m.id,peak:peakStation(active.members[m.id],heatKey)})).filter(x=>x.peak):[];
  const maxColumnPeak=columnPeaks.reduce((best,row)=>!best||row.peak.value>best.peak.value?row:best,null);
+ const diagGlobal={M:0,V:0,N:0,T:0};
+ if(active?.members){for(const id of Object.keys(active.members)){for(const s of active.members[id]?.samples||[]){
+  diagGlobal.M=Math.max(diagGlobal.M,Math.abs(s.Mz||0),Math.abs(s.My||0));
+  diagGlobal.V=Math.max(diagGlobal.V,Math.abs(s.Vy||0),Math.abs(s.Vz||0));
+  diagGlobal.N=Math.max(diagGlobal.N,Math.abs(s.N||0));
+  diagGlobal.T=Math.max(diagGlobal.T,Math.abs(s.T||0));
+ }}}
  const visibleMembers=new Set();for(const m of model.members){if(visibleNodeIds&&(!visibleNodeIds.has(m.i)||!visibleNodeIds.has(m.j)))continue;const a=pos.get(m.i),b=pos.get(m.j);if(!a||!b||a.distanceTo(b)<1e-6)continue;visibleMembers.add(m.id);
   const highlight=(selected?.kind==='members'&&selected.id===m.id)||selectedList.some(s=>s.kind==='members'&&s.id===m.id);
   const axes=getMemberLocalAxes(a,b,m.rotation||0);
@@ -2317,14 +2335,27 @@ function drawModel(){
   if(showWireframe||!showSolid3D){
    let wireColor=highlight?0xffbe66:m.kind==='roof'?0xf59e0b:m.kind==='column'?0x10b981:0x38bdf8;
    if(cm!=='default'){
-    const rgb=getMemberStationRGB(m,0.5,cm,rangeForMember(m),active,heatKey);
-    wireColor=new THREE.Color(rgb[0],rgb[1],rgb[2]).getHex();
+    const nWireSegs=20;
+    const wirePts=[],wireColors=[];
+    for(let i=0;i<=nWireSegs;i++){
+     const t=i/nWireSegs;
+     wirePts.push(a.clone().lerp(b,t));
+     const rgb=getMemberStationRGB(m,t,cm,rangeForMember(m),active,heatKey);
+     wireColors.push(rgb[0],rgb[1],rgb[2]);
+    }
+    const lineGeo=new THREE.BufferGeometry().setFromPoints(wirePts);
+    lineGeo.setAttribute('color',new THREE.Float32BufferAttribute(wireColors,3));
+    const lineMat=new THREE.LineBasicMaterial({vertexColors:true,linewidth:2});
+    const wLine=new THREE.Line(lineGeo,lineMat);
+    wLine.userData={kind:'members',id:m.id};
+    group.add(wLine);
+   }else{
+    const lineGeo=new THREE.BufferGeometry().setFromPoints([a,b]);
+    const lineMat=new THREE.LineBasicMaterial({color:wireColor,linewidth:2});
+    const wLine=new THREE.Line(lineGeo,lineMat);
+    wLine.userData={kind:'members',id:m.id};
+    group.add(wLine);
    }
-   const lineGeo=new THREE.BufferGeometry().setFromPoints([a,b]);
-   const lineMat=new THREE.LineBasicMaterial({color:wireColor,linewidth:2});
-   const wLine=new THREE.Line(lineGeo,lineMat);
-   wLine.userData={kind:'members',id:m.id};
-   group.add(wLine);
   }
   if(heatKey&&m.kind==='column'&&active?.members){
    const peak=peakStation(active.members[m.id],heatKey);
@@ -2344,30 +2375,48 @@ function drawModel(){
   if(active&&$('diagram3d')?.checked&&viewMode!=='plan'){
    const memRes=active.members[m.id];
    if(memRes&&memRes.samples&&memRes.samples.length>=2){
-      const isVy = (cm === 'Vy' || ['Vy','Vz'].includes($('diagramType')?.value));
-     let diagKey = isVy ? 'Vy' : 'Mz';
-     let dirY = new THREE.Vector3(...axes.y);
-     if (isVy) {
-      // shear acts in the plane of bending: Vy (Y-up beams) or Vz (Z-up beams) - draw the larger one
-      const maxVy = Math.max(...memRes.samples.map(s => Math.abs(s.Vy || 0)), 0);
-      const maxVz = Math.max(...memRes.samples.map(s => Math.abs(s.Vz || 0)), 0);
-      if (maxVz > maxVy * 1.05) {
-      diagKey = 'Vz';
-      dirY = new THREE.Vector3(...axes.z);
+      const selType = $('diagramType')?.value || 'Mz';
+      let diagKey = selType;
+      let dirY = new THREE.Vector3(...axes.y);
+
+      if (selType === 'Mz' || selType === 'My' || cm === 'M' || cm === 'Mz' || cm === 'My') {
+       const maxMz = Math.max(...memRes.samples.map(s => Math.abs(s.Mz || 0)), 0);
+       const maxMy = Math.max(...memRes.samples.map(s => Math.abs(s.My || 0)), 0);
+       if (cm === 'M' || (selType === 'Mz' && maxMz < 1e-6 && maxMy > 1e-4) || (selType === 'My' && maxMy < 1e-6 && maxMz > 1e-4)) {
+        diagKey = maxMy >= maxMz ? 'My' : 'Mz';
+       } else {
+        diagKey = selType === 'My' ? 'My' : 'Mz';
+       }
+       dirY = (diagKey === 'My') ? new THREE.Vector3(...axes.z) : new THREE.Vector3(...axes.y);
+      } else if (selType === 'Vy' || selType === 'Vz' || cm === 'V' || cm === 'Vy' || cm === 'Vz') {
+       const maxVy = Math.max(...memRes.samples.map(s => Math.abs(s.Vy || 0)), 0);
+       const maxVz = Math.max(...memRes.samples.map(s => Math.abs(s.Vz || 0)), 0);
+       if (cm === 'V' || (selType === 'Vy' && maxVy < 1e-6 && maxVz > 1e-4) || (selType === 'Vz' && maxVz < 1e-6 && maxVy > 1e-4)) {
+        diagKey = maxVz >= maxVy ? 'Vz' : 'Vy';
+       } else {
+        diagKey = selType === 'Vz' ? 'Vz' : 'Vy';
+       }
+       dirY = (diagKey === 'Vz') ? new THREE.Vector3(...axes.z) : new THREE.Vector3(...axes.y);
+      } else if (selType === 'N' || cm === 'N') {
+       diagKey = 'N';
+       dirY = (m.kind === 'beam') ? new THREE.Vector3(...axes.z) : new THREE.Vector3(...axes.y);
+      } else if (selType === 'T' || cm === 'T') {
+       diagKey = 'T';
+       dirY = new THREE.Vector3(...axes.y);
+      } else {
+       diagKey = selType;
+       dirY = (diagKey === 'dz') ? new THREE.Vector3(...axes.z) : new THREE.Vector3(...axes.y);
       }
-     } else {
-      const maxMz = Math.max(...memRes.samples.map(s => Math.abs(s.Mz || 0)), 0);
-      const maxMy = Math.max(...memRes.samples.map(s => Math.abs(s.My || 0)), 0);
-      if (maxMy > maxMz * 1.05) {
-       diagKey = 'My';
-       dirY = new THREE.Vector3(...axes.z);
-      }
-     }
-     const diagMax = Math.max(...memRes.samples.map(s => Math.abs(s[diagKey] || 0)), 0);
-     if (diagMax > 1e-4) {
-      const peakH = Math.min(0.65, Math.max(0.18, axes.L * 0.22)) * diagramScale;
-      viewScales.lastPeakH = Math.max(viewScales.lastPeakH || 0, peakH);
-      const dScale = peakH / diagMax;
+      const diagMax = Math.max(...memRes.samples.map(s => Math.abs(s[diagKey] || 0)), 0);
+      if (diagMax > 1e-4) {
+       const isMomentDiag = (diagKey === 'Mz' || diagKey === 'My');
+       const isShearDiag = (diagKey === 'Vy' || diagKey === 'Vz');
+       const isAxialDiag = (diagKey === 'N');
+       const gFamilyMax = isMomentDiag ? diagGlobal.M : isShearDiag ? diagGlobal.V : isAxialDiag ? diagGlobal.N : diagGlobal.T;
+       const gMax = Math.max(gFamilyMax || 0, diagMax);
+       const dScale = (0.65 * diagramScale) / gMax;
+       const peakH = diagMax * dScale;
+       viewScales.lastPeakH = Math.max(viewScales.lastPeakH || 0, peakH);
      const ribbonVerts=[],ribbonColors=[],linePts=[];
      for(let k=0;k<memRes.samples.length;k++){
       const frac=k/(memRes.samples.length-1);
@@ -2380,8 +2429,8 @@ function drawModel(){
        const pBaseNext=a.clone().lerp(b,fracNext);
        const sValNext=memRes.samples[k+1][diagKey];
        const pDiagNext=pBaseNext.clone().addScaledVector(dirY,sValNext*dScale);
-       const rgbA=getRainbowRGB(Math.abs(sVal),0,diagMax);
-       const rgbB=getRainbowRGB(Math.abs(sValNext),0,diagMax);
+       const rgbA=getRainbowRGB(sVal,-gMax,gMax);
+       const rgbB=getRainbowRGB(sValNext,-gMax,gMax);
        ribbonVerts.push(pBase.x,pBase.y,pBase.z,pDiag.x,pDiag.y,pDiag.z,pDiagNext.x,pDiagNext.y,pDiagNext.z);
        ribbonColors.push(rgbA[0],rgbA[1],rgbA[2],rgbA[0],rgbA[1],rgbA[2],rgbB[0],rgbB[1],rgbB[2]);
        ribbonVerts.push(pBase.x,pBase.y,pBase.z,pDiagNext.x,pDiagNext.y,pDiagNext.z,pBaseNext.x,pBaseNext.y,pBaseNext.z);
@@ -2395,8 +2444,7 @@ function drawModel(){
      const ribMesh=new THREE.Mesh(ribGeo,ribMat);
      ribMesh.renderOrder=900;
      group.add(ribMesh);
-     const isMomentDiag=(diagKey==='Mz'||diagKey==='My');
-     const frameColor=isMomentDiag?0x39ff14:0xff5500; // Neon Lime for Moment, Electric Orange for Shear
+     const frameColor=isMomentDiag?0x39ff14:isShearDiag?0xff5500:isAxialDiag?0x00e5ff:0xeab308;
      const lineMat=new THREE.LineBasicMaterial({color:frameColor,depthTest:false,linewidth:2});
      const lineGeo=new THREE.BufferGeometry().setFromPoints(linePts);
      const boundaryLine=new THREE.Line(lineGeo,lineMat);
@@ -2420,7 +2468,7 @@ function drawModel(){
        const av = Math.abs(memRes.samples[k][diagKey]);
        if(av > peakVal){ peakVal = av; kPeak = k; }
       }
-      const uKey = (diagKey === 'Mz' || diagKey === 'My') ? 'moment' : 'force';
+      const uKey = (diagKey === 'Mz' || diagKey === 'My' || diagKey === 'T') ? 'moment' : (diagKey === 'dy' || diagKey === 'dz') ? 'length' : 'force';
       const numPts = linePts.length;
       let kLabel = kPeak;
       // Joint clearance anti-collision: clamp label point to 22% - 78% of span
@@ -2699,12 +2747,49 @@ function drawModel(){
    const L=a.distanceTo(b);
    if(L<1e-6)continue;
    const isZUp=model.coordinateSystem==='z-up';
-   const qVal=isZUp?(ft.qzKNm||ft.qyKNm||0):(ft.qyKNm||0);
+   const qVal=Math.abs(isZUp?(ft.qzKNm||ft.qyKNm||0):(ft.qyKNm||0));
    if(qVal>0.005){
+    const dirLoad=isZUp?new THREE.Vector3(0,0,-1):new THREE.Vector3(0,-1,0);
     const dirBox=isZUp?new THREE.Vector3(0,0,1):new THREE.Vector3(0,1,0);
+    const beamH=m.h||0.35;
+    const baseOffset=showSolid3D ? (beamH*0.5 + 0.005) : 0;
+    const baseA=a.clone().addScaledVector(dirBox,baseOffset);
+    const baseB=b.clone().addScaledVector(dirBox,baseOffset);
     const boxH=Math.min(0.48,Math.max(0.22,L*0.10));
-    const topA=a.clone().addScaledVector(dirBox,boxH);
-    const topB=b.clone().addScaledVector(dirBox,boxH);
+    const topA=baseA.clone().addScaledVector(dirBox,boxH);
+    const topB=baseB.clone().addScaledVector(dirBox,boxH);
+
+    if(showUniformLoads){
+     line([topA,topB],0x10b981,false,{depthTest:false,renderOrder:912,linewidth:2});
+     line([baseA,topA],0x10b981,false,{depthTest:false,renderOrder:912});
+     line([baseB,topB],0x10b981,false,{depthTest:false,renderOrder:912});
+     const quadGeo=new THREE.BufferGeometry();
+     const quadVerts=[
+      baseA.x,baseA.y,baseA.z, topA.x,topA.y,topA.z, topB.x,topB.y,topB.z,
+      baseA.x,baseA.y,baseA.z, topB.x,topB.y,topB.z, baseB.x,baseB.y,baseB.z
+     ];
+     quadGeo.setAttribute('position',new THREE.Float32BufferAttribute(quadVerts,3));
+     const quadMat=new THREE.MeshBasicMaterial({color:0x10b981,transparent:true,opacity:0.25,side:THREE.DoubleSide,depthTest:false,depthWrite:false});
+     const tribQuad=new THREE.Mesh(quadGeo,quadMat);
+     tribQuad.renderOrder=910;
+     group.add(tribQuad);
+
+     const numArrows=Math.max(2,Math.min(5,Math.round(L*1.0)));
+     for(let i=0;i<numArrows;i++){
+      const t=(i+0.5)/numArrows;
+      const pTop=topA.clone().lerp(topB,t);
+      const pBeam=baseA.clone().lerp(baseB,t);
+      const arrLen=pTop.distanceTo(pBeam);
+      const hl=Math.min(arrLen*0.35,0.12);
+      const arr=new THREE.ArrowHelper(dirLoad,pTop,arrLen,0x10b981,hl,hl*0.6);
+      arr.line.material.depthTest=false;
+      arr.cone.material.depthTest=false;
+      arr.line.renderOrder=914;
+      arr.cone.renderOrder=914;
+      group.add(arr);
+     }
+    }
+
     const isSelectedMem=selected?.kind==='members'&&selected.id===m.id;
     if(isSelectedMem || (model.members.length<35)){
      const qDisp=quantity(qVal,'line');
@@ -3256,7 +3341,7 @@ function renderTable(){document.querySelectorAll('#tabs button').forEach(b=>b.cl
 function renderResultsTable(){const active=result?.combinations[$('resultCombo').value];if(!active){$('table').append(el('p','ยังไม่มีผลของโมเดลปัจจุบัน'));return;}$('tableActions').textContent='การเคลื่อนที่และแรงปฏิกิริยาที่โหนด · GLOBAL';const table=el('table'),tr=el('tr');for(const h of ['โหนด','uX mm','uY mm','uZ mm','RX rad','RY rad','RZ rad',...['FX','FY','FZ'].map(x=>x+' '+unitLabel('force')),...['MX','MY','MZ'].map(x=>x+' '+unitLabel('moment'))])tr.append(el('th',h));table.append(tr);for(const [id,n]of Object.entries(active.nodes)){const r=el('tr');for(const v of [id,...n.translationMM,...n.displacement.slice(3),...n.reaction.map((v,i)=>quantity(v,i<3?'force':'moment'))])r.append(el('td',typeof v==='number'?fmt(v,6):v));table.append(r);}$('table').append(table);}
 function renderCoverage(){$('tableActions').textContent='แยกข้อมูลที่กรอก การนำไปวิเคราะห์ และงานออกแบบที่ยังไม่ทำ';const table=el('table');const head=el('tr');for(const h of ['ชิ้นส่วน','สถานะ','รายละเอียด'])head.append(el('th',h));table.append(head);for(const collection of ['members','slabs','foundations'])for(const item of model[collection]){const r=el('tr');r.append(el('td',item.id),el('td',classification(collection,item)),el('td',collection==='foundations'?'ไม่รวมดิน/เข็ม/กำลังฐาน/นน.ตัวฐานใน frame':collection==='slabs'?'ยังไม่มี plate stiffness / diaphragm / RC design':'ยังไม่ตรวจ capacity หรือเหล็กเสริม'));table.append(r);}for(const p of result?.coverage?.floorLoadTransfers||[]){const r=el('tr');const qDir=model.coordinateSystem==='z-up'?'qZ':'qY',qTrans=model.coordinateSystem==='z-up'?(p.qzKNm??p.qyKNm):p.qyKNm;r.append(el('td',p.source+' → '+p.member),el('td',p.case),el('td',`พื้นที่ ${fmt(p.areaM2)} m² × ${fmt(quantity(p.pressureKNm2,'pressure'))} ${unitLabel('pressure')} → ${qDir} ${fmt(quantity(qTrans,'line'))} ${unitLabel('line')}`));table.append(r);}$('table').append(table);}
 function renderResults(){const previous=$('resultCombo').value;options($('resultCombo'),result?Object.keys(result.combinations):[],previous);options($('resultMember'),result?model.members.map(m=>m.id):[],$('resultMember').value);$('exportResults').disabled=!result;$('metrics').replaceChildren();const active=result?.combinations[$('resultCombo').value];if(!active){$('metrics').append(el('p','ผลจะปรากฏหลังวิเคราะห์'));drawDiagram();return;}let max=0;for(const n of Object.values(active.nodes))max=Math.max(max,Math.hypot(...n.translationMM));const eq=active.equilibrium;for(const [title,value,label]of [['การเคลื่อนที่โหนดสูงสุด',fmt(max,4),'mm'],['สมดุลแรง · residual สูงสุด',quantity(Math.max(...eq.forceResidualKN.map(Math.abs)),'force').toExponential(2),unitLabel('force')],['สมดุลโมเมนต์ · residual สูงสุด',quantity(Math.max(...eq.momentResidualKNm.map(Math.abs)),'moment').toExponential(2),unitLabel('moment')]]){const div=el('div');div.className='metric';div.append(el('span',title),el('b',value),el('small',' '+label));$('metrics').append(div);}drawDiagram();}
-function drawDiagram(){const member=result?.combinations[$('resultCombo').value]?.members[$('resultMember').value];$('diagram').replaceChildren();$('axes').textContent='';const types={Mz:['โมเมนต์','moment'],My:['โมเมนต์','moment'],Vy:['แรงเฉือน','force'],Vz:['แรงเฉือน','force'],N:['แรงตามแกน','force'],T:['แรงบิด','moment'],dy:['โก่ง local y','length'],dz:['โก่ง local z','length']};for(const o of $('diagramType').options){const [label,kind]=types[o.value];o.textContent=o.value+' — '+label+' ('+unitLabel(kind)+')';}if(!member){$('diagram').textContent='ยังไม่มีผล';return;}const key=$('diagramType').value,q=types[key][1],values=member.samples.map(s=>quantity(s[key],q)),max=Math.max(...values.map(Math.abs),1e-12),len=member.length;const points=member.samples.map((s,i)=>`${20+s.x/len*200},${80-values[i]/max*52}`).join(' ');const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('viewBox','0 0 240 170');svg.innerHTML=`<line x1="20" y1="80" x2="220" y2="80" stroke="#41566f"/><polyline points="${points}" fill="none" stroke="#51dcba" stroke-width="2"/><text x="20" y="150" fill="#9fb5cc" font-size="10">i / 0</text><text x="165" y="150" fill="#9fb5cc" font-size="10">j / ${fmt(len)} m</text><text x="12" y="18" fill="#e0eaf5" font-size="9">${key}: ${fmt(Math.min(...values),4)} to ${fmt(Math.max(...values),4)} ${unitLabel(q)}</text>`;$('diagram').append(svg);const axInfo=member.localAxes?`<div style="margin:4px 0;line-height:1.4"><span style="color:#ef4444">🔴 x_L = [${member.localAxes[0].map(v=>fmt(v,3)).join(', ')}]</span><br><span style="color:#22c55e">🟢 y_L = [${member.localAxes[1].map(v=>fmt(v,3)).join(', ')}]</span><br><span style="color:#3b82f6">🔵 z_L = [${member.localAxes[2].map(v=>fmt(v,3)).join(', ')}]</span></div>`:'';$('axes').innerHTML=`<b>แกนชิ้นส่วนเฉพาะตัว (Local Axes):</b>${axInfo}<div style="color:#8b949e;font-size:10px">แรง N, Vy, Vz, My, Mz, T และการแอ่นตัว dy, dz อ้างอิงแกน local · เครื่องหมายตาม PyNite</div>`;}
+function drawDiagram(){const member=result?.combinations[$('resultCombo').value]?.members[$('resultMember').value];$('diagram').replaceChildren();$('axes').textContent='';const types={Mz:['โมเมนต์','moment'],My:['โมเมนต์','moment'],Vy:['แรงเฉือน','force'],Vz:['แรงเฉือน','force'],N:['แรงตามแกน','force'],T:['แรงบิด','moment'],dy:['โก่ง local y','length'],dz:['โก่ง local z','length']};for(const o of $('diagramType').options){const [label,kind]=types[o.value];o.textContent=o.value+' — '+label+' ('+unitLabel(kind)+')';}if(!member){$('diagram').textContent='ยังไม่มีผล';return;}let key=$('diagramType').value;const partner={Mz:'My',My:'Mz',Vy:'Vz',Vz:'Vy'}[key];if(partner&&member.samples.every(s=>Math.abs(s[key]||0)<1e-9)&&member.samples.some(s=>Math.abs(s[partner]||0)>1e-9))key=partner;/* Z-up beams bend about local y: show the plane that actually carries the force */const q=types[key][1],values=member.samples.map(s=>quantity(s[key],q)),max=Math.max(...values.map(Math.abs),1e-12),len=member.length;const points=member.samples.map((s,i)=>`${20+s.x/len*200},${80-values[i]/max*52}`).join(' ');const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('viewBox','0 0 240 170');svg.innerHTML=`<line x1="20" y1="80" x2="220" y2="80" stroke="#41566f"/><polyline points="${points}" fill="none" stroke="#51dcba" stroke-width="2"/><text x="20" y="150" fill="#9fb5cc" font-size="10">i / 0</text><text x="165" y="150" fill="#9fb5cc" font-size="10">j / ${fmt(len)} m</text><text x="12" y="18" fill="#e0eaf5" font-size="9">${key}: ${fmt(Math.min(...values),4)} to ${fmt(Math.max(...values),4)} ${unitLabel(q)}</text>`;$('diagram').append(svg);const axInfo=member.localAxes?`<div style="margin:4px 0;line-height:1.4"><span style="color:#ef4444">🔴 x_L = [${member.localAxes[0].map(v=>fmt(v,3)).join(', ')}]</span><br><span style="color:#22c55e">🟢 y_L = [${member.localAxes[1].map(v=>fmt(v,3)).join(', ')}]</span><br><span style="color:#3b82f6">🔵 z_L = [${member.localAxes[2].map(v=>fmt(v,3)).join(', ')}]</span></div>`:'';$('axes').innerHTML=`<b>แกนชิ้นส่วนเฉพาะตัว (Local Axes):</b>${axInfo}<div style="color:#8b949e;font-size:10px">แรง N, Vy, Vz, My, Mz, T และการแอ่นตัว dy, dz อ้างอิงแกน local · เครื่องหมายตาม PyNite</div>`;}
 function render(){
  $('memberB').value=editValue(memberDraft.b,'section');$('memberH').value=editValue(memberDraft.h,'section');
  $('projectName').value=model.name;$('unitSystem').value=model.displayUnits.system;$('forceUnit').value=model.displayUnits.force;$('forceUnit').disabled=model.displayUnits.system==='si';$('unitSummary').textContent=`พิกัด m · หน้าตัด ${unitLabel('section')} · แรง ${unitLabel('force')} · โหลด ${unitLabel('line')} · ${unitLabel('stress')}`;
@@ -3514,44 +3599,125 @@ function rainbowColor(val, min, max) {
  return new THREE.Color(rgb[0], rgb[1], rgb[2]).getHex();
 }
 
-function getMemberDC(m, active) {
- if (designResult?.heatmaps?.utilization?.values?.[m.id] != null) {
-  return designResult.heatmaps.utilization.values[m.id];
- }
- if (designResult?.members?.[m.id]) {
-  const d = designResult.members[m.id];
-  if (d.type === 'beam') return Math.max(d.flexure?.bottom?.rebar?.utilization || 0, d.flexure?.top?.rebar?.utilization || 0, d.shear?.utilization || 0);
-  if (d.type === 'column') return d.longitudinal?.utilization || 0;
-  if (d.utilization != null) return d.utilization;
- }
- if (active?.members?.[m.id]) {
-  const s = active.members[m.id].samples || [];
-  if (!s.length) return null;
-  const maxMz = Math.max(...s.map(pt => Math.abs(pt.Mz || 0)));
-  const maxMy = Math.max(...s.map(pt => Math.abs(pt.My || 0)));
-  const maxN = Math.max(...s.map(pt => Math.abs(pt.N || 0)));
-  const fc = (model.designBasis?.fc_mpa || 23.5) * 1000;
-  const fy = (model.designBasis?.fy_mpa || 392) * 1000;
-  if (m.kind === 'column') {
-   const b = m.b || 0.3, h = m.h || 0.3;
-   const Ag = b * h;
-   const phiPn = 0.65 * 0.80 * (0.85 * fc * (Ag * 0.99) + fy * (Ag * 0.01));
-   const phiMn = 0.9 * (Ag * 0.01 * fy * (0.8 * h));
-   return Math.min(2.0, (maxN / Math.max(1, phiPn)) + ((maxMz + maxMy) / Math.max(1, phiMn)));
-  } else if (m.kind === 'beam') {
-   const b = m.b || 0.25, h = m.h || 0.45;
-   const d = h - 0.05;
-   const phiMn = 0.9 * (0.01 * b * d) * fy * (0.9 * d);
-   // bending plane depends on the coordinate system (Mz Y-up, My Z-up): use the governing one, never just Mz
-   return Math.min(2.0, Math.max(maxMz, maxMy) / Math.max(1, phiMn));
-  } else {
-   const A = m.A || 1.4e-3;
-   const fy_s = (model.designBasis?.fy_steel_mpa || 245) * 1000;
-   const phiPn = 0.9 * A * fy_s;
-   return Math.min(2.0, maxN / Math.max(1, phiPn));
+function getMemberStationForces(memberResult, t) {
+ if (!memberResult?.samples || !memberResult.samples.length) return null;
+ const samples = memberResult.samples;
+ const len = memberResult.length || 1;
+ const x = Math.max(0, Math.min(1, t)) * len;
+ if (x <= samples[0].x) return samples[0];
+ const last = samples[samples.length - 1];
+ if (x >= last.x) return last;
+ for (let i = 1; i < samples.length; i++) {
+  const a = samples[i - 1], b = samples[i];
+  if (x <= b.x) {
+   const span = b.x - a.x;
+   const alpha = span > 0 ? (x - a.x) / span : 1;
+   return {
+    x,
+    N: a.N + (b.N - a.N) * alpha,
+    Vy: a.Vy + (b.Vy - a.Vy) * alpha,
+    Vz: a.Vz + (b.Vz - a.Vz) * alpha,
+    My: a.My + (b.My - a.My) * alpha,
+    Mz: a.Mz + (b.Mz - a.Mz) * alpha,
+    T: a.T + (b.T - a.T) * alpha
+   };
   }
  }
- return null;
+ return last;
+}
+
+function getMemberDC(m, active, t = null) {
+ const d = designResult?.members?.[m.id];
+ const s = active?.members?.[m.id]?.samples || [];
+ const fc = (model.designBasis?.fc_mpa || 23.5) * 1000;
+ const fy = (model.designBasis?.fy_mpa || 392) * 1000;
+
+ if (t === null || !Number.isFinite(t) || !s.length) {
+  if (designResult?.heatmaps?.utilization?.values?.[m.id] != null) {
+   return designResult.heatmaps.utilization.values[m.id];
+  }
+  if (d) {
+   if (d.type === 'beam') return Math.max(d.flexure?.bottom?.rebar?.utilization || 0, d.flexure?.top?.rebar?.utilization || 0, d.shear?.utilization || 0);
+   if (d.type === 'column') return d.longitudinal?.utilization || 0;
+   if (d.utilization != null) return d.utilization;
+  }
+  if (s.length) {
+   const maxMz = Math.max(...s.map(pt => Math.abs(pt.Mz || 0)));
+   const maxMy = Math.max(...s.map(pt => Math.abs(pt.My || 0)));
+   const maxN = Math.max(...s.map(pt => Math.abs(pt.N || 0)));
+   if (m.kind === 'column') {
+    const b = m.b || 0.3, h = m.h || 0.3;
+    const Ag = b * h;
+    const phiPn = 0.65 * 0.80 * (0.85 * fc * (Ag * 0.99) + fy * (Ag * 0.01));
+    const phiMn = 0.9 * (Ag * 0.01 * fy * (0.8 * h));
+    return Math.min(2.0, (maxN / Math.max(1, phiPn)) + ((maxMz + maxMy) / Math.max(1, phiMn)));
+   } else if (m.kind === 'beam') {
+    const b = m.b || 0.25, h = m.h || 0.45;
+    const depth = h - 0.05;
+    const phiMn = 0.9 * (0.01 * b * depth) * fy * (0.9 * depth);
+    return Math.min(2.0, Math.max(maxMz, maxMy) / Math.max(1, phiMn));
+   } else {
+    const A = m.A || 1.4e-3;
+    const fy_s = (model.designBasis?.fy_steel_mpa || 245) * 1000;
+    const phiPn = 0.9 * A * fy_s;
+    return Math.min(2.0, maxN / Math.max(1, phiPn));
+   }
+  }
+  return null;
+ }
+
+ const sf = getMemberStationForces(active?.members?.[m.id], t);
+ if (!sf) return null;
+
+ const pN = Math.abs(sf.N || 0);
+ const pMz = Math.abs(sf.Mz || 0);
+ const pMy = Math.abs(sf.My || 0);
+ const pVy = Math.abs(sf.Vy || 0);
+ const pVz = Math.abs(sf.Vz || 0);
+
+ if (m.kind === 'column') {
+  const b = m.b || 0.3, h = m.h || 0.3;
+  const Ag = b * h;
+  const phiPn = d?.longitudinal?.phi_po || (0.65 * 0.80 * (0.85 * fc * (Ag * 0.99) + fy * (Ag * 0.01)));
+  const phiMn = d?.longitudinal?.phi_mn || (0.9 * (Ag * 0.01 * fy * (0.8 * h)));
+  const utilP = pN / Math.max(1, phiPn);
+  const utilM = (pMz + pMy) / Math.max(1, phiMn);
+  const localUtil = Math.max(utilP, utilP * 0.35 + utilM);
+  const peakDesigned = d?.longitudinal?.utilization;
+  if (peakDesigned && peakDesigned > 0) {
+   const maxMz = Math.max(...s.map(pt => Math.abs(pt.Mz || 0)));
+   const maxMy = Math.max(...s.map(pt => Math.abs(pt.My || 0)));
+   const maxN = Math.max(...s.map(pt => Math.abs(pt.N || 0)));
+   const maxUtil = Math.max(maxN / Math.max(1, phiPn), (maxN / Math.max(1, phiPn)) * 0.35 + (maxMz + maxMy) / Math.max(1, phiMn));
+   const scaleRatio = maxUtil > 1e-4 ? peakDesigned / maxUtil : 1;
+   return Math.min(2.0, localUtil * scaleRatio);
+  }
+  return Math.min(2.0, localUtil);
+ } else if (m.kind === 'beam') {
+  const b = m.b || 0.25, h = m.h || 0.45;
+  const depth = h - 0.05;
+  const phiMn = d?.flexure?.bottom?.capacity?.phi_mn || (0.9 * (0.01 * b * depth) * fy * (0.9 * depth));
+  const phiVn = d?.shear?.capacity?.phi_vn || (0.75 * (0.17 * Math.sqrt(fc / 1000) * 1000 * b * depth));
+  const utilM = Math.max(pMz, pMy) / Math.max(1, phiMn);
+  const utilV = Math.max(pVy, pVz) / Math.max(1, phiVn);
+  const localUtil = Math.max(utilM, utilV);
+  const peakDesigned = d?.type === 'beam' ? Math.max(d.flexure?.bottom?.rebar?.utilization || 0, d.flexure?.top?.rebar?.utilization || 0, d.shear?.utilization || 0) : null;
+  if (peakDesigned && peakDesigned > 0) {
+   const maxMz = Math.max(...s.map(pt => Math.abs(pt.Mz || 0)));
+   const maxMy = Math.max(...s.map(pt => Math.abs(pt.My || 0)));
+   const maxVy = Math.max(...s.map(pt => Math.abs(pt.Vy || 0)));
+   const maxVz = Math.max(...s.map(pt => Math.abs(pt.Vz || 0)));
+   const maxUtil = Math.max(Math.max(maxMz, maxMy) / Math.max(1, phiMn), Math.max(maxVy, maxVz) / Math.max(1, phiVn));
+   const scaleRatio = maxUtil > 1e-4 ? peakDesigned / maxUtil : 1;
+   return Math.min(2.0, localUtil * scaleRatio);
+  }
+  return Math.min(2.0, localUtil);
+ } else {
+  const A = m.A || 1.4e-3;
+  const fy_s = (model.designBasis?.fy_steel_mpa || 245) * 1000;
+  const phiPn = d?.phi_pn_kn || (0.9 * A * fy_s);
+  return Math.min(2.0, pN / Math.max(1, phiPn));
+ }
 }
 
 function getMemberStationRGB(m, t, cm, range, active, key) {
@@ -3563,7 +3729,7 @@ function getMemberStationRGB(m, t, cm, range, active, key) {
   return [c.r, c.g, c.b];
  }
  if (cm === 'utilization') {
-  const util = getMemberDC(m, active);
+  const util = getMemberDC(m, active, t);
   if (util == null) return fallback;
   if (util > 1.0) {
    const tOver = Math.min(1.0, (util - 1.0) / 0.5);
@@ -3573,9 +3739,18 @@ function getMemberStationRGB(m, t, cm, range, active, key) {
   return getRainbowRGB(util, 0, 1.0);
  }
  if (!key || !range) return fallback;
- if (range.focus && m.id !== range.id) {
+ if (range.focus && (range.ids ? !range.ids.has(m.id) : m.id !== range.id)) {
   const off = new THREE.Color(0x475058);
   return [off.r, off.g, off.b];
+ }
+ if (isSignedKey(key)) {
+  // Diverging, continuous through zero: blue = negative, green = 0, red = positive. Symmetric about 0 so the
+  // same colour always means the same value on every member (range.max = governing |value| of the scale).
+  const signed = stationSignedKN(active?.members?.[m.id], t, key);
+  if (signed === null) return fallback;
+  const A = range.max;
+  if (!(A > 1e-9)) return fallback;
+  return getRainbowRGB(signed, -A, A);
  }
  const value = stationValueKN(active?.members?.[m.id], t, key);
  if (value === null) return fallback;
@@ -3610,9 +3785,10 @@ function legendRow(label, text) {
  return row;
 }
 
-function legendRangeText(range, unitKind) {
+function legendRangeText(range, unitKind, signed = false) {
  const u = unitLabel(unitKind);
  const at = value => fmt(quantity(value, unitKind), 1);
+ if (signed) return `${at(-range.max)} \u2026 0 \u2026 +${at(range.max)} ${u} \u00b7 \u0e19\u0e49\u0e33\u0e40\u0e07\u0e34\u0e19=\u0e25\u0e1a \u0e40\u0e02\u0e35\u0e22\u0e27=0 \u0e41\u0e14\u0e07=\u0e1a\u0e27\u0e01`;
  if (range.max - range.min <= 1e-9) return `${at(range.max)} ${u} · ค่าคงที่ตลอดช่วง (ไม่แสดงเฉด)`;
  return `${at(range.min)} – ${at(range.max)} ${u}`;
 }
@@ -3654,15 +3830,15 @@ function updateHeatmapLegend() {
    return;
   }
   const range = selectedRange || { min: global.min, max: global.max };
-  rowsEl.replaceChildren(legendRow(selectedMember.id, legendRangeText(range, unitKind) + ' · เฉพาะชิ้นส่วนนี้ ชิ้นอื่นสีเทา'));
+  rowsEl.replaceChildren(legendRow(selectedMember.id, legendRangeText(range, unitKind, isSignedKey(key)) + ' · เฉพาะชิ้นส่วนนี้ ชิ้นอื่นสีเทา'));
   return;
  }
  if (scaleMode === 'group') {
-  const rows = HEAT_ORDER.filter(group => groups?.[group]).map(group => legendRow(GROUP_LABELS[group] || group, legendRangeText(groups[group], unitKind)));
+  const rows = HEAT_ORDER.filter(group => groups?.[group]).map(group => legendRow(GROUP_LABELS[group] || group, legendRangeText(groups[group], unitKind, isSignedKey(key))));
   rowsEl.replaceChildren(...(rows.length ? rows : [legendRow('—', 'ไม่มีผลวิเคราะห์')]));
   return;
  }
- rowsEl.replaceChildren(legendRow('ทุกชิ้นส่วน', legendRangeText(global, unitKind)));
+ rowsEl.replaceChildren(legendRow('ทุกชิ้นส่วน', legendRangeText(global, unitKind, isSignedKey(key))));
 }
 
 if ($('generateWarehouse')) $('generateWarehouse').onclick = () => {

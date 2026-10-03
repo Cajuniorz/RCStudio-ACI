@@ -147,6 +147,54 @@ export function memberGroupOf(member) {
 
 export const GROUP_LABELS = { column: 'เสา', beam: 'คาน', roof: 'หลังคา/แป' };
 
+// ── Signed values for diverging colour maps ──────────────────────────────────────────────────────────────────
+// |value| colouring folds sagging/hogging (and tension/compression) onto one scale: a member whose moment goes
+// +8 -> 0 -> -8 then shows a "V" of colour with a false cold spot in the middle. Signed colouring is continuous
+// through zero. For compound keys M/V the member's dominant component (largest peak) is used, so one member never
+// flips between Mz and My along its length.
+const SIGNED_KEYS = new Set(['N', 'Vy', 'Vz', 'Mz', 'My', 'M', 'V']);
+export const isSignedKey = key => SIGNED_KEYS.has(key);
+const dominantCache = new WeakMap();
+export function dominantComponent(memberResult, key) {
+  if (!COMPOUND[key]) return key;
+  const samples = samplesOf(memberResult);
+  if (!samples) return null;
+  const cached = dominantCache.get(memberResult);
+  if (cached && cached[key]) return cached[key];
+  let best = COMPOUND[key][0], bestPeak = -1;
+  for (const c of COMPOUND[key]) {
+    let peak = 0;
+    for (const s of samples) if (Number.isFinite(s[c])) peak = Math.max(peak, Math.abs(s[c]));
+    if (peak > bestPeak + 1e-12) { bestPeak = peak; best = c; }
+  }
+  dominantCache.set(memberResult, { ...(cached || {}), [key]: best });
+  return best;
+}
+
+// Interpolated SIGNED value at 0..1 along the member, or null when unusable.
+export function stationSignedKN(memberResult, t, key) {
+  if (!SIGNED_KEYS.has(key) || !Number.isFinite(t)) return null;
+  const samples = samplesOf(memberResult);
+  if (!samples) return null;
+  const comp = dominantComponent(memberResult, key);
+  if (!comp) return null;
+  const x = Math.max(0, Math.min(1, t)) * memberResult.length;
+  const val = s => (Number.isFinite(s[comp]) ? s[comp] : null);
+  if (x <= samples[0].x) return val(samples[0]);
+  const last = samples[samples.length - 1];
+  if (x >= last.x) return val(last);
+  for (let i = 1; i < samples.length; i++) {
+    const a = samples[i - 1], b = samples[i];
+    if (x <= b.x) {
+      const va = val(a), vb = val(b);
+      if (va === null || vb === null) return null;
+      const span = b.x - a.x, alpha = span > 0 ? (x - a.x) / span : 1;
+      return va + (vb - va) * alpha;
+    }
+  }
+  return null;
+}
+
 // Backwards-compatible names kept for the 0.5.5 tests and the console debug hook.
 export const stationForceKN = (memberResult, t) => stationValueKN(memberResult, t, 'resultant');
 export const peakForceStation = memberResult => {
