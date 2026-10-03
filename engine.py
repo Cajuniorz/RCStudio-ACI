@@ -181,7 +181,7 @@ def validate(data, draft=False, section_overrides=None):
             stack += [b if a == n else a for a, b in edges if a == n or b == n]
         unseen -= component
         if not draft and not component & supports:
-            fail('Unsupported component: ' + ', '.join(sorted(component)))
+            fail(f'Unsupported component ({", ".join(sorted(component))}): โครงสร้างไม่มีจุดยึดรั้ง กรุณากำหนดจุดรองรับ (Support) ที่ฐานเสา')
     for key, entity, fields, targets in [('nodalLoads', 'node', 'fx fy fz mx my mz', nodes), ('memberLoads', 'member', 'qx qy qz', members)]:
         seen = set()
         for load in data[key]:
@@ -273,9 +273,15 @@ def solve(data):
             model.add_member_self_weight('FY', -1, case='D')
     for combo in data['combinations']:
         model.add_load_combo(combo['name'], {c: combo[c] for c in CASES})
+    has_any_support = any(any(n.get('restraints', [])) for n in data.get('nodes', []))
+    if not has_any_support and len(data.get('nodes', [])) > 0:
+        fail('โครงสร้างไม่มีจุดยึดรั้ง (Supports): กรุณากำหนดจุดรองรับที่ฐานเสา (คลิกโหนดฐาน หรือเปิดตารางโหนดเพื่อใส่จุดรองรับ)')
     try:
         model.analyze_linear(check_stability=True)
     except Exception as exc:
+        msg = str(exc)
+        if 'positive stiffness' in msg.lower() or 'singular' in msg.lower():
+            fail(f'โครงสร้างไม่เสถียร (Unstable Structure / Singular Matrix): กรุณาตรวจจุดรองรับที่ฐานเสา และการเชื่อมต่อของชิ้นส่วน. รายละเอียด: {msg}')
         fail(f'Analysis stopped: check restraints, connectivity and stiffness. {type(exc).__name__}: {exc}')
     # A zero-load mechanism can return all-zero results and pass equilibrium.
     # Check positive definiteness independently on the scaled free stiffness.
@@ -285,12 +291,12 @@ def solve(data):
         kff = stiffness[np.ix_(free, free)]
         diagonal = np.diag(kff)
         if not np.isfinite(kff).all() or np.any(diagonal <= 0):
-            fail('Unstable model: free degree of freedom has no positive stiffness')
+            fail('Unstable model: free degree of freedom has no positive stiffness — โครงสร้างไม่เสถียร มีโหนดหรือชิ้นส่วนที่เคลื่อนที่ได้อย่างอิสระ')
         scale = np.sqrt(diagonal)
         normalized = kff / np.outer(scale, scale)
         eigenvalues = np.linalg.eigvalsh((normalized + normalized.T)/2)
         if eigenvalues[0] <= 1e-10*eigenvalues[-1]:
-            fail('Unstable or poorly conditioned model: check supports, connectivity and stiffness ratios')
+            fail('Unstable or poorly conditioned model: check supports, connectivity and stiffness ratios — กรุณาตรวจจุดรองรับ การเชื่อมต่อ และขนาดหน้าตัดชิ้นส่วน')
     result = {'status': 'ANALYSIS_ONLY', 'solver': 'PyNiteFEA 3.0.0', 'units': 'kN, m, rad; displacements also reported in mm',
               'modelHash': hashlib.sha256(json.dumps(source, sort_keys=True, allow_nan=False).encode()).hexdigest(),
               'assumptions': ['Linear elastic, first order, rigid joints; concrete rectangles or user-supplied steel section properties',

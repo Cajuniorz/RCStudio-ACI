@@ -48,6 +48,7 @@ def core_project(p):
 def validate_project(p, draft=True):
     if not isinstance(p, dict):
         fail('Project object required')
+    sanitize_v2_project(p)
     allowed_roots = set(ROOT_FIELDS.split())
     if 'designBasis' in p:
         allowed_roots.add('designBasis')
@@ -192,7 +193,64 @@ def overlap(a,b, is_z_up=None):
     return True
 
 
+def sanitize_v2_project(p):
+    if not isinstance(p, dict) or 'nodes' not in p or 'members' not in p:
+        return p, []
+    for m in p.get('members', []):
+        if not isinstance(m, dict):
+            continue
+        if 'kind' not in m:
+            m['kind'] = 'beam'
+        if 'sectionType' not in m:
+            m['sectionType'] = 'rc_rect' if m.get('kind') != 'roof' else 'steel_custom'
+        if 'rotation' not in m:
+            m['rotation'] = 0
+        if 'A' not in m:
+            m['A'] = None
+        if 'Iy' not in m:
+            m['Iy'] = None
+        if 'Iz' not in m:
+            m['Iz'] = None
+        if 'J' not in m:
+            m['J'] = None
+        if 'roofType' not in m:
+            m['roofType'] = 'custom'
+        if 'behavior' not in m:
+            m['behavior'] = 'frame'
+    used = set()
+    for m in p.get('members', []):
+        used.add(m.get('i'))
+        used.add(m.get('j'))
+    for s in p.get('slabs', []):
+        for nid in s.get('nodes', []):
+            used.add(nid)
+    for f in p.get('foundations', []):
+        for nid in f.get('nodes', []):
+            used.add(nid)
+    for l in p.get('nodalLoads', []):
+        if any(l.get(k) for k in ('fx','fy','fz','mx','my','mz')):
+            used.add(l.get('node'))
+
+    pruned = []
+    active_nodes = []
+    for n in p.get('nodes', []):
+        nid = n.get('id')
+        has_restraints = any(n.get('restraints', []))
+        if nid in used or has_restraints:
+            active_nodes.append(n)
+        else:
+            pruned.append(nid)
+
+    if pruned:
+        p['nodes'] = active_nodes
+        if 'nodalLoads' in p:
+            p['nodalLoads'] = [l for l in p['nodalLoads'] if l.get('node') not in pruned]
+
+    return p, pruned
+
+
 def prepare(p):
+    p, pruned_nodes = sanitize_v2_project(p)
     core=validate_project(p)
     if p.get('stairs'):
         fail('บันได/stairs: ยังไม่ถ่ายน้ำหนักพื้นทางลาดและชานพักเข้าสู่โมเดลวิเคราะห์; หยุดวิเคราะห์เพื่อไม่ให้ผลโหลดและการออกแบบผิด กรุณาแยกโมเดลที่ไม่มีบันไดหรือรอวิธีถ่ายแรงที่ตรวจสอบแล้ว')
@@ -210,6 +268,9 @@ def prepare(p):
     member_map={m['id']:m for m in p['members']}
     loads={(l['member'],l['case']):copy.deepcopy(l) for l in core['memberLoads']}
     provenance=[];coverage=[];rectangles=[]
+    for pid in pruned_nodes:
+        coverage.append({'id': pid, 'kind': 'node', 'status': 'PRUNED_ORPHAN',
+                         'detail': f'ตัดโหนดลอยอิสระ {pid} ออกจากการคำนวณเนื่องจากไม่มีชิ้นส่วนเชื่อมต่อ'})
     is_z_up = (p.get('coordinateSystem') == 'z-up')
     force_axis = 2 if is_z_up else 1
     q_key = 'qz' if is_z_up else 'qy'

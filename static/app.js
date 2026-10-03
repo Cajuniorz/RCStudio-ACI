@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import {OrbitControls} from './vendor/OrbitControls.js';
 import {stationValueKN,rangeKN,rangeByGroupKN,memberRangeKN,peakStation,memberGroupOf,GROUP_LABELS} from './heatmap.js';
 import {unit,toDisplay,toCanonical} from './units.js';
-import {catalogs,memberRecord,slabRecord,foundationRecord,blankProject,roofSeatElevation,warehouseModel,getMemberLocalAxes,migrateToZUp,ARROW_AXIS_LOCKS,getAxisLockFromKey,projectRayToAxisLine,computeEndpointFromDimension,findContinuousBeamChain,calculateWallUDL,classifyConnectedMembers} from './building.js';
+import {catalogs,memberRecord,slabRecord,foundationRecord,blankProject,roofSeatElevation,warehouseModel,getMemberLocalAxes,migrateToZUp,ARROW_AXIS_LOCKS,getAxisLockFromKey,projectRayToAxisLine,computeEndpointFromDimension,findContinuousBeamChain,calculateWallUDL,classifyConnectedMembers,find3DSnapPoint} from './building.js';
 import {groupLevels,nearestPlanNode,validateMemberEndpoints,planNodeDraft,snapPlanPoint,splitBeamAtDistance,nearestBeamOnPlan,validPlanGridStep,buildGridLayout,buildGridLayoutFromLines,planGridModel,constrainPlanPoint,autoDetectGridLines,planContinuousBeamSegments} from './plan.js';
 
 const $=id=>document.getElementById(id), clone=x=>JSON.parse(JSON.stringify(x));
@@ -786,7 +786,7 @@ bindControls(saved3D.target,saved3D.position);
 scene.add(new THREE.AmbientLight(0xffffff,1.2));
 const mainLight=new THREE.DirectionalLight(0xffffff,1.2);mainLight.position.set(10,15,20);scene.add(mainLight);
 const fillLight=new THREE.DirectionalLight(0xffffff,0.5);fillLight.position.set(-10,-10,-10);scene.add(fillLight);
-const gridHelper=new THREE.GridHelper(40,40,0x395776,0x24384e);gridHelper.rotation.x=Math.PI/2;scene.add(gridHelper);scene.add(new THREE.AxesHelper(1.5));let group=new THREE.Group();scene.add(group);
+const gridHelper=new THREE.GridHelper(40,40,0x395776,0x24384e);gridHelper.rotation.x=Math.PI/2;scene.add(gridHelper);scene.add(new THREE.AxesHelper(1.5));let group=new THREE.Group();scene.add(group);const buildOverlayGroup=new THREE.Group();scene.add(buildOverlayGroup);const snapOverlayGroup=new THREE.Group();scene.add(snapOverlayGroup);
 const ray=new THREE.Raycaster(),pointer=new THREE.Vector2();
 ray.params.Line={threshold:0.18};
 function resizeViewport(){const {width,height}=$('canvas').getBoundingClientRect(),w=Math.max(1,width),h=Math.max(1,height);renderer.setSize(w,h);if(camera.isPerspectiveCamera)camera.aspect=w/h;else{const aspect=w/h;camera.left=-planFrustumHeight*aspect/2;camera.right=planFrustumHeight*aspect/2;camera.top=planFrustumHeight/2;camera.bottom=-planFrustumHeight/2;}camera.updateProjectionMatrix();updatePlanGridOverlay();}
@@ -1056,7 +1056,7 @@ function renderPlanControls(){
  $('viewHint').textContent=viewMode==='plan'?'ผัง X–Y · ระดับ '+(levels.find(item=>(item.z??item.y)===curElev)?.label??`Z ${fmt(curElev)} m`):'ลากหมุน · ล้อเมาส์ซูม · คลิกเลือก';
  if(viewMode==='plan'&&previous!==curElev){cancelInteraction(false);fitPlan();}
 }
-function cancelInteraction(redraw=true){pointerStart=null;beamDrag=null;lineSnapHover=null;$('beamHint').textContent='';updateAxisLockBadge();if(controls)controls.enabled=!(viewMode==='plan'&&activeTool==='beam');if(redraw&&model)drawModel();}
+function cancelInteraction(redraw=true){if(currentMode==='build'||buildDrawState)cancelBuildDrawing(false);drawSnapIndicator(null,null);pointerStart=null;beamDrag=null;lineSnapHover=null;$('beamHint').textContent='';updateAxisLockBadge();if(controls)controls.enabled=!(viewMode==='plan'&&activeTool==='beam');if(redraw&&model)drawModel();}
 function setPlanTool(tool){cancelInteraction(false);activeTool=tool;beamAxisLock=null;updateAxisLockBadge();if(controls)controls.enabled=!(viewMode==='plan'&&activeTool==='beam');renderPlanControls();drawModel();}
 function setBeamAxisLock(axis){
  if(axis===null){
@@ -1356,61 +1356,94 @@ function updateMeasurementBox(length,dx=0,dy=0,dz=0){
 function get3DPointerPoint(event){
  const rect=renderer.domElement.getBoundingClientRect();
  if(!rect.width||!rect.height)return null;
- pointer.set((event.clientX-rect.left)/rect.width*2-1,-(event.clientY-rect.top)/rect.height*2+1);
+ const screenX=event.clientX-rect.left;
+ const screenY=event.clientY-rect.top;
+ pointer.set((screenX/rect.width)*2-1,-(screenY/rect.height)*2+1);
  ray.setFromCamera(pointer,camera);
  const curElev=(planLevelZ??planLevelY)??0;
+ const useGrid=Boolean($('planSnap')?.checked&&!event.altKey);
+ const gridStep=Number($('planGridStep')?.value)||1.0;
 
- const hits=ray.intersectObjects(group.children,true);
- const nodeHit=hits.find(h=>h.object.userData?.kind==='nodes');
- if(nodeHit){
-  const n=model.nodes.find(node=>node.id===nodeHit.object.userData.id);
-  if(n){
-   return {point:new THREE.Vector3(n.x,n.y,n.z),node:n,isNode:true};
-  }
+ const snap=find3DSnapPoint({
+  screenX,
+  screenY,
+  viewportWidth:rect.width,
+  viewportHeight:rect.height,
+  camera,
+  nodes:model.nodes,
+  members:model.members,
+  ray:{origin:ray.ray.origin,direction:ray.ray.direction},
+  buildDrawState,
+  axisLock:beamAxisLock,
+  curElev,
+  gridStep,
+  useGrid,
+  nodeTolerancePx:22,
+  midpointTolerancePx:18,
+  edgeToleranceDist:0.20,
+  Vector3Class:THREE.Vector3
+ });
+
+ if(snap&&snap.point){
+  return {
+   point:new THREE.Vector3(snap.point.x,snap.point.y,snap.point.z),
+   node:snap.node||null,
+   member:snap.member||null,
+   snapType:snap.type,
+   axis:snap.axis||null,
+   label:snap.label,
+   detail:snap.detail,
+   color:snap.color,
+   symbol:snap.symbol,
+   screenX:snap.screenX,
+   screenY:snap.screenY,
+   isNode:snap.type==='node'
+  };
+ }
+ return null;
+}
+
+function drawSnapIndicator(snapResult, event){
+ snapOverlayGroup.clear();
+ const tooltip=$('snapTooltipOverlay');
+ if(!snapResult||!['node','midpoint','edge','axis'].includes(snapResult.snapType)){
+  if(tooltip)tooltip.hidden=true;
+  return;
  }
 
- if(buildDrawState){
-  const origin=buildDrawState.start||buildDrawState.ref;
-  const effectiveLock=beamAxisLock||buildDrawState.axisLock;
-  if(effectiveLock){
-   const proj=projectRayToAxisLine(ray.ray.origin,ray.ray.direction,origin,effectiveLock);
-   if(proj){
-    return {point:new THREE.Vector3(proj.x,proj.y,proj.z),axis:effectiveLock};
-   }
-  }
-
-  const projX=projectRayToAxisLine(ray.ray.origin,ray.ray.direction,origin,'x');
-  const projY=projectRayToAxisLine(ray.ray.origin,ray.ray.direction,origin,'y');
-  const projZ=projectRayToAxisLine(ray.ray.origin,ray.ray.direction,origin,'z');
-
-  const planePt=ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0,0,1),-origin.z),new THREE.Vector3());
-  if(planePt){
-   const dx=Math.abs(planePt.x-origin.x);
-   const dy=Math.abs(planePt.y-origin.y);
-   const angle=Math.atan2(dy,dx);
-   if(angle<0.12&&projX){
-    return {point:new THREE.Vector3(projX.x,origin.y,origin.z),axis:'x',isAuto:true};
-   }
-   if(Math.abs(angle-Math.PI/2)<0.12&&projY){
-    return {point:new THREE.Vector3(origin.x,projY.y,origin.z),axis:'y',isAuto:true};
-   }
-  }
-  if(projZ){
-   const distToZ=ray.ray.distanceToPoint(new THREE.Vector3(origin.x,origin.y,projZ.z));
-   if(distToZ<0.35){
-    return {point:new THREE.Vector3(origin.x,origin.y,projZ.z),axis:'z',isAuto:true};
-   }
-  }
-  if(planePt)return {point:planePt};
+ if(tooltip&&event){
+  tooltip.hidden=false;
+  tooltip.style.left=`${Math.min(window.innerWidth-180,event.clientX)}px`;
+  tooltip.style.top=`${Math.min(window.innerHeight-60,event.clientY)}px`;
+  tooltip.innerHTML=`
+   <span class="snap-tooltip-badge" style="background:${snapResult.color}">${snapResult.label}</span>
+   <span class="snap-tooltip-coords">${snapResult.detail||''}</span>
+  `;
  }
 
- const pt=ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0,0,1),-curElev),new THREE.Vector3());
- if(pt&&$('planSnap')?.checked&&!event.altKey){
-  const step=Number($('planGridStep')?.value)||1.0;
-  pt.x=Math.round(pt.x/step)*step;
-  pt.y=Math.round(pt.y/step)*step;
+ const p=snapResult.point;
+ if(snapResult.snapType==='node'){
+  const geo=new THREE.OctahedronGeometry(0.06);
+  const mat=new THREE.MeshBasicMaterial({color:0x10b981,depthTest:false});
+  const mesh=new THREE.Mesh(geo,mat);
+  mesh.position.copy(p);
+  mesh.renderOrder=2000;
+  snapOverlayGroup.add(mesh);
+ }else if(snapResult.snapType==='midpoint'){
+  const geo=new THREE.ConeGeometry(0.06,0.12,4);
+  const mat=new THREE.MeshBasicMaterial({color:0x06b6d4,depthTest:false});
+  const mesh=new THREE.Mesh(geo,mat);
+  mesh.position.copy(p);
+  mesh.renderOrder=2000;
+  snapOverlayGroup.add(mesh);
+ }else if(snapResult.snapType==='edge'){
+  const geo=new THREE.BoxGeometry(0.06,0.06,0.06);
+  const mat=new THREE.MeshBasicMaterial({color:0xec4899,depthTest:false});
+  const mesh=new THREE.Mesh(geo,mat);
+  mesh.position.copy(p);
+  mesh.renderOrder=2000;
+  snapOverlayGroup.add(mesh);
  }
- return pt?{point:pt}:null;
 }
 
 function drawBuildPreview(){
@@ -1521,7 +1554,7 @@ function commitBuildLinePoint(targetPoint){
   return;
  }
  let endId=null;
- const existingNode=model.nodes.find(n=>Math.hypot(n.x-targetPoint.x,n.y-targetPoint.y,n.z-targetPoint.z)<0.02);
+ const existingNode=model.nodes.find(n=>Math.hypot(n.x-targetPoint.x,n.y-targetPoint.y,n.z-targetPoint.z)<0.04);
  if(existingNode){
   if(existingNode.id===startId){status('ปลายคานต้องต่างจากจุดเริ่มต้น','error');return;}
   endId=existingNode.id;
@@ -1533,7 +1566,7 @@ function commitBuildLinePoint(targetPoint){
   status(`มีชิ้นส่วนเชื่อมระหว่าง ${startId} กับ ${endId} อยู่แล้ว`,'error');
   return;
  }
- const isCol=Math.abs(start.x-targetPoint.x)<1e-4&&Math.abs(start.y-targetPoint.y)<1e-4;
+ const isCol=Math.abs(start.x-targetPoint.x)<1e-3&&Math.abs(start.y-targetPoint.y)<1e-3;
  const kind=isCol?'column':'beam';
  const mId=nextId('M',model.members);
  const b=isCol?0.30:(memberDraft.b||0.25);
@@ -1541,15 +1574,26 @@ function commitBuildLinePoint(targetPoint){
 
  mutate(()=>{
   if(!existingNode){
+   const isGroundBase = isCol && targetPoint.z <= 0.05;
    model.nodes.push({
     id:endId,
     x:Number(targetPoint.x.toFixed(3)),
     y:Number(targetPoint.y.toFixed(3)),
     z:Number(targetPoint.z.toFixed(3)),
-    restraints:Array(6).fill(false)
+    restraints:Array(6).fill(isGroundBase)
    });
+  } else if (isCol && existingNode.z <= 0.05 && !existingNode.restraints.some(Boolean)) {
+   existingNode.restraints = Array(6).fill(true);
   }
-  const mem={id:mId,i:startId,j:endId,kind,b,h,rotation:0};
+
+  if (isCol && start.z <= 0.05) {
+   const startNode = model.nodes.find(n => n.id === startId);
+   if (startNode && !startNode.restraints.some(Boolean)) {
+    startNode.restraints = Array(6).fill(true);
+   }
+  }
+
+  const mem={...memberRecord(mId,startId,endId,kind),b,h,rotation:0};
   model.members.push(mem);
   selected={kind:'members',id:mId};
   selectedList=[selected];
@@ -1569,7 +1613,7 @@ function commitBuildLinePoint(targetPoint){
 
 function commitBuildNodePoint(targetPoint){
  if(!buildDrawState||buildDrawState.tool!=='node')return;
- const existing=model.nodes.find(n=>Math.hypot(n.x-targetPoint.x,n.y-targetPoint.y,n.z-targetPoint.z)<0.02);
+ const existing=model.nodes.find(n=>Math.hypot(n.x-targetPoint.x,n.y-targetPoint.y,n.z-targetPoint.z)<0.04);
  if(existing){
   status(`มีโหนด ${existing.id} ที่ตำแหน่งนี้อยู่แล้ว`,'error');
   cancelBuildDrawing();
@@ -1662,17 +1706,36 @@ function commitBuildSlab(p1,p2,startNode=null,endNode=null){
  const ratio=Math.max(lx,ly)/Math.min(lx,ly);
  const isOneWay=ratio>=2.0;
  const sId=nextId('S',model.slabs);
+
+ let sup1='', sup2='', sup3='', sup4='', mode='pending';
+ if(isOneWay){
+  if(lx <= ly){
+   sup1 = b4 ? b4.id : '';
+   sup2 = b2 ? b2.id : '';
+  }else{
+   sup1 = b1 ? b1.id : '';
+   sup2 = b3 ? b3.id : '';
+  }
+  mode = (sup1 && sup2) ? 'one_way_load' : 'pending';
+ }else{
+  sup1 = b1 ? b1.id : '';
+  sup2 = b2 ? b2.id : '';
+  sup3 = b3 ? b3.id : '';
+  sup4 = b4 ? b4.id : '';
+  mode = (sup1 && sup2 && sup3 && sup4) ? 'two_way_load' : 'pending';
+ }
+
  const slab={
   ...slabRecord(sId,cornerIds),
   type:isOneWay?'one_way':'two_way',
   thickness:0.12,
-  mode:isOneWay?'one_way_load':'two_way_load',
+  mode,
   dead:1.5,
   live:2.0,
-  support1:b1?b1.id:'',
-  support2:b2?b2.id:'',
-  support3:b3?b3.id:'',
-  support4:b4?b4.id:''
+  support1:sup1,
+  support2:sup2,
+  support3:sup3,
+  support4:sup4
  };
 
  mutate(()=>{
@@ -1685,7 +1748,8 @@ function commitBuildSlab(p1,p2,startNode=null,endNode=null){
  });
 
  cancelBuildDrawing();
- status(`สร้างพื้น ${sId} (${isOneWay?'One-Way':'Two-Way'}, ${fmt(lx,2)} × ${fmt(ly,2)} m) สำเร็จ`);
+ const modeNotice = mode === 'pending' ? ' (รอสร้างคานรอบขอบพื้นให้ครบก่อนวิเคราะห์)' : '';
+ status(`สร้างพื้น ${sId} (${isOneWay?'One-Way':'Two-Way'}, ${fmt(lx,2)} × ${fmt(ly,2)} m) สำเร็จ${modeNotice}`);
  return slab;
 }
 
@@ -1858,11 +1922,15 @@ renderer.domElement.addEventListener('pointerdown',event=>{
    const p=get3DPointerPoint(event);
    if(!p)return;
    if(!buildDrawState){
+    const existingNearNode=p.node||model.nodes.find(n=>Math.hypot(n.x-p.point.x,n.y-p.point.y,n.z-p.point.z)<0.04);
     let startId=null;
-    if(p.node){
-     startId=p.node.id;
+    let startPt=null;
+    if(existingNearNode){
+     startId=existingNearNode.id;
+     startPt=new THREE.Vector3(existingNearNode.x,existingNearNode.y,existingNearNode.z);
     }else{
      startId=nextId('N',model.nodes);
+     startPt=p.point.clone();
      mutate(()=>{
       model.nodes.push({
        id:startId,
@@ -1875,9 +1943,9 @@ renderer.domElement.addEventListener('pointerdown',event=>{
     }
     buildDrawState={
      tool:'line',
-     start:p.point.clone(),
+     start:startPt,
      startId,
-     current:p.point.clone(),
+     current:startPt.clone(),
      axisLock:beamAxisLock
     };
     drawBuildPreview();
@@ -1954,14 +2022,20 @@ renderer.domElement.addEventListener('pointerdown',event=>{
 });
 
 renderer.domElement.addEventListener('pointermove',event=>{
- if(currentMode==='build'&&buildDrawState){
-  const p=get3DPointerPoint(event);
-  if(p){
-   buildDrawState.current=p.point.clone();
-   buildDrawState.axisLock=p.axis||beamAxisLock;
-   drawBuildPreview();
+ if(currentMode==='build'){
+  const isBuildToolActive=['line','node','slab','wall','pull','select'].includes(activeBuildTool);
+  if(isBuildToolActive){
+   const p=get3DPointerPoint(event);
+   if(buildDrawState&&p){
+    buildDrawState.current=p.point.clone();
+    buildDrawState.axisLock=p.axis||beamAxisLock;
+    drawBuildPreview();
+   }
+   drawSnapIndicator(p,event);
+   if(buildDrawState)return;
+  }else{
+   drawSnapIndicator(null,null);
   }
-  return;
  }
  if(viewMode==='plan'&&activeTool==='beam'&&beamDrag){const end=planBeamEndpoint(event,beamDrag.startNode);beamDrag.endId=end.node?.id||null;beamDrag.world=end.point?new THREE.Vector3(end.point.x,end.point.y,end.point.z):null;$('beamHint').textContent=end.error?end.error:`${beamDrag.startId} → ${beamDrag.endId||'โหนดใหม่'} · X ${fmt(end.point?.x)} Y ${fmt(end.point?.y)} m${$('planContinuous')?.checked?' (ต่อเนื่อง)':''}${beamAxisLock?` · 🔒 ${beamAxisLock.toUpperCase()}`:''}${end.useGrid?` · กริด ${fmt(end.step,2)} m`:''}`;drawModel();return;}if(viewMode==='plan'&&activeTool==='memberNode'&&!beamDrag){const hit=snapPlanBeam(event),previous=lineSnapHover;lineSnapHover=hit&&!hit.ambiguous?hit:null;$('beamHint').textContent=hit?.ambiguous?'เส้นคานซ้อนกัน เลือกคานในตารางแทน':hit?`${hit.member.id} · จาก ${hit.fromId} ${fmt(hit.distanceFromI)} m${model.slabs.some(s=>['support1','support2','support3','support4'].some(k=>s[k]===hit.member.id))?' · คานรับพื้น แบ่งไม่ได้':''}`:'ชี้ใกล้เส้นคานที่ระดับนี้';if(previous?.member?.id!==lineSnapHover?.member?.id||Math.abs((previous?.distanceFromI??-1)-(lineSnapHover?.distanceFromI??-1))>.02)drawModel();return;}if(viewMode==='plan'&&activeTool==='node'&&!beamDrag){const curElev=planLevelZ??planLevelY;const point=planPointerPoint(event),gridStep=Number($('planGridStep').value),valid=$('planSnap').checked?validPlanGridStep(gridStep):true,snapped=valid&&$('planSnap').checked&&!event.altKey&&point?snapPlanPoint(point,model.nodes,curElev,gridStep,Math.min(.25,planFrustumHeight/Math.max(.01,camera.zoom||1)/Math.max(1,renderer.domElement.clientHeight)*18)):point;$('beamHint').textContent=!valid?'ระยะกริด 0.05–1.00 m · เพิ่มครั้งละ 0.05 m':snapped?`X ${fmt(snapped.x)} · Y ${fmt(snapped.y)} m${$('planSnap').checked&&!event.altKey?` · กริด ${fmt(gridStep,2)} m`:''}`:'';return;}
 });
@@ -2007,7 +2081,7 @@ renderer.domElement.addEventListener('pointerup',event=>{
  renderSelection();drawModel();renderTable();
 });
 renderer.domElement.addEventListener('pointercancel',()=>cancelInteraction());
-renderer.domElement.addEventListener('pointerleave',()=>{if(lineSnapHover){lineSnapHover=null;$('beamHint').textContent='';drawModel();}});
+renderer.domElement.addEventListener('pointerleave',()=>{drawSnapIndicator(null,null);if(lineSnapHover){lineSnapHover=null;$('beamHint').textContent='';drawModel();}});
 
 function drawModel(){
  updateHeatmapLegend();

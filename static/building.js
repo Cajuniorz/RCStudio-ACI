@@ -473,4 +473,284 @@ export function classifyConnectedMembers(nodeId, members, nodes) {
  });
 }
 
+export function closestPointOnSegmentToRay(rayOrigin, rayDir, segA, segB) {
+ const v1 = rayDir;
+ const v2 = { x: segB.x - segA.x, y: segB.y - segA.y, z: (segB.z !== undefined ? segB.z : 0) - (segA.z !== undefined ? segA.z : 0) };
+ const L2 = v2.x * v2.x + v2.y * v2.y + v2.z * v2.z;
+ if (L2 < 1e-8) {
+  return { point: { x: segA.x, y: segA.y, z: segA.z !== undefined ? segA.z : 0 }, dist: 999, param: 0 };
+ }
+ const w0 = { x: rayOrigin.x - segA.x, y: rayOrigin.y - segA.y, z: rayOrigin.z - (segA.z !== undefined ? segA.z : 0) };
+ const a = v1.x * v1.x + v1.y * v1.y + v1.z * v1.z;
+ const b = v1.x * v2.x + v1.y * v2.y + v1.z * v2.z;
+ const c = L2;
+ const d = v1.x * w0.x + v1.y * w0.y + v1.z * w0.z;
+ const e = v2.x * w0.x + v2.y * w0.y + v2.z * w0.z;
+ const denom = a * c - b * b;
+ let s = Math.abs(denom) > 1e-8 ? (a * e - b * d) / denom : 0;
+ s = Math.max(0, Math.min(1, s));
+ const segPt = {
+  x: segA.x + s * v2.x,
+  y: segA.y + s * v2.y,
+  z: (segA.z !== undefined ? segA.z : 0) + s * v2.z
+ };
+ const t = Math.max(0, (segPt.x - rayOrigin.x) * v1.x + (segPt.y - rayOrigin.y) * v1.y + (segPt.z - rayOrigin.z) * v1.z);
+ const rayPt = {
+  x: rayOrigin.x + t * v1.x,
+  y: rayOrigin.y + t * v1.y,
+  z: rayOrigin.z + t * v1.z
+ };
+ const dist = Math.hypot(segPt.x - rayPt.x, segPt.y - rayPt.y, segPt.z - rayPt.z);
+ return { point: segPt, dist, param: s };
+}
+
+export function project3DToScreen(worldPoint, camera, viewportWidth, viewportHeight, Vector3Class = null) {
+ if (!camera || !viewportWidth || !viewportHeight) return null;
+ const zVal = worldPoint.z !== undefined ? worldPoint.z : (worldPoint.y ?? 0);
+ let pNdc = null;
+ if (Vector3Class) {
+  pNdc = new Vector3Class(worldPoint.x, worldPoint.y, zVal).project(camera);
+ } else if (typeof worldPoint.project === 'function') {
+  pNdc = worldPoint.clone().project(camera);
+ } else if (typeof camera.projectPoint === 'function') {
+  pNdc = camera.projectPoint({ x: worldPoint.x, y: worldPoint.y, z: zVal });
+ } else if (typeof camera.project === 'function') {
+  const tmp = { x: worldPoint.x, y: worldPoint.y, z: zVal };
+  pNdc = camera.project(tmp) || tmp;
+ }
+ if (!pNdc) return null;
+ return {
+  screenX: ((pNdc.x + 1) * viewportWidth) / 2,
+  screenY: ((1 - pNdc.y) * viewportHeight) / 2,
+  ndcZ: pNdc.z,
+  inFront: pNdc.z > -1 && pNdc.z < 1
+ };
+}
+
+export function find3DSnapPoint({
+ screenX,
+ screenY,
+ viewportWidth,
+ viewportHeight,
+ camera,
+ nodes = [],
+ members = [],
+ ray = null,
+ buildDrawState = null,
+ axisLock = null,
+ curElev = 0,
+ gridStep = 1.0,
+ useGrid = false,
+ nodeTolerancePx = 22,
+ midpointTolerancePx = 18,
+ edgeToleranceDist = 0.20,
+ Vector3Class = null
+}) {
+ const nodeMap = new Map(nodes.map(n => [n.id, n]));
+
+ // 1. Highest Priority: Screen-space Endpoint / Node snapping
+ if (camera && viewportWidth && viewportHeight) {
+  let bestNode = null, bestProj = null, minNodeDist = nodeTolerancePx;
+  for (const node of nodes) {
+   const proj = project3DToScreen(node, camera, viewportWidth, viewportHeight, Vector3Class);
+   if (!proj || !proj.inFront) continue;
+   const d = Math.hypot(screenX - proj.screenX, screenY - proj.screenY);
+   if (d <= minNodeDist) {
+    minNodeDist = d;
+    bestNode = node;
+    bestProj = proj;
+   }
+  }
+  if (bestNode) {
+   const zVal = bestNode.z !== undefined ? bestNode.z : (bestNode.y ?? 0);
+   return {
+    type: 'node',
+    point: { x: bestNode.x, y: bestNode.y, z: zVal },
+    node: bestNode,
+    screenX: bestProj.screenX,
+    screenY: bestProj.screenY,
+    label: `โหนด ${bestNode.id}`,
+    detail: `(${bestNode.x.toFixed(2)}, ${bestNode.y.toFixed(2)}, ${zVal.toFixed(2)})`,
+    color: '#10b981',
+    symbol: 'diamond',
+    pixelDist: minNodeDist
+   };
+  }
+
+  // 2. Second Priority: Screen-space Member Midpoint snapping
+  let bestMid = null, bestMember = null, bestMidProj = null, minMidDist = midpointTolerancePx;
+  for (const mem of members) {
+   const ni = nodeMap.get(mem.i), nj = nodeMap.get(mem.j);
+   if (!ni || !nj) continue;
+   const zi = ni.z !== undefined ? ni.z : (ni.y ?? 0);
+   const zj = nj.z !== undefined ? nj.z : (nj.y ?? 0);
+   const mid = { x: (ni.x + nj.x) / 2, y: (ni.y + nj.y) / 2, z: (zi + zj) / 2 };
+   const proj = project3DToScreen(mid, camera, viewportWidth, viewportHeight, Vector3Class);
+   if (!proj || !proj.inFront) continue;
+   const d = Math.hypot(screenX - proj.screenX, screenY - proj.screenY);
+   if (d <= minMidDist) {
+    minMidDist = d;
+    bestMid = mid;
+    bestMember = mem;
+    bestMidProj = proj;
+   }
+  }
+  if (bestMid) {
+   return {
+    type: 'midpoint',
+    point: bestMid,
+    member: bestMember,
+    screenX: bestMidProj.screenX,
+    screenY: bestMidProj.screenY,
+    label: `กึ่งกลาง ${bestMember.id}`,
+    detail: `(${bestMid.x.toFixed(2)}, ${bestMid.y.toFixed(2)}, ${bestMid.z.toFixed(2)})`,
+    color: '#06b6d4',
+    symbol: 'triangle',
+    pixelDist: minMidDist
+   };
+  }
+ }
+
+ // 3. Third Priority: 3D Ray-to-Member Edge snapping ("On Edge")
+ if (ray && ray.origin && ray.direction) {
+  let bestEdgePt = null, bestEdgeMember = null, minRayDist = edgeToleranceDist;
+  for (const mem of members) {
+   const ni = nodeMap.get(mem.i), nj = nodeMap.get(mem.j);
+   if (!ni || !nj) continue;
+   const res = closestPointOnSegmentToRay(ray.origin, ray.direction, ni, nj);
+   if (res.dist <= minRayDist) {
+    minRayDist = res.dist;
+    bestEdgePt = res.point;
+    bestEdgeMember = mem;
+   }
+  }
+  if (bestEdgePt) {
+   return {
+    type: 'edge',
+    point: bestEdgePt,
+    member: bestEdgeMember,
+    label: `บนชิ้นส่วน ${bestEdgeMember.id}`,
+    detail: `(${bestEdgePt.x.toFixed(2)}, ${bestEdgePt.y.toFixed(2)}, ${bestEdgePt.z.toFixed(2)})`,
+    color: '#ec4899',
+    symbol: 'square',
+    dist: minRayDist
+   };
+  }
+ }
+
+ // 4. Fourth Priority: Axis Locks & Inference when actively drawing
+ if (buildDrawState && ray && ray.origin && ray.direction) {
+  const origin = buildDrawState.start || buildDrawState.ref;
+  if (origin) {
+   const effectiveLock = axisLock || buildDrawState.axisLock;
+   if (effectiveLock) {
+    const proj = projectRayToAxisLine(ray.origin, ray.direction, origin, effectiveLock);
+    if (proj) {
+     const color = effectiveLock === 'x' ? '#ef4444' : effectiveLock === 'y' ? '#22c55e' : '#3b82f6';
+     return {
+      type: 'axis',
+      point: { x: proj.x, y: proj.y, z: proj.z },
+      axis: effectiveLock,
+      isLocked: true,
+      label: `ล็อกแกน ${effectiveLock.toUpperCase()}`,
+      detail: `L: ${proj.dist.toFixed(2)} m`,
+      color,
+      symbol: 'axis'
+     };
+    }
+   }
+
+   const projX = projectRayToAxisLine(ray.origin, ray.direction, origin, 'x');
+   const projY = projectRayToAxisLine(ray.origin, ray.direction, origin, 'y');
+   const projZ = projectRayToAxisLine(ray.origin, ray.direction, origin, 'z');
+
+   const denom = ray.direction.z;
+   if (Math.abs(denom) > 1e-6) {
+    const t = (origin.z - ray.origin.z) / denom;
+    if (t > 0) {
+     const planePt = {
+      x: ray.origin.x + t * ray.direction.x,
+      y: ray.origin.y + t * ray.direction.y,
+      z: origin.z
+     };
+     const dx = Math.abs(planePt.x - origin.x);
+     const dy = Math.abs(planePt.y - origin.y);
+     const angle = Math.atan2(dy, dx);
+     if (angle < 0.12 && projX) {
+      return {
+       type: 'axis',
+       point: { x: projX.x, y: origin.y, z: origin.z },
+       axis: 'x',
+       isAuto: true,
+       label: 'ตามแนวแกน X (แดง)',
+       detail: `ΔX: ${(projX.x - origin.x).toFixed(2)} m`,
+       color: '#ef4444',
+       symbol: 'axis'
+      };
+     }
+     if (Math.abs(angle - Math.PI / 2) < 0.12 && projY) {
+      return {
+       type: 'axis',
+       point: { x: origin.x, y: projY.y, z: origin.z },
+       axis: 'y',
+       isAuto: true,
+       label: 'ตามแนวแกน Y (เขียว)',
+       detail: `ΔY: ${(projY.y - origin.y).toFixed(2)} m`,
+       color: '#22c55e',
+       symbol: 'axis'
+      };
+     }
+    }
+   }
+
+   if (projZ) {
+    const ptOnZ = { x: origin.x, y: origin.y, z: projZ.z };
+    const tZ = (ptOnZ.x - ray.origin.x) * ray.direction.x + (ptOnZ.y - ray.origin.y) * ray.direction.y + (ptOnZ.z - ray.origin.z) * ray.direction.z;
+    const ptRayZ = { x: ray.origin.x + tZ * ray.direction.x, y: ray.origin.y + tZ * ray.direction.y, z: ray.origin.z + tZ * ray.direction.z };
+    const distZ = Math.hypot(ptOnZ.x - ptRayZ.x, ptOnZ.y - ptRayZ.y, ptOnZ.z - ptRayZ.z);
+    if (distZ < 0.35) {
+     return {
+      type: 'axis',
+      point: ptOnZ,
+      axis: 'z',
+      isAuto: true,
+      label: 'ตามแนวแกน Z ดิ่ง (น้ำเงิน)',
+      detail: `ΔZ: ${(projZ.z - origin.z).toFixed(2)} m`,
+      color: '#3b82f6',
+      symbol: 'axis'
+     };
+    }
+   }
+  }
+ }
+
+ // 5. Fallback: Horizontal Plane / Ground Plane Snapping
+ if (ray && ray.origin && ray.direction && Math.abs(ray.direction.z) > 1e-6) {
+  const targetZ = curElev;
+  const t = (targetZ - ray.origin.z) / ray.direction.z;
+  if (t > 0) {
+   let pt = {
+    x: ray.origin.x + t * ray.direction.x,
+    y: ray.origin.y + t * ray.direction.y,
+    z: targetZ
+   };
+   if (useGrid && gridStep > 0) {
+    pt.x = Math.round(pt.x / gridStep) * gridStep;
+    pt.y = Math.round(pt.y / gridStep) * gridStep;
+   }
+   return {
+    type: useGrid ? 'grid' : 'plane',
+    point: pt,
+    label: useGrid ? `กริด ${gridStep.toFixed(2)} m` : `ระนาบ Z = ${targetZ.toFixed(2)}`,
+    detail: `(${pt.x.toFixed(2)}, ${pt.y.toFixed(2)}, ${pt.z.toFixed(2)})`,
+    color: '#94a3b8',
+    symbol: 'cross'
+   };
+  }
+ }
+
+ return null;
+}
+
+
 
