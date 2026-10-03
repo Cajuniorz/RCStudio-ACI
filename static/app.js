@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import {OrbitControls} from './vendor/OrbitControls.js';
 import {stationValueKN,stationSignedKN,isSignedKey,rangeKN,rangeByGroupKN,memberRangeKN,peakStation,memberGroupOf,GROUP_LABELS} from './heatmap.js';
 import {unit,toDisplay,toCanonical} from './units.js';
-import {catalogs,memberRecord,slabRecord,foundationRecord,blankProject,roofSeatElevation,warehouseModel,getMemberLocalAxes,migrateToZUp,ARROW_AXIS_LOCKS,getAxisLockFromKey,projectRayToAxisLine,computeEndpointFromDimension,findContinuousBeamChain,findContinuousColumnStack,calculateWallUDL,classifyConnectedMembers,find3DSnapPoint} from './building.js';
+import {catalogs,memberRecord,slabRecord,foundationRecord,blankProject,roofSeatElevation,warehouseModel,getMemberLocalAxes,migrateToZUp,ARROW_AXIS_LOCKS,getAxisLockFromKey,projectRayToAxisLine,computeEndpointFromDimension,findContinuousBeamChain,findContinuousColumnStack,getContinuousColumnStackValue,calculateWallUDL,classifyConnectedMembers,find3DSnapPoint} from './building.js';
 import {groupLevels,nearestPlanNode,validateMemberEndpoints,planNodeDraft,snapPlanPoint,splitBeamAtDistance,nearestBeamOnPlan,validPlanGridStep,buildGridLayout,buildGridLayoutFromLines,planGridModel,constrainPlanPoint,autoDetectGridLines,planContinuousBeamSegments} from './plan.js';
 import {THAI_WALL_MATERIALS,THAI_FLOOR_SDL,THAI_ROOF_MATERIALS,THAI_LIVE_LOADS,THAI_CONCRETE_PRESETS,THAI_REBAR_GRADES,computeWallUDL_KNm,computeFloorDeadLoad_KNm2,kgm2ToKNm2,kscToMpa,mpaToKsc} from './thai_standards.js';
 
@@ -3728,6 +3728,54 @@ function getMemberStationRGB(m, t, cm, range, active, key) {
   const c = new THREE.Color(def);
   return [c.r, c.g, c.b];
  }
+
+ // Continuous Column Stack smoothing for multi-storey buildings:
+ // Interpolates values continuously down the column line so that stacks render as one continuous member
+ // with smooth physical gradient cascading down, avoiding blocky steps at floor joints.
+ if (m.kind === 'column' && active?.members && model?.nodes && model?.members) {
+  const colStack = findContinuousColumnStack(model.members, m.id, model.nodes);
+  if (colStack && colStack.length > 1) {
+   const colVal = getContinuousColumnStackValue({
+    stack: colStack,
+    memberId: m.id,
+    t,
+    nodes: model.nodes,
+    evalMemberStation: (cMem, memT) => {
+     if (cm === 'utilization') {
+      return getMemberDC(cMem, active, memT);
+     }
+     if (isSignedKey(key)) {
+      return stationSignedKN(active?.members?.[cMem.id], memT, key);
+     }
+     return stationValueKN(active?.members?.[cMem.id], memT, key);
+    }
+   });
+   if (colVal !== null && Number.isFinite(colVal)) {
+    if (range?.focus && (range.ids ? !range.ids.has(m.id) : m.id !== range.id)) {
+     const off = new THREE.Color(0x475058);
+     return [off.r, off.g, off.b];
+    }
+    if (cm === 'utilization') {
+     const util = Math.max(0, colVal);
+     if (util > 1.0) {
+      const tOver = Math.min(1.0, (util - 1.0) / 0.5);
+      const c = new THREE.Color().lerpColors(new THREE.Color(0xff0000), new THREE.Color(0x9900ff), tOver);
+      return [c.r, c.g, c.b];
+     }
+     return getRainbowRGB(util, 0, 1.0);
+    }
+    if (key && range) {
+     if (isSignedKey(key)) {
+      const A = range.max;
+      if (A > 1e-9) return getRainbowRGB(colVal, -A, A);
+     } else {
+      if (range.max - range.min > 1e-9) return getRainbowRGB(colVal, range.min, range.max);
+     }
+    }
+   }
+  }
+ }
+
  if (cm === 'utilization') {
   const util = getMemberDC(m, active, t);
   if (util == null) return fallback;

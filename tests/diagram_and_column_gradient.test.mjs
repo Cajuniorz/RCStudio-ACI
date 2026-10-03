@@ -7,7 +7,7 @@ import { dirname, join } from 'path';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-import { findContinuousColumnStack, threeStoryBuilding } from '../static/building.js';
+import { findContinuousColumnStack, getContinuousColumnStackValue, threeStoryBuilding } from '../static/building.js';
 import { stationValueKN, rangeKN } from '../static/heatmap.js';
 
 test('findContinuousColumnStack identifies multi-storey column runs at the same plan coordinates', () => {
@@ -94,4 +94,62 @@ test('App.js includes station-dependent getMemberDC and floorTransfers absolute 
 
   // Verify wireframe mode supports vertexColors gradient
   assert.ok(appJs.includes('const nWireSegs=20;'), 'Wireframe mode must build segmented lines with vertexColors');
+
+  // Verify appJs integrates getContinuousColumnStackValue
+  assert.ok(appJs.includes('getContinuousColumnStackValue({'), 'appJs must call getContinuousColumnStackValue for columns');
+});
+
+test('getContinuousColumnStackValue provides exact C0 continuity at floor joints and smooth cascading gradient down column', () => {
+  const p = threeStoryBuilding();
+  const stack = findContinuousColumnStack(p.members, 'M1', p.nodes);
+  assert.equal(stack.length, 3, 'Must have 3 storeys');
+
+  // Simulation of axial force in 3 storeys:
+  // Storey 0 (ground): N = -300 kN
+  // Storey 1 (mid):    N = -200 kN
+  // Storey 2 (top):    N = -100 kN
+  const mockN = {
+    [stack[0].id]: -300,
+    [stack[1].id]: -200,
+    [stack[2].id]: -100
+  };
+
+  const evalMemberStation = (mem, memT) => mockN[mem.id];
+
+  // Evaluate values at bottom, mid, and top of each storey
+  const c0_bot = getContinuousColumnStackValue({ stack, memberId: stack[0].id, t: 0.0, nodes: p.nodes, evalMemberStation });
+  const c0_mid = getContinuousColumnStackValue({ stack, memberId: stack[0].id, t: 0.5, nodes: p.nodes, evalMemberStation });
+  const c0_top = getContinuousColumnStackValue({ stack, memberId: stack[0].id, t: 1.0, nodes: p.nodes, evalMemberStation });
+
+  const c1_bot = getContinuousColumnStackValue({ stack, memberId: stack[1].id, t: 0.0, nodes: p.nodes, evalMemberStation });
+  const c1_mid = getContinuousColumnStackValue({ stack, memberId: stack[1].id, t: 0.5, nodes: p.nodes, evalMemberStation });
+  const c1_top = getContinuousColumnStackValue({ stack, memberId: stack[1].id, t: 1.0, nodes: p.nodes, evalMemberStation });
+
+  const c2_bot = getContinuousColumnStackValue({ stack, memberId: stack[2].id, t: 0.0, nodes: p.nodes, evalMemberStation });
+  const c2_mid = getContinuousColumnStackValue({ stack, memberId: stack[2].id, t: 0.5, nodes: p.nodes, evalMemberStation });
+  const c2_top = getContinuousColumnStackValue({ stack, memberId: stack[2].id, t: 1.0, nodes: p.nodes, evalMemberStation });
+
+  // 1. Foundation base load
+  assert.equal(c0_bot, -300, 'Ground foundation value must be -300');
+
+  // 2. Floor 1 Joint Continuity: c0_top MUST EQUAL c1_bot exactly!
+  assert.equal(c0_top, -250, 'Joint 1 value should be average of -300 and -200 = -250');
+  assert.equal(c1_bot, -250, 'Joint 1 value from upper column must match joint value exactly');
+  assert.equal(Math.abs(c0_top - c1_bot), 0, 'Floor 1 joint must have zero discontinuity / zero seam');
+
+  // 3. Floor 2 Joint Continuity: c1_top MUST EQUAL c2_bot exactly!
+  assert.equal(c1_top, -150, 'Joint 2 value should be average of -200 and -100 = -150');
+  assert.equal(c2_bot, -150, 'Joint 2 value from roof column must match joint value exactly');
+  assert.equal(Math.abs(c1_top - c2_bot), 0, 'Floor 2 joint must have zero discontinuity / zero seam');
+
+  // 4. Roof load
+  assert.equal(c2_top, -100, 'Roof top value must be -100');
+
+  // 5. Monotonic cascading gradient from roof (-100) down to foundation (-300)
+  assert.ok(c2_top > c2_mid && c2_mid > c2_bot, 'Top storey must gradient smoothly');
+  assert.ok(c1_top > c1_mid && c1_mid > c1_bot, 'Mid storey must gradient smoothly');
+  assert.ok(c0_top > c0_mid && c0_mid > c0_bot, 'Base storey must gradient smoothly');
+  assert.equal(c0_mid, -275);
+  assert.equal(c1_mid, -200);
+  assert.equal(c2_mid, -125);
 });

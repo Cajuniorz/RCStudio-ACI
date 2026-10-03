@@ -510,6 +510,69 @@ export function findContinuousColumnStack(members, memberId, nodes, planTol = 0.
  return colStack.length ? colStack : [target];
 }
 
+const stackJointCache = new WeakMap();
+
+// Continuous column stack value interpolation across multiple storeys.
+// Smooths nodal joint transitions so multi-storey columns render as a single continuous member
+// with physical cascading gradients rather than discrete blocky steps at floor joints.
+export function getContinuousColumnStackValue({ stack, memberId, t, nodes, evalMemberStation, cache = stackJointCache }) {
+ if (!stack || stack.length <= 1 || !memberId || typeof evalMemberStation !== 'function') return null;
+ const sIdx = stack.findIndex(c => c.id === memberId);
+ if (sIdx === -1) return null;
+
+ const nodeMap = new Map((nodes || []).map(n => [n.id, n]));
+
+ function evalAtElev(mem, u) {
+  const ni = nodeMap.get(mem.i), nj = nodeMap.get(mem.j);
+  const zi = (ni?.z ?? ni?.y ?? 0), zj = (nj?.z ?? nj?.y ?? 0);
+  const memT = (zi <= zj) ? u : (1 - u);
+  return evalMemberStation(mem, memT);
+ }
+
+ const K = stack.length;
+ let jointVals = cache ? cache.get(stack) : null;
+ if (!jointVals) {
+  jointVals = new Array(K + 1);
+  jointVals[0] = evalAtElev(stack[0], 0);
+  for (let j = 1; j < K; j++) {
+   const vBelow = evalAtElev(stack[j - 1], 1);
+   const vAbove = evalAtElev(stack[j], 0);
+   if (vBelow !== null && vAbove !== null && Number.isFinite(vBelow) && Number.isFinite(vAbove)) {
+    jointVals[j] = (vBelow + vAbove) / 2;
+   } else {
+    jointVals[j] = vBelow ?? vAbove ?? null;
+   }
+  }
+  jointVals[K] = evalAtElev(stack[K - 1], 1);
+  if (cache) cache.set(stack, jointVals);
+ }
+
+ const curMember = stack[sIdx];
+ const ni = nodeMap.get(curMember.i), nj = nodeMap.get(curMember.j);
+ const zi = (ni?.z ?? ni?.y ?? 0), zj = (nj?.z ?? nj?.y ?? 0);
+ const tElev = (zi <= zj) ? t : (1 - t);
+
+ const jBot = jointVals[sIdx];
+ const jTop = jointVals[sIdx + 1];
+ if (jBot === null || jTop === null || !Number.isFinite(jBot) || !Number.isFinite(jTop)) {
+  return null;
+ }
+
+ const vSmooth = jBot + (jTop - jBot) * tElev;
+
+ const rawLocal = evalAtElev(curMember, tElev);
+ const rawBot = evalAtElev(curMember, 0);
+ const rawTop = evalAtElev(curMember, 1);
+ let delta = 0;
+ if (rawLocal !== null && rawBot !== null && rawTop !== null &&
+     Number.isFinite(rawLocal) && Number.isFinite(rawBot) && Number.isFinite(rawTop)) {
+  const rawLinear = rawBot + (rawTop - rawBot) * tElev;
+  delta = rawLocal - rawLinear;
+ }
+
+ return vSmooth + delta;
+}
+
 export function calculateWallUDL(heightM = 2.8, densityKgm2 = 180) {
  const wKNm = (densityKgm2 * heightM * 9.80665) / 1000;
  return Number(wKNm.toFixed(2));

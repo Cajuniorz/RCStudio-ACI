@@ -1,4 +1,4 @@
-# AGENT_HANDOFF — RCStudio-ACI (v0.9.4)
+# AGENT_HANDOFF — RCStudio-ACI (v0.9.5)
 
 เอกสารส่งต่องานสำหรับ AI Agent / นักพัฒนาคนถัดไป **อ่านทั้งไฟล์ก่อนแก้โค้ดทุกครั้ง**
 
@@ -14,12 +14,12 @@
 - ระบบพิกัดภายใน **Z-Up** (X,Y = ระนาบพื้น, Z = ความสูง, แรงโน้มถ่วง −Z) ไฟล์เก่า Y-Up แปลงด้วย `migrateToZUp()`
 - UI: Pre-Design Setup Hub 4 แท็บ (โครงการ / วัสดุไทย / ผังกริด / สร้างอาคาร), โหมด Classic ↔ Build (สไตล์ SketchUp), Shortcut Manager, Context Menu, 3D Snapping HUD
 
-## 2. สถานะฟีเจอร์ (v0.9.4)
+## 2. สถานะฟีเจอร์ (v0.9.5)
 - ✅ Setup Hub, คลังวัสดุไทย (`thai_standards.js`), เครื่องคิดเลข Wall UDL / Floor SDL, Auto-Exterior Wall
 - ✅ Build tools: Line L, Node N, Slab R, Wall P, Join J, Pull Q; snapping 3D
 - ✅ วิเคราะห์ PyNite + ตรวจ ACI 318-25 (ทดสอบจริง 202 components)
 - ✅ Heatmap เสา/คานไล่เฉดสีตามพฤติกรรมจริง (D/C แปรผันตาม station t) ไม่เป็นก้อน
-- ✅ เสาต่อเนื่องหลายชั้น (Continuous Column Stack) จัดกลุ่มแชร์สเกลสีรวม
+- ✅ เสาต่อเนื่องหลายชั้น (Continuous Column Stack) จัดกลุ่มแชร์สเกลสีรวม และไล่เรียงเฉดสีลงมาไร้รอยต่อข้ามชั้น (`getContinuousColumnStackValue`)
 - ✅ แผนภาพ 3D Multi-Family Diagrams (M, V, N, T) รองรับครบทุกตระกูลแรงพร้อม offset vector และสีนีออนเฉพาะตระกูล
 - ✅ แสดงเส้นถ่ายแรงพื้นลงคาน (Floor Load Transfers UDL & Overlay) ในระนาบ Z-Up
 - ⚠️ ยังไม่มี: plate/shell FEM, P-Delta, soil/pile, แรงลม/แผ่นดินไหว — ต้องมีวิศวกรตรวจก่อนใช้งานจริง
@@ -31,7 +31,7 @@
 4. **ความเข้ากันได้ย้อนหลัง:** ห้ามลบ/เปลี่ยนชื่อ DOM id เดิม (เทสต์อ้างอิงอยู่) และต้องเปิดไฟล์ `.rcstudio` รุ่นเก่าได้
 5. **ขีดจำกัดโมเดล:** `nodes ≤ 500`, `members ≤ 1000`, `model.name ≤ 120` ตัวอักษร (`mutate()` ใน `app.js` จะ rollback เงียบๆ ถ้าเกิน)
 6. **Z-Up เท่านั้น:** generator ใหม่ต้องสร้างเป็น Z-Up หรือเรียก `migrateToZUp`
-7. **Verification Gate ก่อน commit:** `node --test` (43 ผ่าน) และ `python -m unittest discover -s tests` (84 ผ่าน) ต้องผ่านทั้งหมด
+7. **Verification Gate ก่อน commit:** `node --test` (44 ผ่าน) และ `python -m unittest discover -s tests` (84 ผ่าน) ต้องผ่านทั้งหมด
 8. **Handoff:** แก้อะไรเพิ่มให้อัปเดตไฟล์นี้ (ส่วน 2, 6, 8) ก่อนส่งต่อ
 9. **Coordinate-Safe Backend:** โค้ด Python ที่อ่านพิกัดโหนด / reaction / ขนาดฐานราก ต้องแตกกิ่งตาม `model['coordinateSystem']` (`z-up`: แนวดิ่ง = `z`, reaction ดิ่ง = index 2, โมเมนต์ราบ = index 3,4, ฐานราก `bx,by`; `y-up`: แนวดิ่ง = `y`, index 1, โมเมนต์ 3,5, `bx,bz`) ห้ามฮาร์ดโค้ดแกน `y`/index 1 เป็น "แนวดิ่ง" และทุกการแก้ต้องมีเทสต์ **ทั้งสองระบบ** (ดู `tests/test_zup_design.py`)
 10. **Fail-Safe ด้านความปลอดภัย:** ผลออกแบบต้องไม่ "PASS" เมื่ออินพุตเป็น 0/ว่าง/หาย (เช่น ไม่มี reaction ดิ่งที่ฐานราก) → ให้คืน `SKIP`/`FAIL` พร้อมข้อความไทยบอกสาเหตุ ผล "ผ่าน" ที่มาจากอินพุตศูนย์ถือเป็นบั๊กระดับ Critical
@@ -86,6 +86,7 @@
 | 21 | เส้นโครงถ่ายน้ำหนักพื้น (Floor Tributary Loads) ไม่แสดงในระบบพิกัด Z-Up | `static/app.js` ตรวจ `if (qVal > 0.005)` แต่ $q_z = -3.5 \text{ kN/m}$ (ทิศแรงโน้มถ่วงค่าลบ) | ใช้ `Math.abs(qVal) > 0.005` พร้อมวาดเส้นโครง UDL แรเงาและลูกศรสีเขียวมรกตแสดงการถ่ายแรงลงคาน |
 | 22 | แผนภาพ 3D ไม่ตอบสนองเมื่อผู้ใช้เลือกดูแรงตามแนวแกน ($N$) หรือแรงบิด ($T$) | UI บังคับทับค่าด้วย $M_z/M_y$ และขาด `diagGlobal.N`, `diagGlobal.T` | รองรับแผนภาพ 3D ครบทุกตระกูลแรง ($M_z, M_y, V_y, V_z, N, T$) พร้อม transverse offset vector และสีเส้นกรอบนีออนเฉพาะตระกูล |
 | 23 | โหมดเส้นโครงลวด (Wireframe) เมื่อเปิด Heatmap ชิ้นส่วนยังคงแสดงสีเดี่ยว | เดิมสร้าง Three.js Line ด้วย 2 จุดปลายและสีเดียว | ปรับเป็น Line 20 ท่อนย่อยพร้อม `vertexColors: true` ไล่เฉดสีสอดคล้องกับโหมด Solid 3D |
+| 24 | เสาในอาคารหลายชั้นแสดงผลแบ่งเป็นก้อนสีแยกตามชั้น และมีรอยต่อสีคมชัดตรงจุดต่อระดับพื้น (Discontinuous Joint Step) | เสาแต่ละชั้นสร้างเป็น member แยกกันใน FEM เมื่อแรงตามแนวแกน $N$ หรือ demand คงที่ตลอดความยาวท่อน ทำให้แต่ละชั้นได้สีเดียวทึบทั้งท่อน และตัดกันกะทันหันตรงจุดต่อพื้น | เพิ่ม `getContinuousColumnStackValue` ใน `static/building.js` เชื่อมเสาแนวดิ่งทุกชั้นเป็น Column Stack เฉลี่ยค่าที่จุดต่อระหว่างชั้น ($C^0$ continuity) และคำนวณการไล่เรียงเฉดสีแบบ Cascading Gradient จากยอดอาคารถึงฐานรากเสมือนเป็นเสาต้นเดียวกัน |
 
 ## 8. รายการเสี่ยงที่ยังค้าง (พบจากการตรวจโค้ด 0.9.2 — ยังไม่แก้)
 - `design_rc25.py`: fallback เงียบ `lu=3000 mm`, `span=4.0 m`, `fy_steel=245` เมื่อข้อมูลขาด (ละเมิดกฎ 11)
