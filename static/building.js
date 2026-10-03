@@ -4,9 +4,9 @@ export const catalogs={
  behavior:{frame:'โครงข้อแข็ง (รองรับ)',truss:'โครงถัก (รอระบบวิเคราะห์)'},
  axes:{local:'Local (แกนเฉพาะตัว)',global:'Global (แกนรวม)'},
  roofType:{gable:'จั่ว',hip:'ปั้นหยา',mono:'เพิงหมาแหงน',flat:'แบน',truss:'โครงถัก',spaceframe:'โครงข้อหมุนสามมิติ',curved:'โค้ง',custom:'กำหนดเอง'},
- slabType:{one_way:'คสล. ทางเดียว',two_way:'คสล. สองทาง',precast:'สำเร็จรูป',flat_slab:'ไร้คาน',ribbed:'ตง/ซี่โครง',waffle:'วาฟเฟิล',post_tension:'อัดแรงภายหลัง',steel_deck:'พื้นเหล็ก/เด็ค',custom:'กำหนดเอง'},
+ slabType:{one_way:'คสล. ทางเดียว',two_way:'คสล. สองทาง',ground_slab:'พื้นวางบนดิน (SOG)',precast:'สำเร็จรูป',flat_slab:'ไร้คาน',ribbed:'ตง/ซี่โครง',waffle:'วาฟเฟิล',post_tension:'อัดแรงภายหลัง',steel_deck:'พื้นเหล็ก/เด็ค',custom:'กำหนดเอง'},
  foundationType:{isolated:'ฐานแผ่เดี่ยว',combined:'ฐานร่วม',strip:'ฐานแถบ',raft:'ฐานแพ',pile_cap:'ฐานหัวเสาเข็ม',pile:'เสาเข็ม',custom:'กำหนดเอง'},
- slabMode:{pending:'บันทึกข้อมูล — รอวิเคราะห์',one_way_load:'ถ่ายนน.ทางเดียวลง 2 คาน',two_way_load:'ถ่ายนน.สองทางลง 4 คาน'},
+ slabMode:{pending:'บันทึกข้อมูล — รอวิเคราะห์',one_way_load:'ถ่ายนน.ทางเดียวลง 2 คาน',two_way_load:'ถ่ายนน.สองทางลง 4 คาน',ground_slab:'พื้นวางบนดิน (ถ่ายน้ำหนักลงดินโดยตรง ไม่ถ่ายลงคาน)'},
  foundationMode:{pending:'รอยืนยันจุดรองรับ',ideal_support:'ใช้จุดรองรับที่กำหนด — ยังไม่ออกแบบฐาน'},
  weightMode:{volume:'หนา × หน่วยนน.คอนกรีต',manual:'กรอกนน.ตัวพื้นต่อพื้นที่'}
 };

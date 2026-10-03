@@ -1,4 +1,4 @@
-# AGENT_HANDOFF — RCStudio-ACI (v0.9.5)
+# AGENT_HANDOFF — RCStudio-ACI (v0.9.6)
 
 เอกสารส่งต่องานสำหรับ AI Agent / นักพัฒนาคนถัดไป **อ่านทั้งไฟล์ก่อนแก้โค้ดทุกครั้ง**
 
@@ -7,14 +7,14 @@
 | ชั้น | เทคโนโลยี | ไฟล์หลัก |
 |---|---|---|
 | Frontend | Vanilla ES Modules + Three.js (ไม่มี bundler) | `static/app.js`, `static/building.js`, `static/plan.js`, `static/heatmap.js`, `static/units.js`, `static/thai_standards.js`, `static/index.html`, `static/style.css` |
-| Backend | Python `http.server` + PyNite 3.0.0 | `server.py`, `engine.py` (solver), `project_v2.py` (schema/validation/ถ่ายแรงพื้น), `design_rc25.py` (ACI 318-25 USD) |
+| Backend | Python `http.server` + PyNite 3.0.0 | `server.py`, `engine.py` (solver), `project_v2.py` (schema/validation/ถ่ายแรงพื้น), `design_rc25.py` (ACI 318-25 USD / ACI 360R-10 SOG) |
 | Protocol | JSON โมเดล v2 หน่วยภายใน **m–kN–MPa** | ไฟล์ `.rcstudio` ใน `projects/` |
 
 - รัน: `& "H:\structure anlysis\.verification-tools\pynite-3.0.0\Scripts\python.exe" server.py` → `http://127.0.0.1:8766`
 - ระบบพิกัดภายใน **Z-Up** (X,Y = ระนาบพื้น, Z = ความสูง, แรงโน้มถ่วง −Z) ไฟล์เก่า Y-Up แปลงด้วย `migrateToZUp()`
 - UI: Pre-Design Setup Hub 4 แท็บ (โครงการ / วัสดุไทย / ผังกริด / สร้างอาคาร), โหมด Classic ↔ Build (สไตล์ SketchUp), Shortcut Manager, Context Menu, 3D Snapping HUD
 
-## 2. สถานะฟีเจอร์ (v0.9.5)
+## 2. สถานะฟีเจอร์ (v0.9.6)
 - ✅ Setup Hub, คลังวัสดุไทย (`thai_standards.js`), เครื่องคิดเลข Wall UDL / Floor SDL, Auto-Exterior Wall
 - ✅ Build tools: Line L, Node N, Slab R, Wall P, Join J, Pull Q; snapping 3D
 - ✅ วิเคราะห์ PyNite + ตรวจ ACI 318-25 (ทดสอบจริง 202 components)
@@ -22,6 +22,10 @@
 - ✅ เสาต่อเนื่องหลายชั้น (Continuous Column Stack) จัดกลุ่มแชร์สเกลสีรวม และไล่เรียงเฉดสีลงมาไร้รอยต่อข้ามชั้น (`getContinuousColumnStackValue`)
 - ✅ แผนภาพ 3D Multi-Family Diagrams (M, V, N, T) รองรับครบทุกตระกูลแรงพร้อม offset vector และสีนีออนเฉพาะตระกูล
 - ✅ แสดงเส้นถ่ายแรงพื้นลงคาน (Floor Load Transfers UDL & Overlay) ในระนาบ Z-Up
+- ✅ ระบบพื้น 3D Solid Concrete มีความหนาจริง (`ExtrudeGeometry` + `EdgesGeometry`), 4 โหมดการแสดงผล (`solid`, `glass`, `wire`, `hide`)
+- ✅ ระบบองค์ประกอบแรงกระจายเต็มพื้นที่จริง (Physical Area Load Elements): ลูกศรแรงดัน 3D บนแผ่นพื้น + ป้ายกำกับน้ำหนักบรรทุกรวม (Load Badge แจกแจง SW+SDL+LL)
+- ✅ พื้นวางบนดิน (SOG - Slab on Ground): ACI 360R-10 ออกแบบความหนา, ตรวจสอบแรงแบกทานดิน $q \le q_a$, ตะแกรงเหล็กกันแตกร้าว (Wire Mesh), และแสดงใน Inspector + ตาราง ACI Design
+- ✅ ระบบแกน Local vs Global: ยกระดับตัวเลือกแผนภาพเป็นศัพท์วิศวกรรมสากล ($M_{\text{major}}, M_{\text{minor}}, V_{\text{major}}, V_{\text{minor}}, \delta_v, \delta_h$) พร้อม 3D Local Axis Gizmo แสดงแกนจริง ($x_L, y_L, z_L$) บนชิ้นส่วน
 - ⚠️ ยังไม่มี: plate/shell FEM, P-Delta, soil/pile, แรงลม/แผ่นดินไหว — ต้องมีวิศวกรตรวจก่อนใช้งานจริง
 
 ## 3. กฎการพัฒนาร่วมกัน (Collaboration Rules)
@@ -87,6 +91,9 @@
 | 22 | แผนภาพ 3D ไม่ตอบสนองเมื่อผู้ใช้เลือกดูแรงตามแนวแกน ($N$) หรือแรงบิด ($T$) | UI บังคับทับค่าด้วย $M_z/M_y$ และขาด `diagGlobal.N`, `diagGlobal.T` | รองรับแผนภาพ 3D ครบทุกตระกูลแรง ($M_z, M_y, V_y, V_z, N, T$) พร้อม transverse offset vector และสีเส้นกรอบนีออนเฉพาะตระกูล |
 | 23 | โหมดเส้นโครงลวด (Wireframe) เมื่อเปิด Heatmap ชิ้นส่วนยังคงแสดงสีเดี่ยว | เดิมสร้าง Three.js Line ด้วย 2 จุดปลายและสีเดียว | ปรับเป็น Line 20 ท่อนย่อยพร้อม `vertexColors: true` ไล่เฉดสีสอดคล้องกับโหมด Solid 3D |
 | 24 | เสาในอาคารหลายชั้นแสดงผลแบ่งเป็นก้อนสีแยกตามชั้น และมีรอยต่อสีคมชัดตรงจุดต่อระดับพื้น (Discontinuous Joint Step) | เสาแต่ละชั้นสร้างเป็น member แยกกันใน FEM เมื่อแรงตามแนวแกน $N$ หรือ demand คงที่ตลอดความยาวท่อน ทำให้แต่ละชั้นได้สีเดียวทึบทั้งท่อน และตัดกันกะทันหันตรงจุดต่อพื้น | เพิ่ม `getContinuousColumnStackValue` ใน `static/building.js` เชื่อมเสาแนวดิ่งทุกชั้นเป็น Column Stack เฉลี่ยค่าที่จุดต่อระหว่างชั้น ($C^0$ continuity) และคำนวณการไล่เรียงเฉดสีแบบ Cascading Gradient จากยอดอาคารถึงฐานรากเสมือนเป็นเสาต้นเดียวกัน |
+| 25 | แผ่นพื้นแสดงผลเป็นโพลีกอน 2D แบนราบโปร่งใส ไม่มีมิติความหนาทางกายภาพ และขาดการแสดงผลแรงดันจริงบนพื้น | เดิมใช้ `BufferGeometry` แผ่นราบ 2 มิติสีฟ้าอ่อนโปร่งแสงเสมอ และไม่มีองค์ประกอบลูกศรแรงดันบนพื้นที่ | อัปเกรดเป็น `ExtrudeGeometry` ตามความหนาจริง $t$, เพิ่มลูกศรแรงโน้มถ่วง 3D pressure vectors, load badge แจกแจง SW+SDL+LL, และสร้าง `#slabDisplayMode` (solid/glass/wire/hide) |
+| 26 | ผู้ใช้สับสนการแสดงผลระบบแกน Z และ Y ในแผนภาพโมเมนต์/แรงเฉือน (PyNite axis codes Mz, My, Vy, Vz ไม่ตรงกับระนาบ 2D/3D สากล) | วิศวกรคุ้นเคยกับโมเมนต์ดัดแกนหลัก/แกนรองตามระนาบดัด แต่ PyNite ใช้รหัสแกน local Z-up (คานดัดรอบ local y ทำให้ $M_y$ เป็นโมเมนต์หลัก และ $V_z$ เป็นแรงเฉือนหลัก) | เปลี่ยนตัวเลือกแผนภาพใน UI เป็นคำวิศวกรรมสากล ($M_{\text{major}}, M_{\text{minor}}, V_{\text{major}}, V_{\text{minor}}, \delta_{\text{vertical}}, \delta_{\text{lateral}}$) และเพิ่ม 3D Local Axis Gizmo ($x_L$ สีแดง, $y_L$ สีเขียว, $z_L$ สีฟ้า) ที่จุดเริ่มต้น Node $i$ ของชิ้นส่วนที่เลือก |
+| 27 | ระบบไม่มีการรองรับประเภทพื้นวางบนดิน (Slab on Ground - SOG) ซึ่งไม่ถ่ายแรงลงคานแต่ถ่ายลงดินโดยตรง | พื้นเดิมบังคับเป็น one_way หรือ two_way ถ่ายลงคานอย่างเดียว | เพิ่มประเภท `ground_slab` ใน `project_v2.py`, โมดูลออกแบบตาม ACI 360R-10 ใน `design_rc25.py`, ตรวจสอบหน่วยแรงแบกทานดิน $q \le q_a$, คำนวณตะแกรงกันแตกร้าว, และแสดงในตารางผลการออกแบบ ACI |
 
 ## 8. รายการเสี่ยงที่ยังค้าง (พบจากการตรวจโค้ด 0.9.2 — ยังไม่แก้)
 - `design_rc25.py`: fallback เงียบ `lu=3000 mm`, `span=4.0 m`, `fy_steel=245` เมื่อข้อมูลขาด (ละเมิดกฎ 11)

@@ -1117,6 +1117,70 @@ def design_two_way_slab(thickness_m, span_s_m, span_l_m, dead_kpa, live_kpa, fc,
     }
 
 
+# ─── SLAB ON GROUND (SOG) DESIGN ──────────────────────────────
+
+def design_ground_slab(thickness_m, dead_kpa, live_kpa, fc, fy, qa_kpa=100.0, bar_options=None):
+    """ACI 360R-10 / Design of Slabs-on-Ground (SOG / พื้นวางบนดิน).
+    Provides concrete thickness check, direct subgrade bearing pressure check, and shrinkage/temperature wire mesh design.
+    """
+    h_mm = round(thickness_m * 1000)
+    w_self = thickness_m * 24.0
+    w_service = w_self + dead_kpa + live_kpa
+    wu = max(1.4 * (w_self + dead_kpa), 1.2 * (w_self + dead_kpa) + 1.6 * live_kpa)
+
+    bearing_util = w_service / qa_kpa if qa_kpa > 0 else 0.5
+    as_min = 0.0018 * 1000.0 * h_mm
+
+    if as_min <= 150:
+        rebar_label = 'Wire Mesh Ø6mm @ 0.20 m'
+        as_prov = (1000.0 / 200.0) * (math.pi * 6.0**2 / 4.0)
+    elif as_min <= 250:
+        rebar_label = 'RB9 @ 0.25 m (หรือ Wire Mesh Ø6mm @ 0.15 m)'
+        as_prov = (1000.0 / 250.0) * (math.pi * 9.0**2 / 4.0)
+    else:
+        rebar_label = 'RB9 @ 0.20 m'
+        as_prov = (1000.0 / 200.0) * (math.pi * 9.0**2 / 4.0)
+
+    checks = [
+        {'name': 'ความหนาพื้นวางบนดิน SOG (≥ 100 mm)', 'value': f'{h_mm} mm', 'pass': h_mm >= 100},
+        {'name': 'หน่วยแรงแบกทานดินใต้พื้น q ≤ qa', 'value': f'{round(w_service, 2)} ≤ {round(qa_kpa, 2)} kPa', 'pass': bearing_util <= 1.0},
+        {'name': 'เหล็กตะแกรงกันแตกร้าว As ≥ As,min (ACI 360R)', 'value': f'{round(as_prov, 1)} ≥ {round(as_min, 1)} mm²/m', 'pass': as_prov >= as_min},
+    ]
+    all_pass = all(c['pass'] for c in checks)
+
+    return {
+        'type': 'ground_slab',
+        'status': 'DESIGNED' if all_pass else 'FAIL',
+        'thickness_mm': h_mm,
+        'span_m': 0.0,
+        'loads': {
+            'w_self_kpa': round(w_self, 2),
+            'w_dead_kpa': round(dead_kpa, 2),
+            'w_live_kpa': round(live_kpa, 2),
+            'w_service_kpa': round(w_service, 2),
+            'w_u_kpa': round(wu, 2),
+        },
+        'flexure': {
+            'as_req': round(as_min, 1),
+            'as_prov': round(as_prov, 1),
+            'label': rebar_label,
+            'utilization': round(bearing_util, 3),
+        },
+        'bearing': {
+            'contact_pressure_kpa': round(w_service, 2),
+            'qa_kpa': round(qa_kpa, 2),
+            'utilization': round(bearing_util, 3),
+            'pass': bearing_util <= 1.0
+        },
+        'shrinkage': {
+            'as_min': round(as_min, 1),
+            'as_prov': round(as_prov, 1),
+            'label': rebar_label
+        },
+        'checks': checks
+    }
+
+
 # ─── STAIRCASE DESIGN ──────────────────────────────────────────
 
 def design_staircase(waist_th_m=0.15, span_ln_m=4.0, width_m=1.2, riser_m=0.175, tread_m=0.25,
@@ -1652,7 +1716,9 @@ def design_all(model, analysis_result, design_basis):
                     span_s = max(dx1, dz1, 1.0)
                     span_l = span_s
 
-        if stype == 'two_way' or smode == 'two_way_load':
+        if stype == 'ground_slab' or smode == 'ground_slab':
+            group_design = design_ground_slab(th, dead, live, fc, fy)
+        elif stype == 'two_way' or smode == 'two_way_load':
             group_design = design_two_way_slab(th, span_s, span_l, dead, live, fc, fy, cover_mm=20)
         else:
             group_design = design_one_way_slab(th, span_s, dead, live, fc, fy, cover_mm=25)

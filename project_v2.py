@@ -12,7 +12,7 @@ ROOT_FIELDS = 'schemaVersion canonicalUnits displayUnits name material steel nod
 MEMBER_FIELDS = 'id i j b h rotation kind sectionType A Iy Iz J roofType behavior'
 SLAB_FIELDS = 'id type nodes thickness weightMode selfLoad dead live mode support1 support2 note'
 FOUNDATION_FIELDS = 'id type nodes bx bz depth embedment qa pileCount pileCapacity pileLength mode note'
-FLOOR_TYPES = ('one_way','two_way','precast','flat_slab','ribbed','waffle','post_tension','steel_deck','custom')
+FLOOR_TYPES = ('one_way','two_way','precast','flat_slab','ribbed','waffle','post_tension','steel_deck','ground_slab','custom')
 FOUNDATION_TYPES = ('isolated','combined','strip','raft','pile_cap','pile','custom')
 ROOF_TYPES = ('gable','hip','mono','flat','truss','spaceframe','curved','custom','lean_to','shed')
 
@@ -154,9 +154,9 @@ def validate_project(p, draft=True):
             for k in (*nums, 'by'):
                 if e.get(k) is not None: number(e[k], f'{e["id"]}.{k}')
             if collection == 'slabs':
-                if e['mode'] not in ('pending', 'one_way_load', 'two_way_load') or e['weightMode'] not in ('volume', 'manual'):
+                if e['mode'] not in ('pending', 'one_way_load', 'two_way_load', 'ground_slab') or e['weightMode'] not in ('volume', 'manual'):
                     fail('Unsupported floor analysis/weight mode')
-                sup_keys = ('support1', 'support2', 'support3', 'support4') if e['mode'] == 'two_way_load' else ('support1', 'support2')
+                sup_keys = ('support1', 'support2', 'support3', 'support4') if e['mode'] == 'two_way_load' else ('support1', 'support2') if e['mode'] == 'one_way_load' else ()
                 for k in sup_keys:
                     if k in e and (not isinstance(e[k], str) or (e[k] and e[k] not in member_ids)):
                         fail(f'{e["id"]}: supporting member not found')
@@ -282,14 +282,17 @@ def prepare(p):
     elev_axis_name = 'Z' if is_z_up else 'Y'
     for slab in p['slabs']:
         sid=slab['id']
-        if slab['mode'] not in ('one_way_load', 'two_way_load'):
-            fail(f'{sid}: floor data recorded, analysis pending. Select a verified one-way or two-way load transfer model or complete its analysis method.')
+        if slab['mode'] not in ('one_way_load', 'two_way_load', 'ground_slab'):
+            fail(f'{sid}: floor data recorded, analysis pending. Select a verified one-way, two-way, or ground_slab model.')
         if slab['mode'] == 'one_way_load':
             if slab['type'] not in ('one_way', 'precast', 'steel_deck', 'custom'):
                 fail(f'{sid}: selected floor type cannot use one-way transfer in this version')
         elif slab['mode'] == 'two_way_load':
             if slab['type'] not in ('two_way', 'custom'):
                 fail(f'{sid}: selected floor type cannot use two-way transfer in this version')
+        elif slab['mode'] == 'ground_slab':
+            if slab['type'] not in ('ground_slab', 'custom'):
+                fail(f'{sid}: selected floor type must be ground_slab or custom')
         if (not slab.get('nodes') or len(slab.get('nodes', [])) != 4) and slab.get('mode') in ('one_way_load', 'two_way_load'):
             inferred = None
             if slab['mode'] == 'one_way_load':
@@ -328,11 +331,25 @@ def prepare(p):
         number(slab['dead'],f'{sid}.additional dead (kN/m2)',0,10000)
         number(slab['live'],f'{sid}.live (kN/m2)',0,10000)
         if slab['weightMode']=='volume':
-            if slab['type'] not in ('one_way', 'two_way'):fail(f'{sid}: this floor needs explicit selfLoad; solid concrete density cannot be assumed')
+            if slab['type'] not in ('one_way', 'two_way', 'ground_slab'):fail(f'{sid}: this floor needs explicit selfLoad; solid concrete density cannot be assumed')
             self_load=slab['thickness']*p['material']['density']
         else:
             number(slab['selfLoad'],f'{sid}.selfLoad (kN/m2)',0,10000)
             self_load=slab['selfLoad']
+        if slab['mode'] == 'ground_slab':
+            total_pressure = self_load + slab['dead'] + slab['live']
+            coverage.append({
+                'source': sid,
+                'member': 'SUBGRADE_SOIL',
+                'case': 'D+L',
+                'areaM2': float(area),
+                'pressureKNm2': float(total_pressure),
+                'qzKNm': 0.0,
+                'qyKNm': 0.0,
+                'type': 'ground_bearing',
+                'detail': f'พื้นวางบนดิน (SOG) {sid}: ถ่ายน้ำหนักลงดินโดยตรง {float(total_pressure):.2f} kN/m²'
+            })
+            continue
         edges=[{slab['nodes'][i],slab['nodes'][(i+1)%4]} for i in range(4)]
         edge_lengths=[float(np.linalg.norm(coords[slab['nodes'][(i+1)%4]]-coords[slab['nodes'][i]])) for i in range(4)]
 
