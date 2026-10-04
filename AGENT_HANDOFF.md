@@ -1,4 +1,4 @@
-# AGENT_HANDOFF — RCStudio-ACI (v0.9.6)
+# AGENT_HANDOFF — RCStudio-ACI (v0.9.7)
 
 เอกสารส่งต่องานสำหรับ AI Agent / นักพัฒนาคนถัดไป **อ่านทั้งไฟล์ก่อนแก้โค้ดทุกครั้ง**
 
@@ -14,7 +14,7 @@
 - ระบบพิกัดภายใน **Z-Up** (X,Y = ระนาบพื้น, Z = ความสูง, แรงโน้มถ่วง −Z) ไฟล์เก่า Y-Up แปลงด้วย `migrateToZUp()`
 - UI: Pre-Design Setup Hub 4 แท็บ (โครงการ / วัสดุไทย / ผังกริด / สร้างอาคาร), โหมด Classic ↔ Build (สไตล์ SketchUp), Shortcut Manager, Context Menu, 3D Snapping HUD
 
-## 2. สถานะฟีเจอร์ (v0.9.6)
+## 2. สถานะฟีเจอร์ (v0.9.7)
 - ✅ Setup Hub, คลังวัสดุไทย (`thai_standards.js`), เครื่องคิดเลข Wall UDL / Floor SDL, Auto-Exterior Wall
 - ✅ Build tools: Line L, Node N, Slab R, Wall P, Join J, Pull Q; snapping 3D
 - ✅ วิเคราะห์ PyNite + ตรวจ ACI 318-25 (ทดสอบจริง 202 components)
@@ -26,6 +26,10 @@
 - ✅ ระบบองค์ประกอบแรงกระจายเต็มพื้นที่จริง (Physical Area Load Elements): ลูกศรแรงดัน 3D บนแผ่นพื้น + ป้ายกำกับน้ำหนักบรรทุกรวม (Load Badge แจกแจง SW+SDL+LL)
 - ✅ พื้นวางบนดิน (SOG - Slab on Ground): ACI 360R-10 ออกแบบความหนา, ตรวจสอบแรงแบกทานดิน $q \le q_a$, ตะแกรงเหล็กกันแตกร้าว (Wire Mesh), และแสดงใน Inspector + ตาราง ACI Design
 - ✅ ระบบแกน Local vs Global: ยกระดับตัวเลือกแผนภาพเป็นศัพท์วิศวกรรมสากล ($M_{\text{major}}, M_{\text{minor}}, V_{\text{major}}, V_{\text{minor}}, \delta_v, \delta_h$) พร้อม 3D Local Axis Gizmo แสดงแกนจริง ($x_L, y_L, z_L$) บนชิ้นส่วน
+- ✅ แก้ไขข้อผิดพลาดการแสดงผล 3D Heatmap (v0.9.7):
+  1. แก้ไข Three.js HSL regex parse failure ที่ทำให้ชิ้นส่วนค่าสูงสุดเปลี่ยนเป็นสีขาวล้วน (`c.setHSL` numeric โดยตรง)
+  2. แก้ไขเครื่องหมายแรงตามแนวแกน $N$ ใน `engine.py` ให้ตรงมาตรฐานโยธาสากล (แรงอัด = ลบ / น้ำเงิน, แรงดึง = บวก / แดง)
+  3. เพิ่ม Engineering Noise Floor ($A_{\min} = 5.0\text{ kN}$) ป้องกันคานรับแรงไมโคร $0.94\text{ kN}$ ระเบิดเป็นสีแดงสุดโต่ง
 - ⚠️ ยังไม่มี: plate/shell FEM, P-Delta, soil/pile, แรงลม/แผ่นดินไหว — ต้องมีวิศวกรตรวจก่อนใช้งานจริง
 
 ## 3. กฎการพัฒนาร่วมกัน (Collaboration Rules)

@@ -360,7 +360,7 @@ def solve(data):
         for key, m in model.members.items():
             sample = []
             for x in np.linspace(0, m.L(), 41):
-                sample.append({'x': float(x), 'N': float(m.axial(x, name)), 'Vy': float(m.shear('Fy', x, name)),
+                sample.append({'x': float(x), 'N': -float(m.axial(x, name)), 'Vy': float(m.shear('Fy', x, name)),
                                'Vz': float(m.shear('Fz', x, name)), 'My': float(m.moment('My', x, name)),
                                'Mz': float(m.moment('Mz', x, name)), 'T': float(m.torque(x, name)),
                                'dy': float(m.deflection('dy', x, name)), 'dz': float(m.deflection('dz', x, name))})

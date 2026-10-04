@@ -3899,8 +3899,8 @@ renderDesignBasis();
 function getRainbowRGB(val, min, max) {
  if (!Number.isFinite(val) || max <= min) return [0.37, 0.8, 0.73];
  const t = Math.max(0, Math.min(1, (val - min) / (max - min)));
- const hue = (1.0 - t) * 240;
- const c = new THREE.Color(`hsl(${hue}, 100%, 50%)`);
+ const c = new THREE.Color();
+ c.setHSL((1.0 - t) * (240 / 360), 1.0, 0.5);
  return [c.r, c.g, c.b];
 }
 
@@ -4076,7 +4076,10 @@ function getMemberStationRGB(m, t, cm, range, active, key) {
     }
     if (key && range) {
      if (isSignedKey(key)) {
-      const A = range.max;
+      let A = range.max;
+      if (key === 'N') A = Math.max(A, 5.0);
+      else if (key === 'M' || key === 'Mz' || key === 'My') A = Math.max(A, 1.0);
+      else if (key === 'V' || key === 'Vy' || key === 'Vz') A = Math.max(A, 1.0);
       if (A > 1e-9) return getRainbowRGB(colVal, -A, A);
      } else {
       if (range.max - range.min > 1e-9) return getRainbowRGB(colVal, range.min, range.max);
@@ -4106,7 +4109,10 @@ function getMemberStationRGB(m, t, cm, range, active, key) {
   // same colour always means the same value on every member (range.max = governing |value| of the scale).
   const signed = stationSignedKN(active?.members?.[m.id], t, key);
   if (signed === null) return fallback;
-  const A = range.max;
+  let A = range.max;
+  if (key === 'N') A = Math.max(A, 5.0);
+  else if (key === 'M' || key === 'Mz' || key === 'My') A = Math.max(A, 1.0);
+  else if (key === 'V' || key === 'Vy' || key === 'Vz') A = Math.max(A, 1.0);
   if (!(A > 1e-9)) return fallback;
   return getRainbowRGB(signed, -A, A);
  }
@@ -4143,10 +4149,16 @@ function legendRow(label, text) {
  return row;
 }
 
-function legendRangeText(range, unitKind, signed = false) {
+function legendRangeText(range, unitKind, signed = false, key = null) {
  const u = unitLabel(unitKind);
  const at = value => fmt(quantity(value, unitKind), 1);
- if (signed) return `${at(-range.max)} \u2026 0 \u2026 +${at(range.max)} ${u} \u00b7 \u0e19\u0e49\u0e33\u0e40\u0e07\u0e34\u0e19=\u0e25\u0e1a \u0e40\u0e02\u0e35\u0e22\u0e27=0 \u0e41\u0e14\u0e07=\u0e1a\u0e27\u0e01`;
+ let rMax = range.max;
+ if (signed) {
+  if (key === 'N') rMax = Math.max(rMax, 5.0);
+  else if (key === 'M' || key === 'Mz' || key === 'My') rMax = Math.max(rMax, 1.0);
+  else if (key === 'V' || key === 'Vy' || key === 'Vz') rMax = Math.max(rMax, 1.0);
+  return `${at(-rMax)} \u2026 0 \u2026 +${at(rMax)} ${u} \u00b7 \u0e19\u0e49\u0e33\u0e40\u0e07\u0e34\u0e19=\u0e25\u0e1a \u0e40\u0e02\u0e35\u0e22\u0e27=0 \u0e41\u0e14\u0e07=\u0e1a\u0e27\u0e01`;
+ }
  if (range.max - range.min <= 1e-9) return `${at(range.max)} ${u} · ค่าคงที่ตลอดช่วง (ไม่แสดงเฉด)`;
  return `${at(range.min)} – ${at(range.max)} ${u}`;
 }
@@ -4188,15 +4200,15 @@ function updateHeatmapLegend() {
    return;
   }
   const range = selectedRange || { min: global.min, max: global.max };
-  rowsEl.replaceChildren(legendRow(selectedMember.id, legendRangeText(range, unitKind, isSignedKey(key)) + ' · เฉพาะชิ้นส่วนนี้ ชิ้นอื่นสีเทา'));
+  rowsEl.replaceChildren(legendRow(selectedMember.id, legendRangeText(range, unitKind, isSignedKey(key), key) + ' · เฉพาะชิ้นส่วนนี้ ชิ้นอื่นสีเทา'));
   return;
  }
  if (scaleMode === 'group') {
-  const rows = HEAT_ORDER.filter(group => groups?.[group]).map(group => legendRow(GROUP_LABELS[group] || group, legendRangeText(groups[group], unitKind, isSignedKey(key))));
+  const rows = HEAT_ORDER.filter(group => groups?.[group]).map(group => legendRow(GROUP_LABELS[group] || group, legendRangeText(groups[group], unitKind, isSignedKey(key), key)));
   rowsEl.replaceChildren(...(rows.length ? rows : [legendRow('—', 'ไม่มีผลวิเคราะห์')]));
   return;
  }
- rowsEl.replaceChildren(legendRow('ทุกชิ้นส่วน', legendRangeText(global, unitKind, isSignedKey(key))));
+ rowsEl.replaceChildren(legendRow('ทุกชิ้นส่วน', legendRangeText(global, unitKind, isSignedKey(key), key)));
 }
 
 if ($('generateWarehouse')) $('generateWarehouse').onclick = () => {
